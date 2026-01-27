@@ -2,11 +2,16 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 async function getTemplates() {
-  const res = await fetch(`${process.env.API_URL || 'http://localhost:4000'}/templates`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-  return res.json();
+  try {
+    const res = await fetch(`${process.env.API_URL || 'http://localhost:4000'}/templates`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch (error) {
+    console.error('Failed to fetch templates:', error);
+    return [];
+  }
 }
 
 async function createInstance(formData: FormData) {

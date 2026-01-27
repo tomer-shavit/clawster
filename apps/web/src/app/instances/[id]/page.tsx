@@ -2,11 +2,16 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 async function getInstance(id: string) {
-  const res = await fetch(`${process.env.API_URL || 'http://localhost:4000'}/instances/${id}`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return null;
-  return res.json();
+  try {
+    const res = await fetch(`${process.env.API_URL || 'http://localhost:4000'}/instances/${id}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch (error) {
+    console.error('Failed to fetch instance:', error);
+    return null;
+  }
 }
 
 export default async function InstanceDetail({ params }: { params: { id: string } }) {

@@ -2,11 +2,16 @@ import Link from 'next/link';
 import { Instance, InstanceStatus } from '@molthub/core';
 
 async function getInstances(): Promise<Instance[]> {
-  const res = await fetch(`${process.env.API_URL || 'http://localhost:4000'}/instances`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-  return res.json();
+  try {
+    const res = await fetch(`${process.env.API_URL || 'http://localhost:4000'}/instances`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch (error) {
+    console.error('Failed to fetch instances:', error);
+    return [];
+  }
 }
 
 function StatusBadge({ status }: { status: InstanceStatus }) {
