@@ -8,35 +8,41 @@ datasource db {
 }
 
 model Workspace {
-  id            String   @id @default(cuid())
-  name          String
-  slug          String   @unique
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  awsAccountId  String?
-  awsRegion     String   @default("us-east-1")
-  
-  users         User[]
-  instances     Instance[]
-  templates     Template[]
-  auditEvents   AuditEvent[]
-  
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  awsAccountId String?
+  awsRegion    String   @default("us-east-1")
+
+  users                 User[]
+  instances             Instance[]
+  botInstances          BotInstance[]
+  fleets                Fleet[]
+  templates             Template[]
+  profiles              Profile[]
+  overlays              Overlay[]
+  policyPacks           PolicyPack[]
+  integrationConnectors IntegrationConnector[]
+  auditEvents           AuditEvent[]
+
   @@index([slug])
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String
-  name         String
-  role         UserRole @default(VIEWER)
-  workspaceId  String
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  
-  manifests    ManifestVersion[]
-  auditEvents  AuditEvent[]
-  
+  id          String    @id @default(cuid())
+  email       String
+  name        String
+  role        UserRole  @default(VIEWER)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  manifests   ManifestVersion[]
+  auditEvents AuditEvent[]
+
   @@unique([email, workspaceId])
 }
 
@@ -47,30 +53,145 @@ enum UserRole {
   VIEWER
 }
 
-model Instance {
-  id                 String          @id @default(cuid())
-  workspaceId        String
-  workspace          Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  name               String
-  environment        Environment     @default(dev)
-  tags               Json            @default("{}")
-  status             InstanceStatus  @default(CREATING)
-  desiredManifestId  String?
-  lastReconcileAt    DateTime?
-  lastError          String?
-  
+// Fleet: Grouping concept for environments
+model Fleet {
+  id          String      @id @default(cuid())
+  name        String
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  environment Environment
+  description String?
+  status      FleetStatus @default(ACTIVE)
+  tags        Json        @default("{}")
+
+  // Infrastructure references
+  ecsClusterArn    String?
+  vpcId            String?
+  privateSubnetIds Json    @default("[]")
+  securityGroupId  String?
+
+  // Configuration
+  defaultProfileId      String?
+  enforcedPolicyPackIds Json    @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  instances BotInstance[]
+  profiles  Profile[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@index([status])
+}
+
+enum FleetStatus {
+  ACTIVE
+  PAUSED
+  DRAINING
+  ERROR
+}
+
+// Enhanced BotInstance with fleet association
+model BotInstance {
+  id          String    @id @default(cuid())
+  name        String
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  fleetId     String
+  fleet       Fleet     @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+
+  // Configuration layers
+  templateId String?
+  profileId  String?
+  overlayIds Json    @default("[]")
+
+  // Current state
+  status                 BotStatus @default(CREATING)
+  health                 BotHealth @default(UNKNOWN)
+  desiredManifest        Json
+  appliedManifestVersion String?
+
+  // Operational metadata
+  tags     Json @default("{}")
+  metadata Json @default("{}")
+
+  // Runtime info
+  lastReconcileAt   DateTime?
+  lastHealthCheckAt DateTime?
+  lastError         String?
+  errorCount        Int       @default(0)
+
   // AWS resources
   ecsClusterArn      String?
   ecsServiceArn      String?
   taskDefinitionArn  String?
   cloudwatchLogGroup String?
-  
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  
-  manifests          ManifestVersion[]
-  deploymentEvents   DeploymentEvent[]
-  
+
+  // Health metrics
+  uptimeSeconds Int @default(0)
+  restartCount  Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+
+  // Relations
+  connectorBindings BotConnectorBinding[]
+  changeSets        ChangeSet[]
+  traces            Trace[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@index([fleetId])
+  @@index([status])
+  @@index([health])
+}
+
+enum BotStatus {
+  CREATING
+  PENDING
+  RUNNING
+  DEGRADED
+  STOPPED
+  PAUSED
+  DELETING
+  ERROR
+  RECONCILING
+}
+
+enum BotHealth {
+  HEALTHY
+  UNHEALTHY
+  UNKNOWN
+  DEGRADED
+}
+
+// Legacy Instance model (kept for compatibility, migrate to BotInstance)
+model Instance {
+  id                String         @id @default(cuid())
+  workspaceId       String
+  workspace         Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name              String
+  environment       Environment    @default(dev)
+  tags              Json           @default("{}")
+  status            InstanceStatus @default(CREATING)
+  desiredManifestId String?
+  lastReconcileAt   DateTime?
+  lastError         String?
+
+  // AWS resources
+  ecsClusterArn      String?
+  ecsServiceArn      String?
+  taskDefinitionArn  String?
+  cloudwatchLogGroup String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  manifests        ManifestVersion[]
+  deploymentEvents DeploymentEvent[]
+
   @@unique([workspaceId, name])
   @@index([workspaceId])
   @@index([status])
@@ -91,16 +212,299 @@ enum InstanceStatus {
   ERROR
 }
 
-model ManifestVersion {
+// Profile: Shared defaults for instances
+model Profile {
   id          String    @id @default(cuid())
-  instanceId  String
-  instance    Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  version     Int
-  content     Json
-  createdBy   String
-  user        User      @relation(fields: [createdBy], references: [id])
-  createdAt   DateTime  @default(now())
-  
+  name        String
+  description String
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Scope
+  fleetIds Json @default("[]") // Empty = available to all fleets
+
+  // Default configurations
+  defaults      Json // Profile defaults object
+  mergeStrategy Json @default("{}")
+
+  // Override settings
+  allowInstanceOverrides Boolean @default(true)
+  lockedFields           Json    @default("[]")
+
+  // Priority for applying multiple profiles
+  priority Int     @default(0)
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+
+  fleets Fleet[]
+
+  @@index([workspaceId])
+  @@index([isActive])
+}
+
+// Overlay: Per-bot configuration overrides
+model Overlay {
+  id          String    @id @default(cuid())
+  name        String
+  description String
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Target specification
+  targetType     String // instance, fleet, environment, tag
+  targetSelector Json // Selector criteria
+
+  // Override values
+  overrides Json // Override configuration
+
+  // Behavior
+  priority Int     @default(0)
+  enabled  Boolean @default(true)
+  rollout  Json? // Rollout configuration
+  schedule Json? // Schedule for temporary overlays
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+
+  @@index([workspaceId])
+  @@index([enabled])
+  @@index([targetType])
+}
+
+// PolicyPack: Enforced rules
+model PolicyPack {
+  id          String     @id @default(cuid())
+  name        String
+  description String
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  // Scope
+  isBuiltin          Boolean @default(false)
+  autoApply          Boolean @default(false)
+  targetWorkspaces   Json?
+  targetEnvironments Json?
+  targetTags         Json?
+
+  // Rules
+  rules Json // Array of PolicyRule objects
+
+  // Settings
+  isEnforced Boolean @default(false)
+  priority   Int     @default(0)
+  version    String  @default("1.0.0")
+  isActive   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+
+  @@index([workspaceId])
+  @@index([isBuiltin])
+  @@index([isActive])
+  @@index([autoApply])
+}
+
+// IntegrationConnector: Shared credentials
+model IntegrationConnector {
+  id          String    @id @default(cuid())
+  name        String
+  description String
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Type and configuration
+  type   String // openai, slack, discord, etc.
+  config Json // ConnectionConfig object
+
+  // Status
+  status         ConnectorStatus @default(PENDING)
+  statusMessage  String?
+  lastTestedAt   DateTime?
+  lastTestResult String?
+  lastError      String?
+
+  // Sharing
+  isShared           Boolean @default(true)
+  allowedInstanceIds Json? // If not shared, specific instances
+
+  // Rotation
+  rotationSchedule Json?
+
+  // Usage tracking
+  usageCount Int       @default(0)
+  lastUsedAt DateTime?
+
+  tags Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+
+  // Relations
+  botBindings BotConnectorBinding[]
+
+  @@index([workspaceId])
+  @@index([type])
+  @@index([status])
+}
+
+enum ConnectorStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+  PENDING
+}
+
+// Bot to Connector binding
+model BotConnectorBinding {
+  id            String               @id @default(cuid())
+  botInstanceId String
+  botInstance   BotInstance          @relation(fields: [botInstanceId], references: [id], onDelete: Cascade)
+  connectorId   String
+  connector     IntegrationConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  purpose       String // llm, channel, database, etc.
+  channelConfig Json? // Channel-specific configuration
+  overrides     Json? // Bot-specific overrides
+
+  healthStatus    String    @default("UNKNOWN")
+  lastHealthCheck DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([botInstanceId, connectorId, purpose])
+  @@index([botInstanceId])
+  @@index([connectorId])
+}
+
+// ChangeSet: Track configuration changes
+model ChangeSet {
+  id            String      @id @default(cuid())
+  botInstanceId String
+  botInstance   BotInstance @relation(fields: [botInstanceId], references: [id], onDelete: Cascade)
+
+  changeType  String // UPDATE, ROLLOUT, ROLLBACK
+  description String
+
+  // Change details
+  fromManifest Json?
+  toManifest   Json
+
+  // Rollout configuration
+  rolloutStrategy   String @default("ALL") // ALL, PERCENTAGE, CANARY
+  rolloutPercentage Int?
+  canaryInstances   Json?
+
+  // Status
+  status String @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, FAILED, ROLLED_BACK
+
+  // Progress tracking
+  totalInstances   Int @default(0)
+  updatedInstances Int @default(0)
+  failedInstances  Int @default(0)
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  // Rollback info
+  canRollback  Boolean   @default(false)
+  rolledBackAt DateTime?
+  rolledBackBy String?
+
+  createdAt DateTime @default(now())
+  createdBy String
+
+  // Relations
+  auditEvents AuditEvent[]
+
+  @@index([botInstanceId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Trace: Execution traces
+model Trace {
+  id            String      @id @default(cuid())
+  botInstanceId String
+  botInstance   BotInstance @relation(fields: [botInstanceId], references: [id], onDelete: Cascade)
+
+  traceId       String  @unique // External trace ID
+  parentTraceId String?
+
+  // Trace metadata
+  name   String
+  type   String // REQUEST, TASK, SKILL, etc.
+  status String // SUCCESS, ERROR, PENDING
+
+  // Timing
+  startedAt  DateTime
+  endedAt    DateTime?
+  durationMs Int?
+
+  // Details
+  input  Json?
+  output Json?
+  error  Json?
+
+  // Context
+  metadata Json @default("{}")
+  tags     Json @default("{}")
+
+  createdAt DateTime @default(now())
+
+  @@index([botInstanceId])
+  @@index([traceId])
+  @@index([startedAt])
+  @@index([status])
+}
+
+// Credential Rotation tracking
+model CredentialRotation {
+  id          String @id @default(cuid())
+  connectorId String
+
+  triggeredBy     String // schedule, manual, security
+  triggeredAt     DateTime
+  triggeredByUser String?
+
+  status String // PENDING, IN_PROGRESS, COMPLETED, FAILED, ROLLED_BACK
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  oldSecretArn String?
+  newSecretArn String?
+
+  instancesUpdated Int @default(0)
+  instancesTotal   Int @default(0)
+
+  canRollback  Boolean   @default(false)
+  rolledBackAt DateTime?
+
+  error String?
+
+  createdAt DateTime @default(now())
+
+  @@index([connectorId])
+  @@index([status])
+}
+
+model ManifestVersion {
+  id         String   @id @default(cuid())
+  instanceId String
+  instance   Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  version    Int
+  content    Json
+  createdBy  String
+  user       User     @relation(fields: [createdBy], references: [id])
+  createdAt  DateTime @default(now())
+
   @@unique([instanceId, version])
   @@index([instanceId])
 }
@@ -117,37 +521,42 @@ model AuditEvent {
   timestamp    DateTime  @default(now())
   workspaceId  String
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  
+
+  // Optional relations
+  changeSetId String?
+  changeSet   ChangeSet? @relation(fields: [changeSetId], references: [id])
+
   @@index([workspaceId])
   @@index([resourceType, resourceId])
   @@index([timestamp])
+  @@index([changeSetId])
 }
 
 model Template {
-  id               String    @id @default(cuid())
+  id               String     @id @default(cuid())
   name             String
   description      String
   category         String
   manifestTemplate Json
-  isBuiltin        Boolean   @default(false)
+  isBuiltin        Boolean    @default(false)
   workspaceId      String?
   workspace        Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
   @@index([workspaceId])
   @@index([category])
 }
 
 model DeploymentEvent {
-  id          String              @id @default(cuid())
-  instanceId  String
-  instance    Instance            @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  eventType   DeploymentEventType
-  message     String
-  metadata    Json                @default("{}")
-  createdAt   DateTime            @default(now())
-  
+  id         String              @id @default(cuid())
+  instanceId String
+  instance   Instance            @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  eventType  DeploymentEventType
+  message    String
+  metadata   Json                @default("{}")
+  createdAt  DateTime            @default(now())
+
   @@index([instanceId])
   @@index([createdAt])
 }
