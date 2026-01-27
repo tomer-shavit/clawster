@@ -60,7 +60,11 @@ export const PolicyConfigSchema = z.object({
 export type PolicyConfig = z.infer<typeof PolicyConfigSchema>;
 
 export const RuntimeConfigSchema = z.object({
-  image: z.string().regex(/^(ghcr\.io|\.\*\/)([a-z0-9-]+\/)?[a-z0-9-]+:[a-zA-Z0-9._-]+$/, "Must be pinned image tag, not 'latest'"),
+  image: z.string()
+    .refine(
+      (val) => val.includes(':') && !val.endsWith(':latest'),
+      { message: "Must be pinned image tag, not 'latest'" }
+    ),
   cpu: z.number().min(0.25).max(16).default(1),
   memory: z.number().min(512).max(65536).default(2048),
   replicas: z.number().int().min(1).max(10).default(1),
