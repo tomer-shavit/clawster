@@ -154,9 +154,11 @@ export class ECSService {
 
     // Determine health based on running vs desired
     let health: "HEALTHY" | "UNHEALTHY" | "UNKNOWN" = "UNKNOWN";
-    if (service.runningCount === service.desiredCount && service.desiredCount > 0) {
+    const runningCount = service.runningCount ?? 0;
+    const desiredCount = service.desiredCount ?? 0;
+    if (runningCount === desiredCount && desiredCount > 0) {
       health = "HEALTHY";
-    } else if (service.runningCount < service.desiredCount) {
+    } else if (runningCount < desiredCount) {
       health = "UNHEALTHY";
     }
 
