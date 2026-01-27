@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { prisma, Instance, InstanceStatus } from "@molthub/database";
-import { ECSService, InstanceManifest } from "@molthub/core";
+import { InstanceManifest } from "@molthub/core";
+import { ECSService } from "@molthub/adapters-aws";
 
 export interface DriftCheckResult {
   hasDrift: boolean;

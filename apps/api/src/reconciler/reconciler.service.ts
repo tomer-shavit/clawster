@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { prisma, Instance, InstanceStatus, DeploymentEventType } from "@molthub/database";
-import { ECSService, SecretsManagerService, CloudWatchLogsService, validateManifest } from "@molthub/core";
+import { validateManifest } from "@molthub/core";
+import { ECSService, SecretsManagerService, CloudWatchLogsService } from "@molthub/adapters-aws";
 
 export interface ReconcileResult {
   success: boolean;
