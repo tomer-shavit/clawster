@@ -11,8 +11,7 @@ import {
   ContainerFilters,
   LogOptions,
   LogResult,
-  ContainerStatus,
-  ContainerHealth,
+  LogEvent,
 } from "../../interface/provider";
 import { InstanceManifest } from "@molthub/core";
 
@@ -24,68 +23,36 @@ export interface DigitalOceanConfig extends CloudProviderConfig {
 
 interface DOApp {
   id: string;
-  owner_id?: number;
-  owner_uuid?: string;
   spec: DOAppSpec;
-  default_ingress?: string;
   created_at: string;
   updated_at: string;
   active_deployment?: DODeployment;
   in_progress_deployment?: DODeployment;
-  last_deployment_created_at?: string;
   live_url?: string;
-  region?: {
-    slug: string;
-    label: string;
-    flag: string;
-    continent: string;
-    data_centers: string[];
-    disabled?: boolean;
-    reason?: string;
-  };
-  tier_slug?: string;
-  permissions?: string[];
+  default_ingress?: string;
 }
 
 interface DOAppSpec {
   name: string;
   region?: string;
   services?: DOService[];
-  envs?: DOEnvVar[];
-  alerts?: DOAlert[];
 }
 
 interface DOService {
   name: string;
   image?: DOImageSource;
-  github?: DOGitSource;
-  gitlab?: DOGitSource;
-  dockerfile_path?: string;
-  envs?: DOEnvVar[];
   instance_count?: number;
   instance_size_slug?: string;
-  routes?: DORoute[];
-  health_check?: DOHealthCheck;
+  envs?: DOEnvVar[];
   http_port?: number;
-  internal_ports?: number[];
   run_command?: string;
+  routes?: DORoute[];
 }
 
 interface DOImageSource {
   registry_type?: "DOCR" | "DOCKER_HUB" | "GHCR";
-  registry?: string;
   repository: string;
   tag?: string;
-  digest?: string;
-  deploy_on_push?: {
-    enabled: boolean;
-  };
-}
-
-interface DOGitSource {
-  repo: string;
-  branch: string;
-  deploy_on_push?: boolean;
 }
 
 interface DOEnvVar {
@@ -99,48 +66,11 @@ interface DORoute {
   path: string;
 }
 
-interface DOHealthCheck {
-  http_path?: string;
-  port?: number;
-}
-
 interface DODeployment {
   id: string;
-  spec: DOAppSpec;
-  services?: DODeploymentService[];
-  phase: "PENDING_BUILD" | "PENDING_DEPLOY" | "BUILDING" | "DEPLOYING" | "ACTIVE" | "SUPERSEDED" | "ERROR" | "CANCELED";
-  progress?: DODeploymentProgress;
+  phase: string;
   created_at: string;
   updated_at: string;
-  cause?: string;
-  cloned_from?: string;
-}
-
-interface DODeploymentService {
-  name: string;
-  source_commit_hash?: string;
-  build_info?: {
-    name?: string;
-    stages?: DOBuildStage[];
-  };
-}
-
-interface DOBuildStage {
-  name: string;
-  steps?: DOBuildStep[];
-}
-
-interface DOBuildStep {
-  name: string;
-  status: string;
-  started_at?: string;
-  ended_at?: string;
-}
-
-interface DODeploymentProgress {
-  pending_steps?: number;
-  total_steps?: number;
-  completed_steps?: number;
 }
 
 /**
@@ -155,14 +85,15 @@ export class DigitalOceanProvider implements CloudProvider {
   private apiToken?: string;
   private baseUrl = "https://api.digitalocean.com/v2";
 
-  async initialize(config: DigitalOceanConfig): Promise<void> {
+  async initialize(config: CloudProviderConfig): Promise<void> {
     this.region = config.region || "nyc1";
     
-    if (!config.credentials?.apiToken) {
+    const doConfig = config as DigitalOceanConfig;
+    if (!doConfig.credentials?.apiToken) {
       throw new Error("DigitalOcean API token is required");
     }
 
-    this.apiToken = config.credentials.apiToken;
+    this.apiToken = doConfig.credentials.apiToken;
   }
 
   private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -219,12 +150,20 @@ export class DigitalOceanProvider implements CloudProvider {
     // DigitalOcean App Platform doesn't require explicit resource creation
     // Apps are created on-demand
 
-    onProgress?.({ step: "DigitalOcean App Platform ready", percent: 100 });
+    onProgress?.("DigitalOcean App Platform ready", "complete");
 
     return {
       provider: this.type,
       region: this.region,
-      vpcId: `do-${this.region}`,
+      clusterId: `do-${this.region}`,
+      network: {
+        subnetIds: [],
+      },
+      iam: {},
+      logging: {
+        logDriver: "digitalocean",
+        logOptions: {},
+      },
       metadata: {
         region: this.region,
       },
@@ -236,9 +175,10 @@ export class DigitalOceanProvider implements CloudProvider {
     manifest: InstanceManifest
   ): Promise<ContainerInstance> {
     const appName = this.sanitizeAppName(config.name);
+    const instanceId = config.labels?.["molthub.io/instance-id"] || appName;
 
     // Build environment variables
-    const envs: DOEnvVar[] = Object.entries(config.envVars || {}).map(([key, value]) => ({
+    const envs: DOEnvVar[] = Object.entries(config.environment || {}).map(([key, value]) => ({
       key,
       value: String(value),
       scope: "RUN_TIME",
@@ -304,7 +244,7 @@ export class DigitalOceanProvider implements CloudProvider {
     // Wait for deployment to complete
     app = await this.waitForDeployment(app);
 
-    return this.mapAppToContainer(app, config.id);
+    return this.mapAppToContainer(app, instanceId);
   }
 
   private detectRegistryType(image: string): "DOCKER_HUB" | "DOCR" | "GHCR" {
@@ -317,7 +257,6 @@ export class DigitalOceanProvider implements CloudProvider {
   }
 
   private mapToInstanceSize(cpu?: number, memory?: number): string {
-    // DigitalOcean instance sizes: basic-xs, basic-s, basic-m, basic-l, professional-xs, etc.
     const cpuCount = cpu || 1;
     const memoryMB = memory || 512;
 
@@ -352,7 +291,7 @@ export class DigitalOceanProvider implements CloudProvider {
       if (phase === "ACTIVE") {
         return updatedApp;
       } else if (phase === "ERROR" || phase === "CANCELED") {
-        throw new Error(`Deployment failed: ${deployment.progress}`);
+        throw new Error(`Deployment failed`);
       }
 
       await this.sleep(5000);
@@ -396,8 +335,8 @@ export class DigitalOceanProvider implements CloudProvider {
       service.instance_size_slug = this.mapToInstanceSize(config.cpu, config.memory);
     }
 
-    if (config.envVars) {
-      const newEnvs = Object.entries(config.envVars).map(([key, value]) => ({
+    if (config.environment) {
+      const newEnvs = Object.entries(config.environment).map(([key, value]) => ({
         key,
         value: String(value),
         scope: "RUN_TIME" as const,
@@ -499,10 +438,6 @@ export class DigitalOceanProvider implements CloudProvider {
         return this.mapAppToContainer(app, instanceId);
       });
 
-    if (filters?.fleetId) {
-      containers = containers.filter((c) => c.metadata?.fleetId === filters.fleetId);
-    }
-
     if (filters?.status) {
       containers = containers.filter((c) => c.status === filters.status);
     }
@@ -518,7 +453,7 @@ export class DigitalOceanProvider implements CloudProvider {
       throw new Error(`App ${instanceId} not found`);
     }
 
-    const tail = options?.tail || 100;
+    const limit = options?.limit || 100;
     
     // Get logs from DigitalOcean
     const result = await this.fetch<{ historic_urls: string[]; live_url?: string }>(
@@ -526,37 +461,38 @@ export class DigitalOceanProvider implements CloudProvider {
     );
 
     // DigitalOcean returns URLs to download logs
-    // For simplicity, return the URL for live logs
     if (result.historic_urls?.length > 0) {
-      // In a real implementation, you'd fetch and parse the log files
+      const events: LogEvent[] = [{
+        timestamp: new Date(),
+        message: `Logs available at: ${result.historic_urls.join(", ")}`,
+      }];
       return {
-        content: `Logs available at: ${result.historic_urls.join(", ")}`,
-        lines: tail,
+        events,
+        nextToken: limit > 100 ? String(limit) : undefined,
       };
     }
 
     return {
-      content: "No logs available",
-      lines: 0,
+      events: [{
+        timestamp: new Date(),
+        message: "No logs available",
+      }],
     };
   }
 
   async storeSecret(name: string, value: string, metadata?: Record<string, string>): Promise<string> {
     // DigitalOcean App Platform uses environment variables with type: "SECRET"
     // Secrets are stored per-app, not globally
-    // We'll return a reference that can be used in the env var
     return `do:secret:${name}`;
   }
 
   async getSecret(name: string): Promise<string | null> {
     // DigitalOcean doesn't have a global secret store for App Platform
-    // Secrets are retrieved from the app's environment variables
-    throw new Error("DigitalOcean App Platform secrets are app-specific. Use getContainer to retrieve.");
+    throw new Error("DigitalOcean App Platform secrets are app-specific.");
   }
 
   async deleteSecret(name: string): Promise<void> {
     // Secrets are deleted when the app is updated
-    // No-op for global secret deletion
   }
 
   getConsoleUrl(resourceType?: string, resourceId?: string): string {
@@ -580,65 +516,39 @@ export class DigitalOceanProvider implements CloudProvider {
     const service = app.spec.services?.[0];
     const phase = deployment?.phase;
 
-    let status: ContainerStatus = ContainerStatus.PENDING;
+    let status: ContainerInstance["status"] = "PENDING";
     if (phase === "ACTIVE") {
-      status = ContainerStatus.RUNNING;
+      status = "RUNNING";
     } else if (phase === "ERROR" || phase === "CANCELED") {
-      status = ContainerStatus.ERROR;
+      status = "ERROR";
     } else if (phase === "PENDING_BUILD" || phase === "PENDING_DEPLOY" || phase === "BUILDING" || phase === "DEPLOYING") {
-      status = ContainerStatus.CREATING;
+      status = "CREATING";
     }
 
     // Check if scaled to 0
     if (service?.instance_count === 0) {
-      status = ContainerStatus.STOPPED;
+      status = "STOPPED";
     }
 
-    let health = ContainerHealth.UNKNOWN;
-    if (status === ContainerStatus.RUNNING) {
-      health = ContainerHealth.HEALTHY;
-    } else if (status === ContainerStatus.ERROR) {
-      health = ContainerHealth.UNHEALTHY;
+    let health: ContainerInstance["health"] = "UNKNOWN";
+    if (status === "RUNNING") {
+      health = "HEALTHY";
+    } else if (status === "ERROR") {
+      health = "UNHEALTHY";
     }
-
-    // Parse instance size to CPU/memory
-    let cpu = 1;
-    let memory = 512;
-    const sizeSlug = service?.instance_size_slug || "basic-xs";
-    
-    switch (sizeSlug) {
-      case "basic-xs": cpu = 0.5; memory = 512; break;
-      case "basic-s": cpu = 1; memory = 1024; break;
-      case "basic-m": cpu = 1; memory = 2048; break;
-      case "basic-l": cpu = 1; memory = 4096; break;
-      case "professional-xs": cpu = 1; memory = 2048; break;
-      case "professional-s": cpu = 2; memory = 4096; break;
-      case "professional-m": cpu = 2; memory = 8192; break;
-      case "professional-l": cpu = 4; memory = 16384; break;
-    }
-
-    const ports = service?.http_port
-      ? [{ containerPort: service.http_port, protocol: "tcp" as const }]
-      : [];
 
     return {
       id: instanceId,
       name: app.spec.name,
-      provider: this.type,
-      region: app.region?.slug || this.region,
       status,
       health,
-      image: service?.image?.repository || "",
-      cpu,
-      memory,
-      ports,
-      envVars: {},
+      provider: this.type,
+      region: this.region,
       metadata: {
         appId: app.id,
-        url: app.live_url,
-        fleetId: undefined, // DO doesn't have a direct fleet concept
-        instanceSize: sizeSlug,
-        defaultIngress: app.default_ingress,
+        url: app.live_url || "",
+        instanceSize: service?.instance_size_slug || "",
+        defaultIngress: app.default_ingress || "",
       },
       createdAt: new Date(app.created_at),
       updatedAt: new Date(app.updated_at),

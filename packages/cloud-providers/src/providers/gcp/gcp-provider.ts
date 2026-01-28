@@ -215,14 +215,14 @@ export class GCPProvider implements CloudProvider {
     };
 
     // Create or update service
-    const [operation] = await this.resources.runClient.createService({
+    const operation = await this.resources.runClient.createService({
       parent,
       serviceId: serviceName,
-      service,
+      service: service as any,
     });
 
     // Wait for operation to complete
-    const [response] = await operation.promise();
+    const [response] = await (operation as any).promise();
 
     return this.mapServiceToContainer(response, instanceId);
   }
@@ -285,13 +285,14 @@ export class GCPProvider implements CloudProvider {
 
     // Build update
     const updateMask: string[] = [];
+    const currentTemplate = currentService.template as any;
     const service: any = {
       name,
       template: {
-        ...currentService.template,
+        ...currentTemplate,
         spec: {
-          ...currentService.template?.spec,
-          containers: [...(currentService.template?.spec?.containers || [])],
+          ...currentTemplate?.spec,
+          containers: [...(currentTemplate?.spec?.containers || [])],
         },
       },
     };
@@ -328,14 +329,14 @@ export class GCPProvider implements CloudProvider {
       throw new Error("No fields to update");
     }
 
-    const [operation] = await this.resources.runClient.updateService({
+    const operation = await this.resources.runClient.updateService({
       service,
       updateMask: {
         paths: updateMask,
       },
     });
 
-    const [response] = await operation.promise();
+    const [response] = await (operation as any).promise();
     return this.mapServiceToContainer(response, instanceId);
   }
 
@@ -351,26 +352,23 @@ export class GCPProvider implements CloudProvider {
     const [service] = await this.resources.runClient.getService({ name });
 
     // Update to set min instances to 0 (scales to 0)
-    const [operation] = await this.resources.runClient.updateService({
+    const operation = await this.resources.runClient.updateService({
       service: {
         name,
         template: {
-          ...service.template,
           metadata: {
-            ...service.template?.metadata,
             annotations: {
-              ...service.template?.metadata?.annotations,
               "autoscaling.knative.dev/minScale": "0",
             },
           },
         },
-      },
+      } as any,
       updateMask: {
         paths: ["template.metadata.annotations.autoscaling.knative.dev/minScale"],
       },
     });
 
-    await operation.promise();
+    await (operation as any).promise();
   }
 
   async startContainer(instanceId: string): Promise<void> {
@@ -381,30 +379,24 @@ export class GCPProvider implements CloudProvider {
     const serviceName = this.sanitizeServiceName(`molthub-${instanceId}`);
     const name = `projects/${this.resources.projectId}/locations/${this.region}/services/${serviceName}`;
 
-    // Get current service
-    const [service] = await this.resources.runClient.getService({ name });
-
     // Update to set min instances to 1 (always running)
-    const [operation] = await this.resources.runClient.updateService({
+    const operation = await this.resources.runClient.updateService({
       service: {
         name,
         template: {
-          ...service.template,
           metadata: {
-            ...service.template?.metadata,
             annotations: {
-              ...service.template?.metadata?.annotations,
               "autoscaling.knative.dev/minScale": "1",
             },
           },
         },
-      },
+      } as any,
       updateMask: {
         paths: ["template.metadata.annotations.autoscaling.knative.dev/minScale"],
       },
     });
 
-    await operation.promise();
+    await (operation as any).promise();
   }
 
   async deleteContainer(instanceId: string): Promise<void> {
@@ -476,10 +468,22 @@ export class GCPProvider implements CloudProvider {
       orderBy: "timestamp desc",
     });
 
-    const events: LogEvent[] = entries.map((entry) => ({
-      timestamp: entry.metadata?.timestamp ? new Date(entry.metadata.timestamp) : new Date(),
-      message: entry.data?.textPayload || JSON.stringify(entry.data) || "",
-    }));
+    const events: LogEvent[] = entries.map((entry) => {
+      const timestamp = entry.metadata?.timestamp;
+      let date: Date;
+      if (timestamp && typeof timestamp === 'object' && 'toDate' in timestamp) {
+        // It's a Timestamp object from protobuf
+        date = (timestamp as any).toDate();
+      } else if (timestamp) {
+        date = new Date(timestamp as any);
+      } else {
+        date = new Date();
+      }
+      return {
+        timestamp: date,
+        message: entry.data?.textPayload || JSON.stringify(entry.data) || "",
+      };
+    });
 
     return {
       events: events.reverse(),

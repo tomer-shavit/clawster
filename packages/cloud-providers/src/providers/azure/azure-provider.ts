@@ -229,7 +229,7 @@ export class AzureProvider implements CloudProvider {
         });
       } else {
         // Store as secure environment variable
-        environmentVariables.push({
+        (environmentVariables as any).push({
           name,
           secureValue: value,
         });
