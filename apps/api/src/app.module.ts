@@ -10,6 +10,7 @@ import { OverlaysModule } from "./overlays/overlays.module";
 import { PolicyPacksModule } from "./policy-packs/policy-packs.module";
 import { ConnectorsModule } from "./connectors/connectors.module";
 import { ChangeSetsModule } from "./change-sets/change-sets.module";
+import { TracesModule } from "./traces/traces.module";
 import { ManifestsModule } from "./manifests/manifests.module";
 import { TemplatesModule } from "./templates/templates.module";
 import { AuditModule } from "./audit/audit.module";
@@ -37,6 +38,7 @@ import { HealthModule } from "./health/health.module";
     PolicyPacksModule,
     ConnectorsModule,
     ChangeSetsModule,
+    TracesModule,
     ManifestsModule,
     TemplatesModule,
     AuditModule,
