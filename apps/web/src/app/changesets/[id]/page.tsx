@@ -18,51 +18,95 @@ import {
   Play, 
   RotateCcw, 
   GitCommit,
-  CheckCircle,
+  CheckCircle2,
   XCircle,
   Clock,
   AlertTriangle,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  Copy,
+  FileJson,
+  Pause,
+  AlertCircle
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 // Diff viewer component
 function DiffViewer({ from, to }: { from?: Record<string, unknown>; to: Record<string, unknown> }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {from && (
         <div>
           <h4 className="text-sm font-medium text-red-600 mb-2 flex items-center gap-2">
             <ChevronLeft className="w-4 h-4" />
-            From (Previous)
+            From (Previous Configuration)
           </h4>
-          <pre className="bg-red-50 p-4 rounded-lg text-xs overflow-auto border border-red-200">
-            {JSON.stringify(from, null, 2)}
-          </pre>
+          <div className="bg-red-50 p-4 rounded-lg border border-red-200 overflow-auto max-h-96">
+            <pre className="text-xs text-red-800">
+              {JSON.stringify(from, null, 2)}
+            </pre>
+          </div>
         </div>
       )}
       <div>
         <h4 className="text-sm font-medium text-green-600 mb-2 flex items-center gap-2">
           <ChevronRight className="w-4 h-4" />
-          To (New)
+          To (New Configuration)
         </h4>
-        <pre className="bg-green-50 p-4 rounded-lg text-xs overflow-auto border border-green-200">
-          {JSON.stringify(to, null, 2)}
-        </pre>
+        <div className="bg-green-50 p-4 rounded-lg border border-green-200 overflow-auto max-h-96">
+          <pre className="text-xs text-green-800">
+            {JSON.stringify(to, null, 2)}
+          </pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Simple diff highlighting
+function SimpleDiff({ from, to }: { from?: Record<string, unknown>; to: Record<string, unknown> }) {
+  const fromStr = from ? JSON.stringify(from, null, 2) : "";
+  const toStr = JSON.stringify(to, null, 2);
+  
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4 text-sm">
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 bg-red-200 rounded" />
+          Removed
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 bg-green-200 rounded" />
+          Added
+        </span>
+      </div>
+      <div className="bg-muted p-4 rounded-lg overflow-auto max-h-[500px]">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Previous</p>
+            <pre className="text-xs">{fromStr || "(none)"}</pre>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">New</p>
+            <pre className="text-xs">{toStr}</pre>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
 // Canary control component
-function CanaryControl({ 
+function RolloutControl({ 
   changeSet, 
   onStart, 
-  onRollback 
+  onRollback,
+  refresh
 }: { 
   changeSet: ChangeSet; 
   onStart: () => void;
   onRollback: (reason: string) => void;
+  refresh: () => void;
 }) {
   const [rollbackReason, setRollbackReason] = useState("");
   const [showRollbackInput, setShowRollbackInput] = useState(false);
@@ -74,71 +118,101 @@ function CanaryControl({
   if (changeSet.status === 'PENDING') {
     return (
       <div className="bg-muted p-6 rounded-lg">
-        <h3 className="font-semibold mb-2">Ready to Rollout</h3>
-        <p className="text-sm text-muted-foreground mb-4">
-          This change set is pending and ready to be applied.
-        </p>
-        <Button onClick={onStart}>
-          <Play className="w-4 h-4 mr-2" />
-          Start Rollout
-        </Button>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-yellow-100 rounded-full">
+            <Clock className="w-5 h-5 text-yellow-600" />
+          </div>
+          <div>
+            <h3 className="font-semibold">Ready to Rollout</h3>
+            <p className="text-sm text-muted-foreground">
+              This change set is pending and ready to be applied.
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={onStart}>
+            <Play className="w-4 h-4 mr-2" />
+            Start Rollout
+          </Button>
+          <Button variant="outline" onClick={refresh}>
+            Refresh
+          </Button>
+        </div>
       </div>
     );
   }
 
   if (changeSet.status === 'IN_PROGRESS') {
     return (
-      <div className="bg-muted p-6 rounded-lg">
-        <h3 className="font-semibold mb-4">Rollout in Progress</h3>
+      <div className="bg-blue-50 border border-blue-200 p-6 rounded-lg">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-blue-100 rounded-full animate-pulse">
+            <Play className="w-5 h-5 text-blue-600" />
+          </div>
+          <div>
+            <h3 className="font-semibold">Rollout in Progress</h3>
+            <p className="text-sm text-muted-foreground">
+              Updating instances gradually. Monitor progress below.
+            </p>
+          </div>
+        </div>
+        
         <div className="space-y-4">
           <div>
             <div className="flex justify-between text-sm mb-2">
-              <span>Progress</span>
+              <span>Overall Progress</span>
               <span className="font-medium">{progress}%</span>
             </div>
             <Progress value={progress} className="h-3" />
           </div>
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div className="bg-background p-3 rounded">
+          
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="bg-white p-3 rounded border">
               <div className="text-2xl font-bold text-green-600">{changeSet.updatedInstances}</div>
               <div className="text-xs text-muted-foreground">Updated</div>
             </div>
-            <div className="bg-background p-3 rounded">
+            <div className="bg-white p-3 rounded border">
               <div className="text-2xl font-bold text-red-600">{changeSet.failedInstances}</div>
               <div className="text-xs text-muted-foreground">Failed</div>
             </div>
-            <div className="bg-background p-3 rounded">
+            <div className="bg-white p-3 rounded border">
               <div className="text-2xl font-bold">{changeSet.totalInstances - changeSet.updatedInstances - changeSet.failedInstances}</div>
               <div className="text-xs text-muted-foreground">Remaining</div>
             </div>
           </div>
           
-          {!showRollbackInput ? (
-            <Button variant="destructive" onClick={() => setShowRollbackInput(true)}>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={refresh}>
               <RotateCcw className="w-4 h-4 mr-2" />
-              Rollback
+              Refresh
             </Button>
-          ) : (
-            <div className="space-y-2">
-              <Input
-                placeholder="Enter rollback reason..."
-                value={rollbackReason}
-                onChange={(e) => setRollbackReason(e.target.value)}
-              />
-              <div className="flex gap-2">
-                <Button 
-                  variant="destructive" 
-                  onClick={() => onRollback(rollbackReason)}
-                  disabled={!rollbackReason}
-                >
-                  Confirm Rollback
-                </Button>
-                <Button variant="outline" onClick={() => setShowRollbackInput(false)}>
-                  Cancel
-                </Button>
+            {!showRollbackInput ? (
+              <Button variant="destructive" onClick={() => setShowRollbackInput(true)}>
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Rollback
+              </Button>
+            ) : (
+              <div className="flex-1 space-y-2">
+                <Input
+                  placeholder="Enter rollback reason..."
+                  value={rollbackReason}
+                  onChange={(e) => setRollbackReason(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <Button 
+                    variant="destructive" 
+                    onClick={() => onRollback(rollbackReason)}
+                    disabled={!rollbackReason}
+                  >
+                    Confirm Rollback
+                  </Button>
+                  <Button variant="outline" onClick={() => setShowRollbackInput(false)}>
+                    Cancel
+                  </Button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     );
@@ -147,13 +221,33 @@ function CanaryControl({
   if (changeSet.status === 'COMPLETED') {
     return (
       <div className="bg-green-50 border border-green-200 p-6 rounded-lg">
-        <div className="flex items-center gap-2 text-green-700 mb-2">
-          <CheckCircle className="w-5 h-5" />
-          <h3 className="font-semibold">Rollout Completed</h3>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-green-100 rounded-full">
+            <CheckCircle2 className="w-5 h-5 text-green-600" />
+          </div>
+          <div>
+            <h3 className="font-semibold">Rollout Completed</h3>
+            <p className="text-sm text-muted-foreground">
+              All instances have been successfully updated.
+            </p>
+          </div>
         </div>
-        <p className="text-sm text-green-600 mb-4">
-          All instances have been successfully updated.
-        </p>
+        
+        <div className="grid grid-cols-3 gap-3 text-center mb-4">
+          <div className="bg-white p-3 rounded border">
+            <div className="text-2xl font-bold text-green-600">{changeSet.updatedInstances}</div>
+            <div className="text-xs text-muted-foreground">Updated</div>
+          </div>
+          <div className="bg-white p-3 rounded border">
+            <div className="text-2xl font-bold text-red-600">{changeSet.failedInstances}</div>
+            <div className="text-xs text-muted-foreground">Failed</div>
+          </div>
+          <div className="bg-white p-3 rounded border">
+            <div className="text-2xl font-bold">{changeSet.totalInstances}</div>
+            <div className="text-xs text-muted-foreground">Total</div>
+          </div>
+        </div>
+
         {changeSet.canRollback && !changeSet.rolledBackAt && (
           !showRollbackInput ? (
             <Button variant="outline" onClick={() => setShowRollbackInput(true)}>
@@ -189,13 +283,61 @@ function CanaryControl({
   if (changeSet.status === 'FAILED') {
     return (
       <div className="bg-red-50 border border-red-200 p-6 rounded-lg">
-        <div className="flex items-center gap-2 text-red-700 mb-2">
-          <XCircle className="w-5 h-5" />
-          <h3 className="font-semibold">Rollout Failed</h3>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-red-100 rounded-full">
+            <XCircle className="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <h3 className="font-semibold">Rollout Failed</h3>
+            <p className="text-sm text-muted-foreground">
+              The rollout encountered errors. Check the events tab for details.
+            </p>
+          </div>
         </div>
-        <p className="text-sm text-red-600">
-          The rollout encountered errors. Please check the logs for details.
-        </p>
+        
+        <div className="grid grid-cols-3 gap-3 text-center mb-4">
+          <div className="bg-white p-3 rounded border">
+            <div className="text-2xl font-bold text-green-600">{changeSet.updatedInstances}</div>
+            <div className="text-xs text-muted-foreground">Updated</div>
+          </div>
+          <div className="bg-white p-3 rounded border">
+            <div className="text-2xl font-bold text-red-600">{changeSet.failedInstances}</div>
+            <div className="text-xs text-muted-foreground">Failed</div>
+          </div>
+          <div className="bg-white p-3 rounded border">
+            <div className="text-2xl font-bold">{changeSet.totalInstances}</div>
+            <div className="text-xs text-muted-foreground">Total</div>
+          </div>
+        </div>
+
+        {changeSet.canRollback && (
+          !showRollbackInput ? (
+            <Button variant="outline" onClick={() => setShowRollbackInput(true)}>
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Rollback
+            </Button>
+          ) : (
+            <div className="space-y-2">
+              <Input
+                placeholder="Enter rollback reason..."
+                value={rollbackReason}
+                onChange={(e) => setRollbackReason(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <Button 
+                  variant="destructive" 
+                  onClick={() => onRollback(rollbackReason)}
+                  disabled={!rollbackReason}
+                >
+                  Confirm Rollback
+                </Button>
+                <Button variant="outline" onClick={() => setShowRollbackInput(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )
+        )}
       </div>
     );
   }
@@ -203,13 +345,22 @@ function CanaryControl({
   if (changeSet.status === 'ROLLED_BACK' || changeSet.rolledBackAt) {
     return (
       <div className="bg-yellow-50 border border-yellow-200 p-6 rounded-lg">
-        <div className="flex items-center gap-2 text-yellow-700 mb-2">
-          <RotateCcw className="w-5 h-5" />
-          <h3 className="font-semibold">Rolled Back</h3>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-yellow-100 rounded-full">
+            <RotateCcw className="w-5 h-5 text-yellow-600" />
+          </div>
+          <div>
+            <h3 className="font-semibold">Rolled Back</h3>
+            <p className="text-sm text-muted-foreground">
+              This change was rolled back on <TimeDisplay date={changeSet.rolledBackAt!} format="absolute" />.
+            </p>
+          </div>
         </div>
-        <p className="text-sm text-yellow-600">
-          This change was rolled back on <TimeDisplay date={changeSet.rolledBackAt!} format="absolute" />.
-        </p>
+        {changeSet.rolledBackBy && (
+          <p className="text-sm text-muted-foreground">
+            Rolled back by: {changeSet.rolledBackBy}
+          </p>
+        )}
       </div>
     );
   }
@@ -303,20 +454,27 @@ export default function ChangeSetDetailPage({ params }: { params: { id: string }
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Change Set Details</h1>
             <p className="text-muted-foreground mt-1">
-              ID: <code className="bg-muted px-1 rounded">{changeSet.id}</code>
+              ID: <code className="bg-muted px-1 rounded text-sm">{changeSet.id}</code>
             </p>
           </div>
-          <StatusBadge status={changeSet.status} className="text-base px-4 py-1" />
+          <div className="flex items-center gap-2">
+            <StatusBadge status={changeSet.status} className="text-base px-4 py-1" />
+            <Button variant="outline" size="sm">
+              <Copy className="w-4 h-4 mr-2" />
+              Copy ID
+            </Button>
+          </div>
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left Column - Controls */}
         <div className="space-y-6">
-          <CanaryControl 
+          <RolloutControl 
             changeSet={changeSet} 
             onStart={handleStart}
             onRollback={handleRollback}
+            refresh={loadChangeSet}
           />
 
           <Card>
@@ -324,9 +482,9 @@ export default function ChangeSetDetailPage({ params }: { params: { id: string }
               <CardTitle>Summary</CardTitle>
             </CardHeader>
             <CardContent>
-              <dl className="space-y-3">
+              <dl className="space-y-3 text-sm">
                 <div>
-                  <dt className="text-sm text-muted-foreground">Bot Instance</dt>
+                  <dt className="text-muted-foreground">Bot Instance</dt>
                   <dd>
                     {changeSet.botInstance ? (
                       <Link 
@@ -341,48 +499,90 @@ export default function ChangeSetDetailPage({ params }: { params: { id: string }
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-sm text-muted-foreground">Change Type</dt>
+                  <dt className="text-muted-foreground">Change Type</dt>
                   <dd className="capitalize">{changeSet.changeType.toLowerCase()}</dd>
                 </div>
                 <div>
-                  <dt className="text-sm text-muted-foreground">Rollout Strategy</dt>
+                  <dt className="text-muted-foreground">Rollout Strategy</dt>
                   <dd className="capitalize">
                     {changeSet.rolloutStrategy.toLowerCase()}
                     {changeSet.rolloutPercentage && ` (${changeSet.rolloutPercentage}%)`}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-sm text-muted-foreground">Created By</dt>
+                  <dt className="text-muted-foreground">Total Instances</dt>
+                  <dd className="font-medium">{changeSet.totalInstances}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Created By</dt>
                   <dd>{changeSet.createdBy}</dd>
                 </div>
                 <div>
-                  <dt className="text-sm text-muted-foreground">Created At</dt>
+                  <dt className="text-muted-foreground">Created At</dt>
                   <dd><TimeDisplay date={changeSet.createdAt} format="absolute" /></dd>
                 </div>
                 {changeSet.startedAt && (
                   <div>
-                    <dt className="text-sm text-muted-foreground">Started At</dt>
+                    <dt className="text-muted-foreground">Started At</dt>
                     <dd><TimeDisplay date={changeSet.startedAt} format="absolute" /></dd>
                   </div>
                 )}
                 {changeSet.completedAt && (
                   <div>
-                    <dt className="text-sm text-muted-foreground">Completed At</dt>
+                    <dt className="text-muted-foreground">Completed At</dt>
                     <dd><TimeDisplay date={changeSet.completedAt} format="absolute" /></dd>
                   </div>
                 )}
               </dl>
             </CardContent>
           </Card>
+
+          {/* Progress Card */}
+          {changeSet.status !== 'PENDING' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Progress</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span>Overall</span>
+                      <span className="font-medium">
+                        {Math.round(((changeSet.updatedInstances + changeSet.failedInstances) / changeSet.totalInstances) * 100)}%
+                      </span>
+                    </div>
+                    <Progress 
+                      value={((changeSet.updatedInstances + changeSet.failedInstances) / changeSet.totalInstances) * 100} 
+                      className="h-3"
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center text-sm">
+                    <div className="p-2 bg-green-50 rounded">
+                      <div className="font-bold text-green-600">{changeSet.updatedInstances}</div>
+                      <div className="text-xs text-muted-foreground">Updated</div>
+                    </div>
+                    <div className="p-2 bg-red-50 rounded">
+                      <div className="font-bold text-red-600">{changeSet.failedInstances}</div>
+                      <div className="text-xs text-muted-foreground">Failed</div>
+                    </div>
+                    <div className="p-2 bg-muted rounded">
+                      <div className="font-bold">{changeSet.totalInstances - changeSet.updatedInstances - changeSet.failedInstances}</div>
+                      <div className="text-xs text-muted-foreground">Remaining</div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Right Column - Details */}
         <div className="lg:col-span-2">
-          <Tabs defaultValue="diff" className="w-full">
+          <Tabs defaultValue="changes" className="w-full">
             <TabsList>
-              <TabsTrigger active>Changes</TabsTrigger>
-              <TabsTrigger>Progress</TabsTrigger>
-              <TabsTrigger>Events</TabsTrigger>
+              <TabsTrigger active>Configuration Changes</TabsTrigger>
+              <TabsTrigger>Raw JSON</TabsTrigger>
             </TabsList>
 
             <TabsContent active className="mt-6">
@@ -394,104 +594,67 @@ export default function ChangeSetDetailPage({ params }: { params: { id: string }
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
+                  <SimpleDiff from={changeSet.fromManifest} to={changeSet.toManifest} />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent className="mt-6">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Raw Configuration</CardTitle>
+                    <CardDescription>Full JSON manifest</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm">
+                    <FileJson className="w-4 h-4 mr-2" />
+                    Export
+                  </Button>
+                </CardHeader>
+                <CardContent>
                   <DiffViewer from={changeSet.fromManifest} to={changeSet.toManifest} />
                 </CardContent>
               </Card>
             </TabsContent>
-
-            <TabsContent className="mt-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Rollout Progress</CardTitle>
-                  <CardDescription>
-                    Real-time progress of the rollout
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {rolloutStatus ? (
-                    <div className="space-y-6">
-                      <div>
-                        <div className="flex justify-between mb-2">
-                          <span className="font-medium">Overall Progress</span>
-                          <span>{rolloutStatus.progress.percentage}%</span>
-                        </div>
-                        <Progress value={rolloutStatus.progress.percentage} className="h-4" />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-muted p-4 rounded-lg">
-                          <div className="text-3xl font-bold">{rolloutStatus.progress.total}</div>
-                          <div className="text-sm text-muted-foreground">Total Instances</div>
-                        </div>
-                        <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-                          <div className="text-3xl font-bold text-green-600">{rolloutStatus.progress.updated}</div>
-                          <div className="text-sm text-green-600">Updated</div>
-                        </div>
-                        <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                          <div className="text-3xl font-bold text-red-600">{rolloutStatus.progress.failed}</div>
-                          <div className="text-sm text-red-600">Failed</div>
-                        </div>
-                        <div className="bg-muted p-4 rounded-lg">
-                          <div className="text-3xl font-bold">{rolloutStatus.progress.remaining}</div>
-                          <div className="text-sm text-muted-foreground">Remaining</div>
-                        </div>
-                      </div>
-                      {rolloutStatus.canRollback && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-yellow-50 p-3 rounded border border-yellow-200">
-                          <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                          This change set can be rolled back if needed.
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground">Rollout status not available.</p>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent className="mt-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Audit Events</CardTitle>
-                  <CardDescription>
-                    Events related to this change set
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {changeSet.auditEvents && changeSet.auditEvents.length > 0 ? (
-                    <div className="space-y-4">
-                      {changeSet.auditEvents.map((event: any) => (
-                        <div key={event.id} className="flex items-start gap-3 pb-4 border-b last:border-0">
-                          <div className="mt-0.5">
-                            {event.action.includes('CREATE') ? (
-                              <GitCommit className="w-4 h-4 text-blue-500" />
-                            ) : event.action.includes('START') ? (
-                              <Play className="w-4 h-4 text-green-500" />
-                            ) : event.action.includes('ROLLBACK') ? (
-                              <RotateCcw className="w-4 h-4 text-yellow-500" />
-                            ) : (
-                              <Clock className="w-4 h-4 text-muted-foreground" />
-                            )}
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-medium">{event.action}</p>
-                            <p className="text-sm text-muted-foreground">
-                              by {event.actor} • <TimeDisplay date={event.timestamp} />
-                            </p>
-                            {event.diffSummary && (
-                              <p className="text-sm mt-1">{event.diffSummary}</p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground">No audit events found.</p>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
           </Tabs>
+
+          {/* Audit Events */}
+          {changeSet.auditEvents && changeSet.auditEvents.length > 0 && (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle>Audit Events</CardTitle>
+                <CardDescription>Events related to this change set</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {changeSet.auditEvents.map((event: any) => (
+                    <div key={event.id} className="flex items-start gap-3 pb-4 border-b last:border-0">
+                      <div className="mt-0.5">
+                        {event.action.includes('CREATE') ? (
+                          <GitCommit className="w-4 h-4 text-blue-500" />
+                        ) : event.action.includes('START') ? (
+                          <Play className="w-4 h-4 text-green-500" />
+                        ) : event.action.includes('ROLLBACK') ? (
+                          <RotateCcw className="w-4 h-4 text-yellow-500" />
+                        ) : (
+                          <Clock className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium">{event.action}</p>
+                        <p className="text-sm text-muted-foreground">
+                          by {event.actor} • <TimeDisplay date={event.timestamp} />
+                        </p>
+                        {event.diffSummary && (
+                          <p className="text-sm mt-1">{event.diffSummary}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </DashboardLayout>
