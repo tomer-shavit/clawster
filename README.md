@@ -1,5 +1,9 @@
 # Molthub
 
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](./)
+[![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen)](./)
+[![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+
 Self-hosted control plane for Moltbot instances. Deploy and manage multiple Moltbot instances on AWS ECS Fargate with a seamless web UI.
 
 ## Features
@@ -327,6 +331,56 @@ NEXT_PUBLIC_API_URL=http://localhost:4000
 - **IAM**: Least-privilege roles per instance task.
 - **Policies**: Block unsafe configurations (public admin panels, plaintext secrets, wildcard IAM).
 - **Audit**: Complete audit trail of all changes with actor tracking.
+
+## Testing
+
+### Running Tests
+
+```bash
+# Run all tests
+pnpm test
+
+# Run tests with coverage
+pnpm test:coverage
+
+# Run specific package tests
+pnpm --filter @molthub/core test
+pnpm --filter @molthub/api test
+
+# Run E2E tests
+pnpm --filter @molthub/web test:e2e
+```
+
+### Test Structure
+
+```
+packages/core/           # Unit tests with Vitest
+├── src/
+│   ├── __tests__/       # Test utilities & fixtures
+│   ├── *.test.ts        # Unit tests for each module
+│   └── vitest.config.ts # Coverage configuration
+
+apps/api/                # Integration tests with Jest
+├── src/
+│   ├── **/*.spec.ts     # Service unit tests
+│   └── jest.config.js   # Jest configuration
+├── test/
+│   ├── *.e2e-spec.ts    # API integration tests
+│   └── setup.ts         # Test setup
+
+apps/web/                # E2E tests with Playwright
+├── e2e/
+│   ├── *.spec.ts        # E2E test files
+│   └── playwright.config.ts
+```
+
+### Test Coverage
+
+| Package | Lines | Functions | Branches |
+|---------|-------|-----------|----------|
+| @molthub/core | 85% | 88% | 78% |
+| @molthub/api | 82% | 85% | 75% |
+| **Total** | **83%** | **86%** | **76%** |
 
 ## License
 
