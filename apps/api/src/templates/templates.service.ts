@@ -156,9 +156,12 @@ export class TemplatesService {
     // Create virtual templates for builtins
     const builtinVirtualTemplates = BUILTIN_TEMPLATES.map((t, i) => ({
       id: `builtin-${i}`,
-      ...t,
+      name: t.name,
+      description: t.description,
+      category: t.category,
+      manifestTemplate: t.manifestTemplate as any,
       isBuiltin: true,
-      workspaceId: null,
+      workspaceId: null as string | null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }));
@@ -176,7 +179,10 @@ export class TemplatesService {
       }
       return {
         id,
-        ...template,
+        name: template.name,
+        description: template.description,
+        category: template.category,
+        manifestTemplate: template.manifestTemplate as any,
         isBuiltin: true,
         workspaceId: null,
         createdAt: new Date(),
@@ -198,7 +204,10 @@ export class TemplatesService {
   async create(dto: CreateTemplateDto): Promise<Template> {
     return prisma.template.create({
       data: {
-        ...dto,
+        name: dto.name,
+        description: dto.description,
+        category: dto.category,
+        manifestTemplate: dto.manifestTemplate as any,
         isBuiltin: false,
         workspaceId: "default",
       },

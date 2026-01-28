@@ -61,7 +61,7 @@ export class ManifestsService {
       data: {
         instanceId,
         version: nextVersion,
-        content: dto.content,
+        content: dto.content as any,
         createdBy: "system", // TODO: Get from auth context
       },
     });

@@ -4,14 +4,14 @@ import { Command } from "commander";
 import { bootstrap } from "./commands/bootstrap";
 import { status } from "./commands/status";
 import { doctor } from "./commands/doctor";
-import { version } from "@molthub/core";
+import { MOLTHUB_VERSION } from "@molthub/core";
 
 const program = new Command();
 
 program
   .name("molthub")
   .description("Molthub CLI - Control plane for Moltbot instances")
-  .version(version);
+  .version(MOLTHUB_VERSION);
 
 program
   .command("bootstrap")

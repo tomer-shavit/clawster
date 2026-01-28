@@ -1,4 +1,4 @@
-import { input, confirm } from "@inquirer/prompts";
+import inquirer from "inquirer";
 import chalk from "chalk";
 
 interface BootstrapOptions {
@@ -33,10 +33,12 @@ export async function bootstrap(options: BootstrapOptions) {
   console.log();
 
   // Confirm deployment
-  const shouldProceed = await confirm({
+  const { shouldProceed } = await inquirer.prompt([{
+    type: "confirm",
+    name: "shouldProceed",
     message: "This will create AWS infrastructure. Continue?",
     default: false,
-  });
+  }]);
 
   if (!shouldProceed) {
     console.log(chalk.yellow("Bootstrap cancelled."));

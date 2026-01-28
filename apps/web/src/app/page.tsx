@@ -19,8 +19,8 @@ import {
   LineChartComponent, 
   AreaChartComponent, 
   BarChartComponent,
-  generateTimeSeriesData 
 } from "@/components/ui/charts";
+import { ClientAreaChart, ClientLineChart, ClientBarChart } from "@/components/ui/client-chart";
 import { TimeDisplay } from "@/components/ui/time-display";
 import { api, type Fleet, type FleetHealth, type DashboardMetrics, type DashboardHealth } from "@/lib/api";
 import { 
@@ -57,12 +57,6 @@ async function getDashboardData() {
     return { metrics: null, health: null, fleets: [] };
   }
 }
-
-// Generate mock time series data for charts
-const messageVolumeData = generateTimeSeriesData(24, [100, 500]);
-const latencyData = generateTimeSeriesData(24, [50, 200]);
-const errorRateData = generateTimeSeriesData(24, [0, 5]);
-const costData = generateTimeSeriesData(24, [20, 30]);
 
 export default async function DashboardPage() {
   const { metrics, health, fleets } = await getDashboardData();
@@ -194,7 +188,7 @@ export default async function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <AreaChartComponent data={messageVolumeData} height={200} />
+            <ClientAreaChart height={200} />
           </CardContent>
         </Card>
         <Card>
@@ -208,7 +202,7 @@ export default async function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <LineChartComponent data={latencyData} height={200} />
+            <ClientLineChart height={200} />
           </CardContent>
         </Card>
         <Card>
@@ -222,7 +216,7 @@ export default async function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <BarChartComponent data={costData} height={200} />
+            <ClientBarChart height={200} />
           </CardContent>
         </Card>
       </div>

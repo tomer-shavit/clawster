@@ -9,7 +9,9 @@ module.exports = {
   coverageDirectory: '../coverage',
   testEnvironment: 'node',
   moduleNameMapper: {
-    '^@molthub/core$': '<rootDir>/../../packages/core/src',
-    '^@molthub/database$': '<rootDir>/../../packages/database/src',
+    '^@molthub/core$': '<rootDir>/../../../packages/core/src',
+    '^@molthub/database$': '<rootDir>/../../../packages/database/src',
+    '^@molthub/adapters-aws$': '<rootDir>/../../../packages/adapters-aws/src',
   },
+  setupFiles: ['<rootDir>/../jest.setup.js'],
 };

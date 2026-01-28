@@ -34,7 +34,7 @@ export class AuditService {
         resourceId,
         workspaceId,
         diffSummary,
-        metadata: metadata || {},
+        metadata: (metadata || {}) as any,
       },
     });
   }

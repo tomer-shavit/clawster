@@ -141,7 +141,7 @@ export class DriftDetectionService {
               instanceId: instance.id,
               eventType: "DRIFT_DETECTED",
               message: `Drift detected: ${result.differences.map(d => d.field).join(", ")}`,
-              metadata: { differences: result.differences },
+              metadata: { differences: result.differences } as any,
             },
           });
         }

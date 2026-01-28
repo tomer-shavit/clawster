@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { MetricCard } from "@/components/dashboard/metric-card";
-import { AreaChartComponent, generateTimeSeriesData } from "@/components/ui/charts";
+import { ClientAreaChart } from "@/components/ui/client-chart";
 import { TimeDisplay } from "@/components/ui/time-display";
 import { api, type Fleet, type FleetHealth, type BotInstance } from "@/lib/api";
 import { notFound } from "next/navigation";
@@ -49,8 +49,6 @@ async function getFleetHealth(id: string): Promise<FleetHealth | null> {
     return null;
   }
 }
-
-const throughputData = generateTimeSeriesData(24, [50, 200]);
 
 export default async function FleetDetailPage({ params }: { params: { id: string } }) {
   const [fleet, health] = await Promise.all([
@@ -192,7 +190,7 @@ export default async function FleetDetailPage({ params }: { params: { id: string
             <CardDescription>Messages per minute</CardDescription>
           </CardHeader>
           <CardContent>
-            <AreaChartComponent data={throughputData} height={200} />
+            <ClientAreaChart height={200} />
           </CardContent>
         </Card>
 
