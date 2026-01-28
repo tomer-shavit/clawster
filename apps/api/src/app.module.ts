@@ -8,6 +8,7 @@ import { FleetModule } from "./fleets/fleets.module";
 import { ProfilesModule } from "./profiles/profiles.module";
 import { OverlaysModule } from "./overlays/overlays.module";
 import { PolicyPacksModule } from "./policy-packs/policy-packs.module";
+import { ConnectorsModule } from "./connectors/connectors.module";
 import { ManifestsModule } from "./manifests/manifests.module";
 import { TemplatesModule } from "./templates/templates.module";
 import { AuditModule } from "./audit/audit.module";
@@ -33,6 +34,7 @@ import { HealthModule } from "./health/health.module";
     ProfilesModule,
     OverlaysModule,
     PolicyPacksModule,
+    ConnectorsModule,
     ManifestsModule,
     TemplatesModule,
     AuditModule,
