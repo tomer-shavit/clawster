@@ -19,6 +19,7 @@ import { MetricsModule } from "./metrics/metrics.module";
 import { HealthModule } from "./health/health.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { SkillPacksModule } from "./skill-packs/skill-packs.module";
+import { ChannelsModule } from "./channels/channels.module";
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { SkillPacksModule } from "./skill-packs/skill-packs.module";
     MetricsModule,
     DashboardModule,
     SkillPacksModule,
+    ChannelsModule,
   ],
 })
 export class AppModule {}

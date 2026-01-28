@@ -27,6 +27,7 @@ model Workspace {
   integrationConnectors IntegrationConnector[]
   auditEvents           AuditEvent[]
   skillPacks            SkillPack[]
+  communicationChannels CommunicationChannel[]
 
   @@index([slug])
 }
@@ -157,6 +158,7 @@ model BotInstance {
   changeSets        ChangeSet[]
   traces            Trace[]
   skillPacks        BotInstanceSkillPack[]
+  channelBindings   BotChannelBinding[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
@@ -630,14 +632,129 @@ model BotInstanceSkillPack {
   botInstance   BotInstance @relation(fields: [botInstanceId], references: [id], onDelete: Cascade)
   skillPackId   String
   skillPack     SkillPack   @relation(fields: [skillPackId], references: [id], onDelete: Cascade)
-  
+
   // Instance-specific overrides (merged with pack defaults)
   envOverrides Json @default("{}")
-  
+
   // When this pack was attached to the bot
   attachedAt DateTime @default(now())
-  
+
   @@unique([botInstanceId, skillPackId])
   @@index([botInstanceId])
   @@index([skillPackId])
+}
+
+// ============================================
+// COMMUNICATION CHANNELS
+// Configure and monitor messaging channels per bot
+// ============================================
+
+enum ChannelType {
+  SLACK
+  TELEGRAM
+  DISCORD
+  EMAIL
+  WEBHOOK
+  SMS
+  PUSHOVER
+  CUSTOM
+}
+
+enum ChannelStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+  PENDING
+  DEGRADED
+}
+
+model CommunicationChannel {
+  id          String   @id @default(cuid())
+  name        String   // e.g., "Support Slack", "Alerts Telegram"
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  type ChannelType
+
+  // Channel configuration (type-specific)
+  // Slack: { token: string, channelId?: string }
+  // Telegram: { botToken: string, chatId?: string }
+  // Discord: { botToken: string, guildId?: string, channelId?: string }
+  // Email: { smtpHost, smtpPort, username, password, fromAddress }
+  // Webhook: { url, headers?, secret? }
+  config Json
+
+  // Default settings for this channel
+  defaults Json @default("{}")
+  // e.g., { mentionOnError: true, quietHours: { start: "22:00", end: "08:00" } }
+
+  // Status tracking
+  status        ChannelStatus @default(PENDING)
+  statusMessage String?
+  lastTestedAt  DateTime?
+  lastError     String?
+  errorCount    Int @default(0)
+
+  // Health metrics
+  messagesSent     Int @default(0)
+  messagesFailed   Int @default(0)
+  lastMessageAt    DateTime?
+  lastActivityAt   DateTime?
+
+  // Sharing
+  isShared Boolean @default(true)  // Can be used by multiple bots
+
+  tags Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+
+  // Relations
+  botBindings BotChannelBinding[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@index([type])
+  @@index([status])
+}
+
+// Binding between Bot and CommunicationChannel
+model BotChannelBinding {
+  id        String @id @default(cuid())
+  botId     String
+  bot       BotInstance @relation(fields: [botId], references: [id], onDelete: Cascade)
+  channelId String
+  channel   CommunicationChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  // Purpose: notifications, alerts, user-messages, logs, etc.
+  purpose String @default("notifications")
+
+  // Bot-specific overrides (merged with channel defaults)
+  settings Json @default("{}")
+  // e.g., {
+  //   filters: [{ type: "error", minSeverity: "high" }],
+  //   formatting: "markdown",
+  //   mentionUsers: ["@admin"],
+  //   includeMetadata: true
+  // }
+
+  // Target destination (overrides channel default)
+  // Slack: specific channel ID
+  // Telegram: specific chat ID
+  // Email: specific recipients
+  targetDestination Json?
+
+  // Status
+  isActive Boolean @default(true)
+  healthStatus String @default("UNKNOWN") // HEALTHY, UNHEALTHY, UNKNOWN
+  lastHealthCheck DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([botId, channelId, purpose])
+  @@index([botId])
+  @@index([channelId])
+  @@index([purpose])
 }

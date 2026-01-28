@@ -1,0 +1,113 @@
+// Database migration for Communication Channels feature
+// Created: 2026-01-28
+
+model CommunicationChannel {
+  id          String   @id @default(cuid())
+  name        String   // e.g., "Support Slack", "Alerts Telegram"
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  // Channel type
+  type ChannelType
+  
+  // Channel configuration (type-specific)
+  // Slack: { token: string, channelId?: string }
+  // Telegram: { botToken: string, chatId?: string }
+  // Discord: { botToken: string, guildId?: string, channelId?: string }
+  // Email: { smtpHost, smtpPort, username, password, fromAddress }
+  // Webhook: { url, headers?, secret? }
+  config Json
+  
+  // Default settings for this channel
+  defaults Json @default("{}")
+  // e.g., { mentionOnError: true, quietHours: { start: "22:00", end: "08:00" } }
+  
+  // Status tracking
+  status        ChannelStatus @default(PENDING)
+  statusMessage String?
+  lastTestedAt  DateTime?
+  lastError     String?
+  errorCount    Int @default(0)
+  
+  // Health metrics
+  messagesSent     Int @default(0)
+  messagesFailed   Int @default(0)
+  lastMessageAt    DateTime?
+  lastActivityAt   DateTime?
+  
+  // Sharing
+  isShared Boolean @default(true)  // Can be used by multiple bots
+  
+  tags Json @default("{}")
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+  
+  // Relations
+  botBindings BotChannelBinding[]
+  
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@index([type])
+  @@index([status])
+}
+
+enum ChannelType {
+  SLACK
+  TELEGRAM
+  DISCORD
+  EMAIL
+  WEBHOOK
+  SMS
+  PUSHOVER
+  CUSTOM
+}
+
+enum ChannelStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+  PENDING
+  DEGRADED
+}
+
+// Binding between Bot and CommunicationChannel
+model BotChannelBinding {
+  id        String @id @default(cuid())
+  botId     String
+  bot       BotInstance @relation(fields: [botId], references: [id], onDelete: Cascade)
+  channelId String
+  channel   CommunicationChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  
+  // Purpose: notifications, alerts, user-messages, logs, etc.
+  purpose String @default("notifications")
+  
+  // Bot-specific overrides (merged with channel defaults)
+  settings Json @default("{}")
+  // e.g., { 
+  //   filters: [{ type: "error", minSeverity: "high" }],
+  //   formatting: "markdown",
+  //   mentionUsers: ["@admin"],
+  //   includeMetadata: true
+  // }
+  
+  // Target destination (overrides channel default)
+  // Slack: specific channel ID
+  // Telegram: specific chat ID
+  // Email: specific recipients
+  targetDestination Json?
+  
+  // Status
+  isActive Boolean @default(true)
+  healthStatus String @default("UNKNOWN") // HEALTHY, UNHEALTHY, UNKNOWN
+  lastHealthCheck DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([botId, channelId, purpose])
+  @@index([botId])
+  @@index([channelId])
+  @@index([purpose])
+}
