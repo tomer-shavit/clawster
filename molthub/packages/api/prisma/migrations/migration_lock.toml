@@ -1,0 +1,9 @@
+{
+  "name": "20240128000000_init",
+  "migrations": [
+    {
+      "name": "20240128000000_init",
+      "sql": "migration.sql"
+    }
+  ]
+}

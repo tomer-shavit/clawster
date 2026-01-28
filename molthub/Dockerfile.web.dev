@@ -1,0 +1,33 @@
+# Development Dockerfile for Web Service
+# Optimized for hot reload with volume mounts
+
+FROM node:20-alpine
+
+# Install necessary packages for development
+RUN apk add --no-cache \
+    libc6-compat \
+    git
+
+WORKDIR /app
+
+# Copy package files first for better layer caching
+COPY package*.json ./
+COPY turbo.json ./
+COPY packages/web/package*.json ./packages/web/
+COPY packages/shared/package*.json ./packages/shared/
+
+# Install dependencies
+RUN npm ci
+
+# Copy source files (will be overridden by volume mount in dev)
+COPY packages/shared ./packages/shared
+COPY packages/web ./packages/web
+
+# Build shared package first (required by web)
+RUN npm run build --workspace=@molthub/shared
+
+# Expose port
+EXPOSE 3000
+
+# Default command (can be overridden in docker-compose)
+CMD ["npm", "run", "dev", "--workspace=@molthub/web"]

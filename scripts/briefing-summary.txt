@@ -1,0 +1,81 @@
+=== Daily Tech & AI Briefing ===
+Date: 2026-01-26 21:21:06 UTC
+
+## Key Stories
+
+### https://hnrss.org/frontpage
+]]>Mon, 26 Jan 2026 19:19:40 +0000https://simonwillison.net/2026/Jan/26/chatgpt-containers/simonwhttps://news.ycombinator.com/item?id=46770221https://news.ycombinator.com/item?id=46770221<![CDATA[
+]]>Mon, 26 Jan 2026 18:19:45 +0000https://ourguide.aieshaangulatihttps://news.ycombinator.com/item?id=46769422https://news.ycombinator.com/item?id=46769422<![CDATA[
+]]>Mon, 26 Jan 2026 16:43:30 +0000https://signoregalilei.com/2026/01/18/the-mountain-that-weighed-the-earth/surprisetalkhttps://news.ycombinator.com/item?id=46767875https://news.ycombinator.com/item?id=46767875<![CDATA[
+]]>Mon, 26 Jan 2026 15:38:50 +0000https://www.greptile.com/blog/ai-code-review-bubbledakshguptahttps://news.ycombinator.com/item?id=46766961https://news.ycombinator.com/item?id=46766961<![CDATA[
+]]>Mon, 26 Jan 2026 15:23:00 +0000https://qwen.ai/blog?id=qwen3-max-thinkingvinhnxhttps://news.ycombinator.com/item?id=46766741https://news.ycombinator.com/item?id=46766741<![CDATA[
+]]>Mon, 26 Jan 2026 15:01:03 +0000https://llmspy.org/docs/v3mythzhttps://news.ycombinator.com/item?id=46766432https://news.ycombinator.com/item?id=46766432<![CDATA[
+]]>Mon, 26 Jan 2026 14:27:00 +0000https://www.theguardian.com/technology/2026/jan/24/google-ai-overviews-youtube-medical-citations-studybookofjoehttps://news.ycombinator.com/item?id=46766031https://news.ycombinator.com/item?id=46766031<![CDATA[
+
+### https://techcrunch.com/feed/
+	Startup and Technology News
+		AI startup CVector raises $5M for its industrial &#8216;nervous system&#8217;
+		https://techcrunch.com/2026/01/26/ai-startup-cvector-raises-5m-for-its-industrial-nervous-system/
+		Anthropic launches interactive Claude apps, including Slack and other workplace tools
+		https://techcrunch.com/2026/01/26/anthropic-launches-interactive-claude-apps-including-slack-and-other-workplace-tools/
+		VC firm 2150 raises €210M fund to solve cities’ climate challenges
+		https://techcrunch.com/2026/01/26/vc-firm-2150-raises-e210m-fund-to-solve-cities-climate-challenges/
+		Tech workers call for CEOs to speak up against ICE after the killing of Alex Pretti
+		https://techcrunch.com/2026/01/26/tech-workers-call-for-ceos-to-speak-up-against-ice-after-the-killing-of-alex-pretti/
+		Microsoft announces powerful new chip for AI inference
+		https://techcrunch.com/2026/01/26/microsoft-announces-powerful-new-chip-for-ai-inference/
+		Nvidia invests $2B to help debt-ridden CoreWeave add 5GW of AI compute
+		https://techcrunch.com/2026/01/26/nvidia-invests-2b-to-help-debt-ridden-coreweave-add-5gw-of-ai-compute/
+		Apple&#8217;s new AirTag is louder and can be found across longer distances
+		https://techcrunch.com/2026/01/26/apples-new-airtag-is-louder-and-can-be-found-across-longer-distances/
+		Nvidia’s new AI weather models probably saw this storm coming weeks ago
+		https://techcrunch.com/2026/01/26/nvidias-new-ai-weather-models-probably-saw-this-storm-coming-weeks-ago/
+		This founder cracked firefighting &#8212; now he&#8217;s creating an AI gold mine
+		https://techcrunch.com/2026/01/25/this-founder-cracked-firefighting-now-hes-creating-an-ai-gold-mine/
+		ChatGPT is pulling answers from Elon Musk’s Grokipedia
+
+### https://www.theverge.com/rss/index.xml
+
+### https://feeds.arstechnica.com/arstechnica/index
+                Apple's AirTag 2 is easier to find thanks to new chip
+                https://arstechnica.com/gadgets/2026/01/apple-introduces-new-airtag-with-better-range-and-a-louder-speaker/
+                “Wildly irresponsible”: DOT's use of AI to draft safety rules sparks concerns
+                https://arstechnica.com/tech-policy/2026/01/wildly-irresponsible-dots-use-of-ai-to-draft-safety-rules-sparks-concerns/
+                The brothers meet Yoshi in Super Mario Galaxy Movie trailer
+                https://arstechnica.com/culture/2026/01/yoshi-joins-the-fun-in-latest-super-mario-galaxy-movie-trailer/
+                How to get Doom running on a pair of earbuds
+                https://arstechnica.com/gaming/2026/01/how-to-get-doom-running-on-a-pair-of-earbuds/
+                EU launches formal investigation of xAI over Grok's sexualized deepfakes
+                https://arstechnica.com/tech-policy/2026/01/eu-launches-formal-investigation-of-xai-over-groks-sexualized-deepfakes/
+                https://arstechnica.com/security/2026/01/wiper-malware-targeted-poland-energy-grid-but-failed-to-knock-out-electricity/
+                TR-49 is interactive fiction for fans of deep research rabbit holes
+                https://arstechnica.com/gaming/2026/01/tr-49-is-interactive-fiction-for-fans-of-deep-research-rabbit-holes/
+                https://arstechnica.com/gadgets/2026/01/core-ultra-series-3-launch-may-be-hampered-by-chip-shortages-says-intel/
+                DHS keeps trying and failing to unmask anonymous ICE critics online
+                TikTok deal is done; Trump wants praise while users fear MAGA tweaks
+                https://arstechnica.com/tech-policy/2026/01/tiktok-finalizes-trump-deal-that-allows-bytedance-to-maintain-some-control/
+                Rocket Report: Chinese rockets fail twice in 12 hours; Rocket Lab reports setback
+                https://arstechnica.com/space/2026/01/rocket-report-rocket-lab-reports-neutron-setback-australia-backs-launch-startup/
+
+### https://feeds.a.dj.com/rss/RSSMarketsMain.xml
+Stocks Sink in Broad AI Rout Sparked by China's DeepSeek
+https://www.wsj.com/articles/nikkei-may-rise-as-weak-yen-raises-earnings-hopes-776a8056?mod=rss_markets_main
+https://www.wsj.com/articles/gold-edges-lower-feds-rate-decision-in-focus-09dbfceb?mod=rss_markets_main
+DeepSeek Won't Sink U.S. AI Titans
+https://www.wsj.com/articles/deepseek-us-ai-stocks-nvidia-broadcom-6cdfae81?mod=rss_markets_main
+https://www.wsj.com/articles/financial-services-roundup-market-talk-94f52cba?mod=rss_markets_main
+https://www.wsj.com/articles/arabica-coffee-prices-hit-new-high-on-u-s-colombia-tariff-spat-582446fe?mod=rss_markets_main
+https://www.wsj.com/articles/safe-haven-currencies-strengthen-amid-fears-over-global-tariffs-9964e17a?mod=rss_markets_main
+https://www.wsj.com/articles/u-s-natural-gas-futures-fall-on-shifting-weather-forecasts-1ef3e457?mod=rss_markets_main
+Building-Products Distributor QXO Launches Hostile Bid for Beacon
+https://www.wsj.com/articles/building-products-distributor-qxo-launching-hostile-bid-for-beacon-de024410?mod=rss_markets_main
+https://www.wsj.com/articles/natural-gas-firm-diversified-energy-nears-deal-for-permian-basin-player-4c1c5ff5?mod=rss_markets_main
+https://www.wsj.com/articles/tax-season-2024-irs-filing-dates-explained-628a8b37?mod=rss_markets_main
+https://www.wsj.com/articles/chinese-investors-with-few-options-turn-to-dividends-ad31dcc4?mod=rss_markets_main
+https://www.wsj.com/articles/jgbs-consolidate-supported-by-u-s-treasurys-gains-7edccc7d?mod=rss_markets_main
+Russia's Crude Exports Fairly Stable Despite U.S. Sanctions, Goldman Says
+https://www.wsj.com/articles/oil-futures-fall-after-trump-calls-for-tariffs-on-colombia-5b2a178c?mod=rss_markets_main
+https://www.wsj.com/articles/the-extra-reward-for-owning-stocks-over-bonds-has-disappeared-c3f9c223?mod=rss_markets_main
+https://www.wsj.com/articles/heard-on-the-streets-stock-picking-series-98f04640?mod=rss_markets_main
+https://www.wsj.com/articles/what-will-it-take-for-home-buyers-to-start-asking-for-a-disaster-discount-c662cb96?mod=rss_markets_main
+

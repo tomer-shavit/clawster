@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Fleet {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  bots        Bot[]
+  
+  @@map("fleets")
+}
+
+model BotTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  version     String   @default("1.0.0")
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  bots        Bot[]
+  
+  @@map("bot_templates")
+}
+
+model Bot {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("IDLE")
+  config      Json     @default("{}")
+  fleetId     String
+  templateId  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  fleet       Fleet    @relation(fields: [fleetId], references: [id])
+  template    BotTemplate @relation(fields: [templateId], references: [id])
+  
+  @@map("bots")
+}

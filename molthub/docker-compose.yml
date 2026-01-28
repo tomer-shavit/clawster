@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: molthub-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-molthub_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - molthub-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: molthub-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - molthub-network
+
+  # API Service (NestJS with hot reload)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api.dev
+    container_name: molthub-api
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/molthub_dev}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-do-not-use-in-production}
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:3001}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+    ports:
+      - "${API_PORT:-3001}:3000"
+    volumes:
+      # Mount source code for hot reload
+      - ./packages/api:/app/packages/api
+      - ./packages/shared:/app/packages/shared
+      - ./turbo.json:/app/turbo.json
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
+      # Anonymous volumes to prevent node_modules overwriting
+      - /app/node_modules
+      - /app/packages/api/node_modules
+      - /app/packages/shared/node_modules
+      - /app/packages/api/dist
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - molthub-network
+    command: ["npm", "run", "dev", "--workspace=@molthub/api"]
+
+  # Web Frontend (Next.js with hot reload)
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web.dev
+    container_name: molthub-web
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      API_BASE_URL: ${API_BASE_URL:-http://api:3000}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    volumes:
+      # Mount source code for hot reload
+      - ./packages/web:/app/packages/web
+      - ./packages/shared:/app/packages/shared
+      - ./turbo.json:/app/turbo.json
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
+      # Anonymous volumes to prevent node_modules overwriting
+      - /app/node_modules
+      - /app/packages/web/node_modules
+      - /app/packages/shared/node_modules
+      - /app/packages/web/.next
+    depends_on:
+      - api
+    networks:
+      - molthub-network
+    command: ["npm", "run", "dev", "--workspace=@molthub/web"]
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  molthub-network:
+    driver: bridge
