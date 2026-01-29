@@ -1,6 +1,5 @@
 import { InstanceManifest } from "@molthub/core";
-import { spawn, exec } from "child_process";
-import { promisify } from "util";
+import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
@@ -21,8 +20,6 @@ import {
   LogResult,
   LogEvent,
 } from "../../interface/provider";
-
-const execAsync = promisify(exec);
 
 export interface SelfHostedConfig extends CloudProviderConfig {
   dockerHost?: string;
@@ -321,12 +318,13 @@ volumes:
     // Clean up secrets
     const instance = await this.getContainer(instanceId);
     if (instance) {
-      const secretsPattern = path.join(this.secretsDir!, `${instance.name}_*`);
       try {
-        const { stdout } = await execAsync(`ls ${secretsPattern}`);
-        const files = stdout.trim().split("\n");
+        const files = await fs.readdir(this.secretsDir!);
+        const prefix = `${instance.name}_`;
         for (const file of files) {
-          if (file) await fs.unlink(file);
+          if (file.startsWith(prefix)) {
+            await fs.unlink(path.join(this.secretsDir!, file));
+          }
         }
       } catch {
         // No secrets to clean up
@@ -496,15 +494,27 @@ volumes:
   }
 
   private async execDocker(args: string[]): Promise<{ stdout: string; stderr: string }> {
-    const command = this.dockerHost 
-      ? `docker -H ${this.dockerHost} ${args.join(" ")}`
-      : `docker ${args.join(" ")}`;
+    const dockerArgs = this.dockerHost
+      ? ["-H", this.dockerHost, ...args]
+      : args;
 
-    try {
-      return await execAsync(command);
-    } catch (error) {
-      throw new Error(`Docker command failed: ${(error as Error).message}`);
-    }
+    return new Promise((resolve, reject) => {
+      const child = spawn("docker", dockerArgs, { stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (data: string | Uint8Array) => { stdout += data.toString(); });
+      child.stderr.on("data", (data: string | Uint8Array) => { stderr += data.toString(); });
+      child.on("close", (code: number | null) => {
+        if (code !== 0) {
+          reject(new Error(`Docker command failed (exit ${code}): ${stderr}`));
+        } else {
+          resolve({ stdout, stderr });
+        }
+      });
+      child.on("error", (err) => {
+        reject(new Error(`Docker command failed: ${err.message}`));
+      });
+    });
   }
 
   /**

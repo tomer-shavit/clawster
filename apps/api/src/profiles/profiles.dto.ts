@@ -1,20 +1,24 @@
-import { 
-  IsString, 
-  IsOptional, 
-  IsObject, 
-  IsArray, 
-  IsNumber, 
-  IsBoolean 
+import {
+  IsString,
+  IsOptional,
+  IsObject,
+  IsArray,
+  IsNumber,
+  IsBoolean,
+  MaxLength
 } from "class-validator";
 
 export class CreateProfileDto {
   @IsString()
+  @MaxLength(255)
   workspaceId: string;
 
   @IsString()
+  @MaxLength(255)
   name: string;
 
   @IsString()
+  @MaxLength(1000)
   description: string;
 
   @IsArray()

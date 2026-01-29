@@ -1,11 +1,13 @@
-import { IsString, IsObject, IsOptional, IsBoolean, IsEnum, IsJSON } from "class-validator";
+import { IsString, IsObject, IsOptional, IsBoolean, IsEnum, IsJSON, MaxLength } from "class-validator";
 import { ChannelType, ChannelStatus } from "@molthub/database";
 
 export class CreateChannelDto {
   @IsString()
+  @MaxLength(255)
   name: string;
 
   @IsString()
+  @MaxLength(255)
   workspaceId: string;
 
   @IsEnum(ChannelType)

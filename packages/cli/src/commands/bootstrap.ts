@@ -46,7 +46,7 @@ export async function bootstrap(options: CLIBootstrapOptions) {
 
   // Interactive wizard if not all options provided
   let config = await gatherConfiguration(options);
-  
+
   // Check prerequisites
   const prereqSpinner = ora("Checking prerequisites...").start();
   const prereqs = await checkPrerequisites(config.provider);
@@ -179,7 +179,7 @@ export async function bootstrap(options: CLIBootstrapOptions) {
     console.log(chalk.gray("  4. Create admin user: ") + chalk.cyan("molthub auth:create-user"));
     console.log(chalk.gray("  5. Start the API: ") + chalk.cyan("molthub dev:api"));
     console.log();
-    
+
     if (config.provider === "aws") {
       console.log(chalk.white("AWS Console URLs:"));
       console.log(chalk.gray(`  ECS Cluster: ${provider.getConsoleUrl("cluster", resources.clusterId)}`));
@@ -374,6 +374,14 @@ async function checkPrerequisites(provider: CloudProviderType): Promise<{
   return { allPassed, checks };
 }
 
+function generateRandomPassword(): string {
+  return require("crypto").randomBytes(16).toString("hex");
+}
+
+function generateRandomSecret(): string {
+  return require("crypto").randomBytes(32).toString("base64");
+}
+
 function generateEnvVars(config: ConfigFile): string {
   const lines: string[] = [
     `# Molthub Configuration - ${config.workspace}`,
@@ -392,7 +400,7 @@ function generateEnvVars(config: ConfigFile): string {
       `AWS_REGION=${config.region}`,
       `ECS_CLUSTER_ARN=${config.resources.clusterId}`,
     );
-    
+
     if (config.resources.iam.executionRoleArn) {
       lines.push(`ECS_EXECUTION_ROLE_ARN=${config.resources.iam.executionRoleArn}`);
     }
@@ -415,10 +423,10 @@ function generateEnvVars(config: ConfigFile): string {
   lines.push(
     "",
     `# Database (update with your settings)`,
-    `DATABASE_URL=postgresql://molthub:molthub@localhost:5432/molthub`,
+    `DATABASE_URL=postgresql://molthub:${generateRandomPassword()}@localhost:5432/molthub`,
     "",
     `# JWT Secret (generate with: openssl rand -base64 32)`,
-    `JWT_SECRET=change-me-in-production`,
+    `JWT_SECRET=${generateRandomSecret()}`,
     "",
     `# API Configuration`,
     `PORT=4000`,

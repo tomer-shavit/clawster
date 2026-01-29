@@ -28,8 +28,8 @@ export class WebhookValidationService {
     const prefix = options?.signaturePrefix || "sha256=";
 
     // Remove prefix if present
-    const actualSignature = signature.startsWith(prefix) 
-      ? signature.slice(prefix.length) 
+    const actualSignature = signature.startsWith(prefix)
+      ? signature.slice(prefix.length)
       : signature;
 
     const expectedSignature = createHmac(algorithm, secret)
@@ -69,7 +69,11 @@ export class WebhookValidationService {
     // Check timestamp is recent (prevent replay attacks)
     const now = Math.floor(Date.now() / 1000);
     const requestTime = parseInt(timestamp, 10);
-    
+
+    if (isNaN(requestTime)) {
+      return { valid: false, error: "Invalid timestamp" };
+    }
+
     if (Math.abs(now - requestTime) > 300) {
       return { valid: false, error: "Request timestamp too old" };
     }

@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
+import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { ScheduleModule } from "@nestjs/schedule";
 import { configValidationSchema } from "./config/validation";
 import { InstancesModule } from "./instances/instances.module";
@@ -20,6 +22,8 @@ import { HealthModule } from "./health/health.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { SkillPacksModule } from "./skill-packs/skill-packs.module";
 import { ChannelsModule } from "./channels/channels.module";
+import { AuthModule } from "./auth/auth.module";
+import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 
 @Module({
   imports: [
@@ -32,6 +36,11 @@ import { ChannelsModule } from "./channels/channels.module";
       },
     }),
     ScheduleModule.forRoot(),
+    ThrottlerModule.forRoot([{
+      ttl: 60000,
+      limit: 100,
+    }]),
+    AuthModule,
     HealthModule,
     InstancesModule,
     BotInstancesModule,
@@ -50,6 +59,16 @@ import { ChannelsModule } from "./channels/channels.module";
     DashboardModule,
     SkillPacksModule,
     ChannelsModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}

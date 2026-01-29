@@ -1,24 +1,29 @@
-import { 
-  IsString, 
-  IsOptional, 
-  IsObject, 
+import {
+  IsString,
+  IsOptional,
+  IsObject,
   IsBoolean,
   IsEnum,
-  IsArray
+  IsArray,
+  MaxLength
 } from "class-validator";
 import { ConnectorStatus } from "@molthub/database";
 
 export class CreateConnectorDto {
   @IsString()
+  @MaxLength(255)
   workspaceId: string;
 
   @IsString()
+  @MaxLength(255)
   name: string;
 
   @IsString()
+  @MaxLength(255)
   description: string;
 
   @IsString()
+  @MaxLength(255)
   type: string;
 
   @IsObject()

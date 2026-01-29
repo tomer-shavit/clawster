@@ -19,13 +19,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>("JWT_SECRET") || "change-me-in-production",
+      secretOrKey: (() => {
+        const secret = configService.get<string>("JWT_SECRET");
+        if (!secret) throw new Error("JWT_SECRET environment variable is required");
+        return secret;
+      })(),
     });
   }
 
   async validate(payload: JwtPayload): Promise<{ userId: string; username: string; role: string }> {
     const user = await this.authService.getUserById(payload.sub);
-    
+
     if (!user) {
       throw new UnauthorizedException();
     }

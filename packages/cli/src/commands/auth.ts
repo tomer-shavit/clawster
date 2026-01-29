@@ -178,12 +178,16 @@ export async function login(options: {
     }
 
     // Generate JWT
-    const jwtSecret = process.env.JWT_SECRET || "development-secret-change-in-production";
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      spinner.fail("JWT_SECRET environment variable is required. Set it before logging in.");
+      process.exit(1);
+    }
     const token = jwt.sign(
-      { 
-        sub: user.id, 
-        username: user.username, 
-        role: user.role 
+      {
+        sub: user.id,
+        username: user.username,
+        role: user.role
       },
       jwtSecret,
       { expiresIn: "24h" }
@@ -261,7 +265,7 @@ export async function deleteUser(options: { username?: string }) {
     }
 
     const db: UsersDb = await fs.readJson(USERS_FILE);
-    
+
     if (db.users.length === 0) {
       console.log(chalk.yellow("No users to delete."));
       return;

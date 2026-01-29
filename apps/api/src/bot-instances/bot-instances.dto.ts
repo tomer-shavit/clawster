@@ -1,20 +1,24 @@
-import { 
-  IsString, 
-  IsOptional, 
-  IsEnum, 
-  IsObject, 
-  IsArray 
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsObject,
+  IsArray,
+  MaxLength
 } from "class-validator";
 import { BotStatus, BotHealth, Environment } from "@molthub/database";
 
 export class CreateBotInstanceDto {
   @IsString()
+  @MaxLength(255)
   workspaceId: string;
 
   @IsString()
+  @MaxLength(255)
   fleetId: string;
 
   @IsString()
+  @MaxLength(255)
   name: string;
 
   @IsString()
