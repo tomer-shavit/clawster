@@ -10,7 +10,7 @@ export const PolicyRuleType = z.enum([
   "forbidden_field",
   "field_format",
   "field_range",
-  
+
   // Security rules
   "require_secret_manager",
   "forbid_public_admin",
@@ -18,16 +18,28 @@ export const PolicyRuleType = z.enum([
   "require_image_pinning",
   "require_network_isolation",
   "forbid_wildcard_iam",
-  
+
   // Operational rules
   "require_health_check",
   "require_observability",
   "resource_limits",
   "scaling_limits",
-  
+
   // Custom validation
   "custom_json_schema",
   "custom_regex",
+
+  // Moltbot-specific security rules
+  "require_gateway_auth",
+  "require_dm_policy",
+  "require_config_permissions",
+  "forbid_elevated_tools",
+  "require_sandbox",
+  "limit_tool_profile",
+  "require_model_guardrails",
+  "require_workspace_isolation",
+  "require_port_spacing",
+  "forbid_open_group_policy",
 ]);
 export type PolicyRuleType = z.infer<typeof PolicyRuleType>;
 
@@ -126,6 +138,82 @@ export const PolicyRuleSchema = z.object({
       pattern: z.string(),
       flags: z.string().default(""),
       message: z.string(),
+    }),
+
+    // Moltbot: Gateway must have token/password auth
+    z.object({
+      type: z.literal("require_gateway_auth"),
+      enabled: z.boolean().default(true),
+      message: z.string().optional(),
+    }),
+
+    // Moltbot: dmPolicy must not be "open" in production
+    z.object({
+      type: z.literal("require_dm_policy"),
+      forbiddenValues: z.array(z.string()).default(["open"]),
+      allowedValues: z.array(z.string()).optional(), // e.g. ["pairing", "allowlist"]
+      message: z.string().optional(),
+    }),
+
+    // Moltbot: File permissions must be 600/700
+    z.object({
+      type: z.literal("require_config_permissions"),
+      configFileMode: z.string().default("600"),
+      stateDirMode: z.string().default("700"),
+      message: z.string().optional(),
+    }),
+
+    // Moltbot: Elevated tools must have allowFrom restrictions
+    z.object({
+      type: z.literal("forbid_elevated_tools"),
+      enabled: z.boolean().default(true),
+      message: z.string().optional(),
+    }),
+
+    // Moltbot: Docker sandbox required in non-dev environments
+    z.object({
+      type: z.literal("require_sandbox"),
+      enabled: z.boolean().default(true),
+      allowedModes: z.array(z.string()).default(["docker", "container"]),
+      message: z.string().optional(),
+    }),
+
+    // Moltbot: "full" tool profile not allowed in production
+    z.object({
+      type: z.literal("limit_tool_profile"),
+      forbiddenProfiles: z.array(z.string()).default(["full"]),
+      message: z.string().optional(),
+    }),
+
+    // Moltbot: Model restrictions for production
+    z.object({
+      type: z.literal("require_model_guardrails"),
+      enabled: z.boolean().default(true),
+      requireMaxTokens: z.boolean().default(true),
+      requireTemperatureLimit: z.boolean().default(true),
+      maxTemperature: z.number().default(1.0),
+      message: z.string().optional(),
+    }),
+
+    // Moltbot: Each instance must have unique workspace
+    z.object({
+      type: z.literal("require_workspace_isolation"),
+      enabled: z.boolean().default(true),
+      message: z.string().optional(),
+    }),
+
+    // Moltbot: 20+ port gap between instances
+    z.object({
+      type: z.literal("require_port_spacing"),
+      minimumGap: z.number().int().default(20),
+      message: z.string().optional(),
+    }),
+
+    // Moltbot: groupPolicy must not be "open" in production
+    z.object({
+      type: z.literal("forbid_open_group_policy"),
+      forbiddenValues: z.array(z.string()).default(["open"]),
+      message: z.string().optional(),
     }),
   ]),
   

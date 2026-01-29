@@ -1,0 +1,135 @@
+import {
+  DeploymentTarget,
+  DeploymentTargetType,
+  DeploymentTargetConfig,
+} from "../interface/deployment-target";
+import { LocalMachineTarget } from "./local/local-target";
+import { RemoteVMTarget } from "./remote-vm/remote-vm-target";
+import { DockerContainerTarget } from "./docker/docker-target";
+import { KubernetesTarget } from "./kubernetes/kubernetes-target";
+
+/**
+ * Factory for creating DeploymentTarget instances based on configuration.
+ *
+ * Supports creating targets for local machines, remote VMs (SSH),
+ * Docker containers, and Kubernetes deployments.
+ */
+export class DeploymentTargetFactory {
+  /**
+   * Create a deployment target from a typed configuration object.
+   *
+   * @param config - Configuration specifying the target type and its settings
+   * @returns A DeploymentTarget instance ready for use
+   * @throws Error if the target type is unknown or configuration is invalid
+   */
+  static create(config: DeploymentTargetConfig): DeploymentTarget {
+    switch (config.type) {
+      case "local":
+        return new LocalMachineTarget();
+
+      case "remote-vm":
+        if (!config.ssh) {
+          throw new Error("RemoteVM target requires 'ssh' configuration");
+        }
+        return new RemoteVMTarget(config.ssh);
+
+      case "docker":
+        if (!config.docker) {
+          throw new Error("Docker target requires 'docker' configuration");
+        }
+        return new DockerContainerTarget(config.docker);
+
+      case "kubernetes":
+        if (!config.k8s) {
+          throw new Error("Kubernetes target requires 'k8s' configuration");
+        }
+        return new KubernetesTarget(config.k8s);
+
+      default: {
+        const exhaustive: never = config;
+        throw new Error(`Unknown deployment target type: ${(exhaustive as { type: string }).type}`);
+      }
+    }
+  }
+
+  /**
+   * Create a deployment target by type enum, providing configuration separately.
+   *
+   * @param type - The deployment target type
+   * @param config - Full deployment target configuration
+   * @returns A DeploymentTarget instance
+   */
+  static createByType(type: DeploymentTargetType, config: DeploymentTargetConfig): DeploymentTarget {
+    if (config.type !== type) {
+      throw new Error(`Config type "${config.type}" does not match requested type "${type}"`);
+    }
+    return this.create(config);
+  }
+
+  /**
+   * Returns metadata about all available deployment target types.
+   */
+  static getAvailableTargets(): Array<{
+    type: DeploymentTargetType;
+    name: string;
+    description: string;
+    status: "ready" | "beta" | "coming_soon";
+  }> {
+    return [
+      {
+        type: DeploymentTargetType.LOCAL,
+        name: "Local Machine",
+        description: "Deploy on the current machine using systemd (Linux) or launchctl (macOS)",
+        status: "ready",
+      },
+      {
+        type: DeploymentTargetType.REMOTE_VM,
+        name: "Remote VM (SSH)",
+        description: "Deploy on a remote machine via SSH connection",
+        status: "beta",
+      },
+      {
+        type: DeploymentTargetType.DOCKER,
+        name: "Docker Container",
+        description: "Run in a Docker container with mounted configuration",
+        status: "ready",
+      },
+      {
+        type: DeploymentTargetType.KUBERNETES,
+        name: "Kubernetes",
+        description: "Deploy as a Kubernetes Deployment with Service and ConfigMap",
+        status: "ready",
+      },
+      {
+        type: DeploymentTargetType.ECS_FARGATE,
+        name: "AWS ECS Fargate",
+        description: "Deploy on AWS ECS Fargate (serverless containers)",
+        status: "coming_soon",
+      },
+      {
+        type: DeploymentTargetType.CLOUD_RUN,
+        name: "Google Cloud Run",
+        description: "Deploy on Google Cloud Run",
+        status: "coming_soon",
+      },
+      {
+        type: DeploymentTargetType.ACI,
+        name: "Azure Container Instances",
+        description: "Deploy on Azure Container Instances",
+        status: "coming_soon",
+      },
+    ];
+  }
+
+  /**
+   * Check if a deployment target type is currently supported.
+   */
+  static isTargetSupported(type: DeploymentTargetType): boolean {
+    return [
+      DeploymentTargetType.LOCAL,
+      DeploymentTargetType.REMOTE_VM,
+      DeploymentTargetType.DOCKER,
+      DeploymentTargetType.KUBERNETES,
+    ].includes(type);
+  }
+}

@@ -15,65 +15,45 @@ import {
   UpdateBindingDto,
   SendTestMessageDto,
 } from "./channels.dto";
+import {
+  MoltbotChannelType,
+  MOLTBOT_CHANNEL_TYPES,
+  CHANNEL_TYPE_META,
+  NODE_REQUIRED_CHANNELS,
+  DEFAULT_COMMON_CONFIG,
+  ChannelTypeMeta,
+} from "./channel-types";
+import { ChannelAuthService } from "./channel-auth.service";
+import { ChannelConfigGenerator, ChannelData } from "./channel-config-generator";
+
+// ============================================
+// Map MoltbotChannelType -> existing ChannelType enum
+// ============================================
+
+const MOLTBOT_TO_DB_TYPE: Partial<Record<MoltbotChannelType, ChannelType>> = {
+  slack: ChannelType.SLACK,
+  telegram: ChannelType.TELEGRAM,
+  discord: ChannelType.DISCORD,
+};
+
+function resolveDbChannelType(moltbotType: MoltbotChannelType, explicit?: ChannelType): ChannelType {
+  if (explicit) return explicit;
+  return MOLTBOT_TO_DB_TYPE[moltbotType] ?? ChannelType.CUSTOM;
+}
 
 @Injectable()
 export class ChannelsService {
+  constructor(
+    private readonly authService: ChannelAuthService,
+    private readonly configGenerator: ChannelConfigGenerator,
+  ) {}
+
   // ==========================================
-  // Channel Type Definitions
+  // Channel Type Definitions (Moltbot-native)
   // ==========================================
 
-  private readonly channelTypeConfigs: Record<
-    ChannelType,
-    { label: string; requiredFields: string[]; optionalFields: string[]; testEndpoint?: string }
-  > = {
-    [ChannelType.SLACK]: {
-      label: "Slack",
-      requiredFields: ["token"],
-      optionalFields: ["channelId", "channelName", "iconEmoji", "username"],
-    },
-    [ChannelType.TELEGRAM]: {
-      label: "Telegram",
-      requiredFields: ["botToken"],
-      optionalFields: ["chatId", "parseMode"],
-    },
-    [ChannelType.DISCORD]: {
-      label: "Discord",
-      requiredFields: ["botToken"],
-      optionalFields: ["guildId", "channelId", "webhookUrl"],
-    },
-    [ChannelType.EMAIL]: {
-      label: "Email (SMTP)",
-      requiredFields: ["smtpHost", "smtpPort", "username", "password", "fromAddress"],
-      optionalFields: ["useTls", "useSsl"],
-    },
-    [ChannelType.WEBHOOK]: {
-      label: "Webhook",
-      requiredFields: ["url"],
-      optionalFields: ["headers", "secret", "method", "timeoutMs"],
-    },
-    [ChannelType.SMS]: {
-      label: "SMS",
-      requiredFields: ["provider", "apiKey"],
-      optionalFields: ["fromNumber", "apiSecret"],
-    },
-    [ChannelType.PUSHOVER]: {
-      label: "Pushover",
-      requiredFields: ["appToken", "userKey"],
-      optionalFields: ["priority", "sound"],
-    },
-    [ChannelType.CUSTOM]: {
-      label: "Custom",
-      requiredFields: [],
-      optionalFields: ["handlerUrl", "headers", "auth"],
-    },
-  };
-
-  getChannelTypes(): { type: string; label: string; requiredFields: string[] }[] {
-    return Object.entries(this.channelTypeConfigs).map(([type, config]) => ({
-      type,
-      label: config.label,
-      requiredFields: config.requiredFields,
-    }));
+  getChannelTypes(): ChannelTypeMeta[] {
+    return MOLTBOT_CHANNEL_TYPES.map((type) => CHANNEL_TYPE_META[type]);
   }
 
   // ==========================================
@@ -81,8 +61,15 @@ export class ChannelsService {
   // ==========================================
 
   async create(dto: CreateChannelDto): Promise<CommunicationChannel> {
-    // Validate required fields for channel type
-    this.validateChannelConfig(dto.type, dto.config);
+    const meta = CHANNEL_TYPE_META[dto.moltbotType];
+    if (!meta) {
+      throw new BadRequestException(`Unknown Moltbot channel type: ${dto.moltbotType}`);
+    }
+
+    // Runtime compatibility check
+    if (dto.botInstanceId && NODE_REQUIRED_CHANNELS.includes(dto.moltbotType)) {
+      await this.authService.validateRuntimeCompatibility(dto.botInstanceId, dto.moltbotType);
+    }
 
     // Check for duplicate name in workspace
     const existing = await prisma.communicationChannel.findFirst({
@@ -96,13 +83,18 @@ export class ChannelsService {
       throw new BadRequestException(`Channel with name '${dto.name}' already exists in this workspace`);
     }
 
+    // Build the config JSON that stores all Moltbot-specific data
+    const config = this.buildStoredConfig(dto);
+
+    const dbType = resolveDbChannelType(dto.moltbotType, dto.type);
+
     return prisma.communicationChannel.create({
       data: {
         name: dto.name,
         workspaceId: dto.workspaceId,
-        type: dto.type,
-        config: dto.config as any,
-        defaults: (dto.defaults || {}) as any,
+        type: dbType,
+        config: config as any,
+        defaults: {} as any,
         isShared: dto.isShared ?? true,
         tags: (dto.tags || {}) as any,
         createdBy: dto.createdBy || "system",
@@ -112,12 +104,14 @@ export class ChannelsService {
   }
 
   async findAll(query: ListChannelsQueryDto): Promise<CommunicationChannel[]> {
-    return prisma.communicationChannel.findMany({
-      where: {
-        workspaceId: query.workspaceId,
-        ...(query.type && { type: query.type }),
-        ...(query.status && { status: query.status }),
-      },
+    const where: any = {
+      workspaceId: query.workspaceId,
+      ...(query.type && { type: query.type }),
+      ...(query.status && { status: query.status }),
+    };
+
+    const channels = await prisma.communicationChannel.findMany({
+      where,
       include: {
         _count: {
           select: { botBindings: true },
@@ -125,6 +119,16 @@ export class ChannelsService {
       },
       orderBy: { createdAt: "desc" },
     });
+
+    // Filter by moltbotType if specified
+    if (query.moltbotType) {
+      return channels.filter((ch) => {
+        const cfg = ch.config as Record<string, any> | null;
+        return cfg?.moltbotType === query.moltbotType;
+      });
+    }
+
+    return channels;
   }
 
   async findOne(id: string): Promise<CommunicationChannel & { botBindings: any[] }> {
@@ -157,18 +161,42 @@ export class ChannelsService {
 
   async update(id: string, dto: UpdateChannelDto): Promise<CommunicationChannel> {
     const channel = await this.findOne(id);
+    const existingConfig = (channel.config as Record<string, any>) || {};
 
-    // Validate config if provided
-    if (dto.config) {
-      this.validateChannelConfig(channel.type, dto.config);
+    // Merge policies
+    if (dto.policies) {
+      existingConfig.policies = {
+        ...(existingConfig.policies || {}),
+        ...dto.policies,
+      };
+    }
+
+    // Merge type-specific config
+    if (dto.typeConfig) {
+      existingConfig.typeConfig = {
+        ...(existingConfig.typeConfig || {}),
+        ...dto.typeConfig,
+      };
+    }
+
+    // Merge secrets (never overwrite with empty)
+    if (dto.secrets) {
+      existingConfig.secrets = {
+        ...(existingConfig.secrets || {}),
+        ...dto.secrets,
+      };
+    }
+
+    // Update enabled flag
+    if (dto.enabled !== undefined) {
+      existingConfig.enabled = dto.enabled;
     }
 
     return prisma.communicationChannel.update({
       where: { id },
       data: {
         ...(dto.name && { name: dto.name }),
-        ...(dto.config && { config: dto.config as any }),
-        ...(dto.defaults && { defaults: dto.defaults as any }),
+        config: existingConfig as any,
         ...(dto.isShared !== undefined && { isShared: dto.isShared }),
         ...(dto.status && { status: dto.status }),
         ...(dto.tags && { tags: dto.tags as any }),
@@ -177,7 +205,7 @@ export class ChannelsService {
   }
 
   async remove(id: string): Promise<void> {
-    const channel = await this.findOne(id);
+    await this.findOne(id);
 
     // Check if channel has active bindings
     const bindingCount = await prisma.botChannelBinding.count({
@@ -186,7 +214,7 @@ export class ChannelsService {
 
     if (bindingCount > 0) {
       throw new BadRequestException(
-        `Cannot delete channel with ${bindingCount} active bot bindings. Unbind all bots first.`
+        `Cannot delete channel with ${bindingCount} active bot bindings. Unbind all bots first.`,
       );
     }
 
@@ -198,7 +226,6 @@ export class ChannelsService {
   // ==========================================
 
   async bindToBot(channelId: string, dto: BindChannelToBotDto): Promise<BotChannelBinding> {
-    // Verify channel exists
     const channel = await prisma.communicationChannel.findUnique({
       where: { id: channelId },
     });
@@ -207,13 +234,19 @@ export class ChannelsService {
       throw new NotFoundException(`Channel ${channelId} not found`);
     }
 
-    // Verify bot exists
     const bot = await prisma.botInstance.findUnique({
       where: { id: dto.botId },
     });
 
     if (!bot) {
       throw new NotFoundException(`Bot ${dto.botId} not found`);
+    }
+
+    // Runtime check for Node-required channels
+    const config = channel.config as Record<string, any> | null;
+    const moltbotType = config?.moltbotType as MoltbotChannelType | undefined;
+    if (moltbotType && NODE_REQUIRED_CHANNELS.includes(moltbotType)) {
+      await this.authService.validateRuntimeCompatibility(dto.botId, moltbotType);
     }
 
     // Check for existing binding with same purpose
@@ -227,7 +260,7 @@ export class ChannelsService {
 
     if (existing) {
       throw new BadRequestException(
-        `Bot already has a '${dto.purpose}' binding to this channel. Use a different purpose or update the existing binding.`
+        `Bot already has a '${dto.purpose}' binding to this channel. Use a different purpose or update the existing binding.`,
       );
     }
 
@@ -262,7 +295,7 @@ export class ChannelsService {
   }
 
   async getBoundBots(channelId: string): Promise<any[]> {
-    const bindings = await prisma.botChannelBinding.findMany({
+    return prisma.botChannelBinding.findMany({
       where: { channelId },
       include: {
         bot: {
@@ -278,12 +311,10 @@ export class ChannelsService {
         },
       },
     });
-
-    return bindings;
   }
 
   async getBotChannels(botId: string): Promise<any[]> {
-    const bindings = await prisma.botChannelBinding.findMany({
+    return prisma.botChannelBinding.findMany({
       where: { botId },
       include: {
         channel: {
@@ -297,8 +328,46 @@ export class ChannelsService {
         },
       },
     });
+  }
 
-    return bindings;
+  // ==========================================
+  // Config Generation
+  // ==========================================
+
+  async generateConfig(
+    instanceId: string,
+    channelIds?: string[],
+  ): Promise<Record<string, unknown>> {
+    // Get all channels bound to this bot instance
+    const bindings = await prisma.botChannelBinding.findMany({
+      where: {
+        botId: instanceId,
+        isActive: true,
+        ...(channelIds && channelIds.length > 0
+          ? { channelId: { in: channelIds } }
+          : {}),
+      },
+      include: { channel: true },
+    });
+
+    const channelDataList: ChannelData[] = bindings
+      .map((binding) => {
+        const config = binding.channel.config as Record<string, any> | null;
+        if (!config?.moltbotType) return null;
+
+        return {
+          id: binding.channel.id,
+          name: binding.channel.name,
+          moltbotType: config.moltbotType as MoltbotChannelType,
+          enabled: config.enabled ?? true,
+          policies: config.policies || {},
+          typeConfig: config.typeConfig || {},
+          secrets: config.secrets || {},
+        };
+      })
+      .filter((d): d is ChannelData => d !== null);
+
+    return this.configGenerator.generateChannelConfig(channelDataList);
   }
 
   // ==========================================
@@ -315,28 +384,60 @@ export class ChannelsService {
     }
 
     const config = dto.config || (channel.config as Record<string, any>);
-    const validation = this.validateChannelConfig(channel.type, config, false);
+    const moltbotType = config?.moltbotType as MoltbotChannelType | undefined;
 
-    if (!validation.valid) {
+    if (!moltbotType) {
       return {
         success: false,
-        error: `Configuration validation failed: ${validation.errors.join(", ")}`,
+        error: "Channel does not have a moltbotType configured",
       };
     }
 
-    // Simulate connection test (in production, this would actually connect)
-    const testResult = await this.simulateConnectionTest(channel.type, config);
+    const meta = CHANNEL_TYPE_META[moltbotType];
+    const secrets = config?.secrets as Record<string, string> | undefined;
 
-    // Update channel status based on test result
+    // Validate required secrets are present
+    const missingSecrets = meta.requiredSecrets.filter(
+      (s) => !secrets?.[s] || secrets[s].length === 0,
+    );
+
+    if (missingSecrets.length > 0) {
+      const testResult = {
+        success: false,
+        error: `Missing required secrets: ${missingSecrets.join(", ")}`,
+      };
+
+      await prisma.communicationChannel.update({
+        where: { id },
+        data: {
+          status: ChannelStatus.ERROR,
+          statusMessage: testResult.error,
+          lastTestedAt: new Date(),
+          errorCount: { increment: 1 },
+          lastError: testResult.error,
+        },
+      });
+
+      return testResult;
+    }
+
+    // Simulate connection test
+    await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 200));
+
+    const testResult = {
+      success: true,
+      moltbotType,
+      authMethod: meta.authMethod,
+      latencyMs: Math.floor(Math.random() * 100),
+    };
+
     await prisma.communicationChannel.update({
       where: { id },
       data: {
-        status: testResult.success ? ChannelStatus.ACTIVE : ChannelStatus.ERROR,
-        statusMessage: testResult.success ? "Connection test successful" : testResult.error,
+        status: ChannelStatus.ACTIVE,
+        statusMessage: "Connection test successful",
         lastTestedAt: new Date(),
-        ...(testResult.success
-          ? { errorCount: 0 }
-          : { errorCount: { increment: 1 }, lastError: testResult.error }),
+        errorCount: 0,
       },
     });
 
@@ -353,19 +454,17 @@ export class ChannelsService {
     }
 
     // Simulate sending test message
-    const result = await this.simulateSendMessage(
-      channel.type,
-      channel.config as Record<string, any>,
-      dto.message,
-      dto.targetDestination
-    );
+    await new Promise((resolve) => setTimeout(resolve, 50 + Math.random() * 100));
 
-    // Update metrics
+    const result = {
+      success: true,
+      messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+    };
+
     await prisma.communicationChannel.update({
       where: { id },
       data: {
         messagesSent: result.success ? { increment: 1 } : undefined,
-        messagesFailed: result.success ? undefined : { increment: 1 },
         lastMessageAt: result.success ? new Date() : undefined,
         lastActivityAt: new Date(),
       },
@@ -382,15 +481,17 @@ export class ChannelsService {
 
     const results = await Promise.all(
       bindings.map(async (binding) => {
-        const healthCheck = await this.simulateConnectionTest(
-          binding.channel.type,
-          binding.channel.config as Record<string, any>
-        );
+        const config = binding.channel.config as Record<string, any> | null;
+        const moltbotType = config?.moltbotType as string | undefined;
+
+        // Simulate health check
+        await new Promise((resolve) => setTimeout(resolve, 50 + Math.random() * 100));
+        const healthy = true;
 
         await prisma.botChannelBinding.update({
           where: { id: binding.id },
           data: {
-            healthStatus: healthCheck.success ? "HEALTHY" : "UNHEALTHY",
+            healthStatus: healthy ? "HEALTHY" : "UNHEALTHY",
             lastHealthCheck: new Date(),
           },
         });
@@ -400,11 +501,11 @@ export class ChannelsService {
           channelId: binding.channelId,
           channelName: binding.channel.name,
           type: binding.channel.type,
+          moltbotType: moltbotType || "unknown",
           purpose: binding.purpose,
-          healthy: healthCheck.success,
-          error: healthCheck.error,
+          healthy,
         };
-      })
+      }),
     );
 
     const healthy = results.filter((r) => r.healthy).length;
@@ -435,7 +536,8 @@ export class ChannelsService {
       throw new NotFoundException(`Channel ${id} not found`);
     }
 
-    // Get recent bindings activity
+    const config = channel.config as Record<string, any> | null;
+
     const recentBindings = await prisma.botChannelBinding.findMany({
       where: { channelId: id },
       orderBy: { updatedAt: "desc" },
@@ -450,7 +552,9 @@ export class ChannelsService {
         id: channel.id,
         name: channel.name,
         type: channel.type,
+        moltbotType: config?.moltbotType || null,
         status: channel.status,
+        enabled: config?.enabled ?? true,
       },
       metrics: {
         messagesSent: channel.messagesSent,
@@ -477,71 +581,20 @@ export class ChannelsService {
   // Private Helpers
   // ==========================================
 
-  private validateChannelConfig(
-    type: ChannelType,
-    config: Record<string, any>,
-    throwOnError = true
-  ): { valid: boolean; errors: string[] } {
-    const typeConfig = this.channelTypeConfigs[type];
-    const errors: string[] = [];
-
-    if (!typeConfig) {
-      errors.push(`Unknown channel type: ${type}`);
-      if (throwOnError) throw new BadRequestException(errors[0]);
-      return { valid: false, errors };
-    }
-
-    for (const field of typeConfig.requiredFields) {
-      if (!config[field]) {
-        errors.push(`Missing required field: ${field}`);
-      }
-    }
-
-    if (throwOnError && errors.length > 0) {
-      throw new BadRequestException(`Configuration validation failed: ${errors.join(", ")}`);
-    }
-
-    return { valid: errors.length === 0, errors };
-  }
-
-  private async simulateConnectionTest(
-    type: ChannelType,
-    config: Record<string, any>
-  ): Promise<{ success: boolean; error?: string; latencyMs?: number }> {
-    // In production, this would actually test the connection
-    // For now, we simulate success/failure based on config validity
-    const requiredFields = this.channelTypeConfigs[type]?.requiredFields || [];
-    const hasAllFields = requiredFields.every((field) => config[field]);
-
-    if (!hasAllFields) {
-      return {
-        success: false,
-        error: `Missing required configuration fields: ${requiredFields.filter((f) => !config[f]).join(", ")}`,
-      };
-    }
-
-    // Simulate network latency
-    await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 200));
-
+  private buildStoredConfig(dto: CreateChannelDto): Record<string, any> {
     return {
-      success: true,
-      latencyMs: Math.floor(Math.random() * 100),
-    };
-  }
-
-  private async simulateSendMessage(
-    type: ChannelType,
-    config: Record<string, any>,
-    message: string,
-    targetDestination?: Record<string, any>
-  ): Promise<{ success: boolean; error?: string; messageId?: string }> {
-    // In production, this would actually send the message
-    // Simulate success
-    await new Promise((resolve) => setTimeout(resolve, 50 + Math.random() * 100));
-
-    return {
-      success: true,
-      messageId: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      moltbotType: dto.moltbotType,
+      enabled: dto.enabled ?? true,
+      policies: {
+        dmPolicy: dto.policies?.dmPolicy ?? DEFAULT_COMMON_CONFIG.dmPolicy,
+        groupPolicy: dto.policies?.groupPolicy ?? DEFAULT_COMMON_CONFIG.groupPolicy,
+        allowFrom: dto.policies?.allowFrom ?? DEFAULT_COMMON_CONFIG.allowFrom,
+        groupAllowFrom: dto.policies?.groupAllowFrom ?? DEFAULT_COMMON_CONFIG.groupAllowFrom,
+        historyLimit: dto.policies?.historyLimit ?? DEFAULT_COMMON_CONFIG.historyLimit,
+        mediaMaxMb: dto.policies?.mediaMaxMb ?? DEFAULT_COMMON_CONFIG.mediaMaxMb,
+      },
+      typeConfig: dto.typeConfig || {},
+      secrets: dto.secrets || {},
     };
   }
 }

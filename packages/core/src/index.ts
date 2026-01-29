@@ -4,7 +4,12 @@ export * from "./policy";
 export * from "./fleet";
 export * from "./template";
 export * from "./policy-pack";
+export * from "./moltbot-policies";
 export * from "./connector";
+export * from "./moltbot-channels";
+export * from "./moltbot-config";
+export * from "./moltbot-manifest";
+export * from "./moltbot-profile";
 
 export const MOLTHUB_VERSION = "0.1.0";
 export const API_VERSION = "molthub/v1";

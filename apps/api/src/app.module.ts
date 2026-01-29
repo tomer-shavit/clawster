@@ -23,6 +23,7 @@ import { DashboardModule } from "./dashboard/dashboard.module";
 import { SkillPacksModule } from "./skill-packs/skill-packs.module";
 import { ChannelsModule } from "./channels/channels.module";
 import { AuthModule } from "./auth/auth.module";
+import { SecurityAuditModule } from "./security/security-audit.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 
 @Module({
@@ -59,6 +60,7 @@ import { JwtAuthGuard } from "./auth/jwt-auth.guard";
     DashboardModule,
     SkillPacksModule,
     ChannelsModule,
+    SecurityAuditModule,
   ],
   providers: [
     {

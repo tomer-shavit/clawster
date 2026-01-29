@@ -91,6 +91,8 @@ model Fleet {
   defaultProfileId      String?
   enforcedPolicyPackIds Json    @default("[]")
 
+  defaultDeploymentType DeploymentType?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -153,12 +155,26 @@ model BotInstance {
   updatedAt DateTime @updatedAt
   createdBy String
 
+  // Moltbot-native fields
+  deploymentType     DeploymentType?
+  deploymentTargetId String?
+  deploymentTarget   DeploymentTarget? @relation(fields: [deploymentTargetId], references: [id])
+  gatewayPort        Int?
+  profileName        String?
+  moltbotVersion     String?
+  configHash         String?
+
   // Relations
-  connectorBindings BotConnectorBinding[]
-  changeSets        ChangeSet[]
-  traces            Trace[]
-  skillPacks        BotInstanceSkillPack[]
-  channelBindings   BotChannelBinding[]
+  connectorBindings   BotConnectorBinding[]
+  changeSets          ChangeSet[]
+  traces              Trace[]
+  skillPacks          BotInstanceSkillPack[]
+  channelBindings     BotChannelBinding[]
+  gatewayConnection   GatewayConnection?
+  moltbotProfile      MoltbotProfile?
+  channelAuthSessions ChannelAuthSession[]
+  healthSnapshots     HealthSnapshot[]
+  securityAudits      SecurityAuditResult[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
@@ -757,4 +773,201 @@ model BotChannelBinding {
   @@index([botId])
   @@index([channelId])
   @@index([purpose])
+}
+
+// ============================================
+// MOLTBOT-NATIVE ENUMS
+// ============================================
+
+enum DeploymentType {
+  LOCAL
+  REMOTE_VM
+  DOCKER
+  ECS_FARGATE
+  CLOUD_RUN
+  ACI
+  KUBERNETES
+}
+
+enum GatewayConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  CONNECTING
+  ERROR
+}
+
+enum ChannelAuthState {
+  PENDING
+  PAIRING
+  PAIRED
+  EXPIRED
+  ERROR
+}
+
+enum MoltbotChannelType {
+  WHATSAPP
+  TELEGRAM
+  DISCORD
+  SLACK
+  SIGNAL
+  IMESSAGE
+  MATTERMOST
+  GOOGLE_CHAT
+  MS_TEAMS
+  LINE
+  MATRIX
+}
+
+// ============================================
+// MOLTBOT-NATIVE MODELS
+// ============================================
+
+// GatewayConnection: Tracks the WebSocket connection to a Moltbot gateway
+model GatewayConnection {
+  id         String      @id @default(cuid())
+  instanceId String      @unique
+  instance   BotInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  host     String @default("localhost")
+  port     Int    @default(18789)
+  authMode String @default("token") // "token" | "password"
+  authToken String? // Encrypted gateway auth token
+
+  status        GatewayConnectionStatus @default(DISCONNECTED)
+  lastHeartbeat DateTime?
+  configHash    String?
+  latencyMs     Int?
+
+  protocolVersion Int?
+  clientMetadata  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+// MoltbotProfile: Local profile configuration for a bot instance
+model MoltbotProfile {
+  id         String      @id @default(cuid())
+  instanceId String      @unique
+  instance   BotInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  profileName String
+  configPath  String // e.g., ~/.clawdbot/profiles/<name>/moltbot.json
+  stateDir    String // e.g., ~/.clawdbot/profiles/<name>/state/
+  workspace   String // e.g., ~/clawd/<name>/
+  basePort    Int    @default(18789)
+
+  // Service management
+  serviceName String? // e.g., bot.molt.<profile> or moltbot-gateway-<profile>.service
+  serviceType String? // "launchd" | "systemd"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileName])
+  @@index([instanceId])
+}
+
+// ChannelAuthSession: Tracks channel authentication/pairing flows
+model ChannelAuthSession {
+  id         String      @id @default(cuid())
+  instanceId String
+  instance   BotInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  channelType MoltbotChannelType
+  state       ChannelAuthState @default(PENDING)
+
+  // Auth flow data
+  qrCodeData  String? // Base64 QR code for WhatsApp
+  authToken   String? // Bot token for Telegram/Discord
+  pairingCode String? // Pairing code for WhatsApp
+
+  // Timing
+  expiresAt DateTime?
+  pairedAt  DateTime?
+
+  // Error tracking
+  lastError    String?
+  attemptCount Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([instanceId])
+  @@index([state])
+  @@index([channelType])
+}
+
+// DeploymentTarget: Reusable deployment target configuration
+model DeploymentTarget {
+  id   String         @id @default(cuid())
+  name String
+  type DeploymentType
+
+  // Type-specific configuration (JSON)
+  // For remote-vm: { host, sshPort, username, privateKeyRef }
+  // For docker: { imageName, networkName }
+  // For kubernetes: { namespace, kubeContext }
+  // For cloud: provider-specific settings
+  config Json @default("{}")
+
+  status        String   @default("active") // "active" | "inactive" | "error"
+  statusMessage String?
+  lastCheckedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  instances BotInstance[]
+
+  @@index([type])
+  @@index([status])
+}
+
+// SecurityAuditResult: Security audit findings for a bot instance
+model SecurityAuditResult {
+  id         String      @id @default(cuid())
+  instanceId String
+  instance   BotInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  // Findings
+  findings      Json // Array of { ruleId, severity, message, field?, suggestedFix? }
+  totalErrors   Int  @default(0)
+  totalWarnings Int  @default(0)
+  totalInfo     Int  @default(0)
+
+  // Context
+  configHash String?
+  auditedAt  DateTime @default(now())
+  auditedBy  String   @default("system")
+
+  @@index([instanceId])
+  @@index([auditedAt])
+}
+
+// HealthSnapshot: Point-in-time health data from a bot's gateway
+model HealthSnapshot {
+  id         String      @id @default(cuid())
+  instanceId String
+  instance   BotInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  // Health data from Gateway
+  data      Json    // Full health snapshot from Gateway WS
+  isHealthy Boolean @default(true)
+
+  // Channel health
+  channelsLinked   Int @default(0)
+  channelsDegraded Int @default(0)
+
+  // Performance
+  gatewayLatencyMs Int?
+
+  capturedAt DateTime @default(now())
+
+  @@index([instanceId])
+  @@index([capturedAt])
+  @@index([isHealthy])
 }

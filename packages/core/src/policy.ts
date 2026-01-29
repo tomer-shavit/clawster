@@ -1,4 +1,9 @@
 import { InstanceManifest, validateManifest } from "./manifest";
+import {
+  MoltbotConfig,
+  MoltbotEvaluationContext,
+  evaluateMoltbotRule,
+} from "./moltbot-policies";
 
 // Note: Use PolicyViolation from policy-pack.ts for the enhanced version
 export interface LegacyPolicyViolation {
@@ -12,6 +17,20 @@ export interface PolicyResult {
   valid: boolean;
   violations: LegacyPolicyViolation[];
 }
+
+/** Moltbot-specific rule type identifiers */
+const MOLTBOT_RULE_TYPES = new Set([
+  "require_gateway_auth",
+  "require_dm_policy",
+  "require_config_permissions",
+  "forbid_elevated_tools",
+  "require_sandbox",
+  "limit_tool_profile",
+  "require_model_guardrails",
+  "require_workspace_isolation",
+  "require_port_spacing",
+  "forbid_open_group_policy",
+]);
 
 export class PolicyEngine {
   validate(manifest: unknown): PolicyResult {
@@ -39,10 +58,10 @@ export class PolicyEngine {
       for (const channel of channels) {
         if (channel.type === "webhook" && validated.spec.network?.inbound === "WEBHOOK") {
           // Allow webhook but warn about security
-          const hasTokenValidation = channel.config && 
-            typeof channel.config === "object" && 
+          const hasTokenValidation = channel.config &&
+            typeof channel.config === "object" &&
             "verifyToken" in channel.config;
-          
+
           if (!hasTokenValidation) {
             violations.push({
               code: "WEBHOOK_NO_TOKEN",
@@ -115,5 +134,44 @@ export class PolicyEngine {
       valid: violations.filter(v => v.severity === "ERROR").length === 0,
       violations,
     };
+  }
+
+  /**
+   * Validate a Moltbot configuration against a specific rule type.
+   * Handles all Moltbot-specific rule types (gateway auth, DM policy,
+   * sandbox, tool profiles, workspace isolation, port spacing, etc.).
+   */
+  validateMoltbotRule(
+    ruleType: string,
+    config: MoltbotConfig,
+    ruleConfig: Record<string, unknown>,
+    context?: MoltbotEvaluationContext,
+  ): { passed: boolean; violation?: LegacyPolicyViolation } {
+    if (!MOLTBOT_RULE_TYPES.has(ruleType)) {
+      return { passed: true };
+    }
+
+    const result = evaluateMoltbotRule(ruleType, config, ruleConfig, context);
+
+    if (!result.passed && result.violation) {
+      return {
+        passed: false,
+        violation: {
+          code: ruleType.toUpperCase(),
+          message: result.violation.message,
+          severity: result.violation.severity === "ERROR" ? "ERROR" : "WARNING",
+          field: result.violation.field,
+        },
+      };
+    }
+
+    return { passed: true };
+  }
+
+  /**
+   * Check whether a rule type is a Moltbot-specific rule.
+   */
+  isMoltbotRuleType(ruleType: string): boolean {
+    return MOLTBOT_RULE_TYPES.has(ruleType);
   }
 }

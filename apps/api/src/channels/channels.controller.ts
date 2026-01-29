@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus } from "@nestjs/common";
 import { ChannelsService } from "./channels.service";
+import { ChannelAuthService } from "./channel-auth.service";
 import {
   CreateChannelDto,
   UpdateChannelDto,
@@ -8,12 +9,18 @@ import {
   BindChannelToBotDto,
   UpdateBindingDto,
   SendTestMessageDto,
+  StartAuthDto,
+  GenerateConfigDto,
 } from "./channels.dto";
 import { CommunicationChannel, BotChannelBinding } from "@molthub/database";
+import { ChannelTypeMeta } from "./channel-types";
 
 @Controller("channels")
 export class ChannelsController {
-  constructor(private readonly channelsService: ChannelsService) {}
+  constructor(
+    private readonly channelsService: ChannelsService,
+    private readonly authService: ChannelAuthService,
+  ) {}
 
   // ==========================================
   // Channel Management
@@ -30,7 +37,7 @@ export class ChannelsController {
   }
 
   @Get("types")
-  getChannelTypes(): { type: string; label: string; requiredFields: string[] }[] {
+  getChannelTypes(): ChannelTypeMeta[] {
     return this.channelsService.getChannelTypes();
   }
 
@@ -61,13 +68,42 @@ export class ChannelsController {
   }
 
   // ==========================================
+  // Auth Flow Endpoints
+  // ==========================================
+
+  @Post(":id/auth/start")
+  startAuth(
+    @Param("id") id: string,
+    @Body() dto: StartAuthDto,
+  ): Promise<any> {
+    return this.authService.startAuth(id, dto.botInstanceId);
+  }
+
+  @Get(":id/auth/status")
+  getAuthStatus(@Param("id") id: string): Promise<any> {
+    return this.authService.getAuthStatus(id);
+  }
+
+  // ==========================================
+  // Config Generation
+  // ==========================================
+
+  @Post(":instanceId/generate-config")
+  generateConfig(
+    @Param("instanceId") instanceId: string,
+    @Body() dto: GenerateConfigDto,
+  ): Promise<Record<string, unknown>> {
+    return this.channelsService.generateConfig(instanceId, dto.channelIds);
+  }
+
+  // ==========================================
   // Bot Channel Bindings
   // ==========================================
 
   @Post(":id/bind")
   bindToBot(
     @Param("id") channelId: string,
-    @Body() dto: BindChannelToBotDto
+    @Body() dto: BindChannelToBotDto,
   ): Promise<BotChannelBinding> {
     return this.channelsService.bindToBot(channelId, dto);
   }
@@ -81,7 +117,7 @@ export class ChannelsController {
   @Patch(":id/bind/:bindingId")
   updateBinding(
     @Param("bindingId") bindingId: string,
-    @Body() dto: UpdateBindingDto
+    @Body() dto: UpdateBindingDto,
   ): Promise<BotChannelBinding> {
     return this.channelsService.updateBinding(bindingId, dto);
   }
