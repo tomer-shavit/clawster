@@ -249,7 +249,7 @@ export function SetupWizard({ templates }: SetupWizardProps) {
                 type: deploymentTarget || "docker",
                 region:
                   deploymentTarget === "ecs-fargate"
-                    ? targetConfig.region
+                    ? (targetConfig.region as string)
                     : undefined,
               }}
               channels={channels}

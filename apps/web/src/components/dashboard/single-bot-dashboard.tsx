@@ -166,10 +166,10 @@ export function SingleBotDashboard({ bot }: SingleBotDashboardProps) {
                   <span className="font-mono font-medium">{bot.gatewayPort}</span>
                 </div>
               )}
-              {gatewayConfig.authMode && (
+              {!!gatewayConfig.authMode && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Auth Mode</span>
-                  <span className="font-medium capitalize">{gatewayConfig.authMode}</span>
+                  <span className="font-medium capitalize">{String(gatewayConfig.authMode)}</span>
                 </div>
               )}
             </div>

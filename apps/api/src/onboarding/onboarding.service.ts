@@ -100,7 +100,7 @@ export class OnboardingService {
         data: {
           workspaceId: workspace.id,
           name: "Default Fleet",
-          environment: env.toUpperCase(),
+          environment: env as "dev" | "staging" | "prod",
           status: "ACTIVE",
         },
       });

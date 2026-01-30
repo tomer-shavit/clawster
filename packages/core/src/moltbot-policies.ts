@@ -13,14 +13,6 @@ export interface MoltbotConfig {
       password?: string;
     };
   };
-  sandbox?: {
-    mode?: string;
-    docker?: {
-      readOnlyRootfs?: boolean;
-      noNewPrivileges?: boolean;
-      dropCapabilities?: string[];
-    };
-  };
   channels?: Array<{
     name?: string;
     dmPolicy?: string;

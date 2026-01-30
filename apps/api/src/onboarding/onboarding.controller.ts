@@ -27,7 +27,7 @@ export class OnboardingController {
 
   @Post("deploy")
   async deploy(@Body() dto: OnboardingDeployDto, @Req() req: ExpressRequest) {
-    const user = (req as Record<string, unknown>).user as Record<string, string> | undefined;
+    const user = (req as unknown as Record<string, unknown>).user as Record<string, string> | undefined;
     const userId = user?.sub ?? user?.id ?? "system";
     return this.onboardingService.deploy(dto, userId);
   }

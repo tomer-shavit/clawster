@@ -245,27 +245,6 @@ export interface KubernetesTargetConfig {
 import type { EcsFargateConfig } from "../targets/ecs-fargate/ecs-fargate-config";
 export type { EcsFargateConfig } from "../targets/ecs-fargate/ecs-fargate-config";
 
-/**
- * Union type for all deployment target configurations
- */
-/**
- * Configuration for AWS ECS Fargate targets
- */
-export interface EcsFargateConfig {
-  region: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  clusterName?: string;
-  subnetIds: string[];
-  securityGroupId: string;
-  executionRoleArn?: string;
-  taskRoleArn?: string;
-  cpu?: number;
-  memory?: number;
-  image?: string;
-  assignPublicIp?: boolean;
-}
-
 export type DeploymentTargetConfig =
   | { type: "local" }
   | { type: "remote-vm"; ssh: RemoteVMConfig }
