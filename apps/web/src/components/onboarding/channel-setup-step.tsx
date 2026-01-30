@@ -164,7 +164,7 @@ function ChannelFields({
       <div className="flex items-start gap-2 p-3 bg-muted rounded-lg">
         <Info className="w-4 h-4 mt-0.5 text-blue-500 shrink-0" />
         <p className="text-sm text-muted-foreground">
-          QR pairing happens after deployment. Once your Moltbot instance is running,
+          QR pairing happens after deployment. Once your OpenClaw instance is running,
           you will be prompted to scan a QR code with your WhatsApp device.
         </p>
       </div>

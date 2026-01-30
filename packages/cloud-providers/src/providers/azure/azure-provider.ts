@@ -64,7 +64,7 @@ interface AzureContainerGroup {
 /**
  * Azure Container Instances Provider
  * 
- * Manages containerized Moltbot instances on Azure Container Instances (ACI)
+ * Manages containerized OpenClaw instances on Azure Container Instances (ACI)
  * Similar to AWS ECS Fargate - serverless containers without VM management
  */
 export class AzureProvider implements CloudProvider {
@@ -225,7 +225,7 @@ export class AzureProvider implements CloudProvider {
     }
 
     const containerGroupName = this.sanitizeName(config.name);
-    const containerName = "moltbot";
+    const containerName = "openclaw";
     const instanceId = config.labels?.["molthub.io/instance-id"] || containerGroupName;
 
     // Build environment variables
@@ -430,7 +430,7 @@ export class AzureProvider implements CloudProvider {
       const logs = await this.resources.containerClient.containers.listLogs(
         this.resources.resourceGroup,
         containerGroupName,
-        "moltbot"
+        "openclaw"
       );
 
       const content = logs.content || "";

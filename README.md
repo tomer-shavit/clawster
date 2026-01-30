@@ -5,25 +5,25 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-Open-source, self-hosted control plane for managing fleets of Moltbot instances. Deploy, configure, monitor, and secure hundreds of bots from a single dashboard.
+Open-source, self-hosted control plane for managing fleets of OpenClaw instances. Deploy, configure, monitor, and secure hundreds of bots from a single dashboard.
 
 ## Why Molthub?
 
-- **Fleet-First**: Manage hundreds of Moltbot instances as easily as one. Templates, profiles, and overlays eliminate configuration sprawl.
-- **Moltbot-Native**: Built around Moltbot's real control surfaces -- Gateway protocol, config model, health checks, and diagnostics. Not a generic wrapper.
+- **Fleet-First**: Manage hundreds of OpenClaw instances as easily as one. Templates, profiles, and overlays eliminate configuration sprawl.
+- **OpenClaw-Native**: Built around OpenClaw's real control surfaces -- Gateway protocol, config model, health checks, and diagnostics. Not a generic wrapper.
 - **Secure by Default**: Policy Engine blocks unsafe configs. Secrets never stored in plaintext. Audit trail for every change. No public inbound by default.
 - **Observable**: Fleet health dashboards, per-bot operational views, end-to-end trace visualization, and cost tracking -- all built in.
 
 ## When NOT to Use Molthub
 
-- You only need a single Moltbot instance and don't need fleet management.
+- You only need a single OpenClaw instance and don't need fleet management.
 - You want a fully managed SaaS (Molthub is self-hosted).
-- You're not using Moltbot (Molthub is purpose-built for Moltbot, not a generic bot manager).
+- You're not using OpenClaw (Molthub is purpose-built for OpenClaw, not a generic bot manager).
 
 ## Features
 
 ### Core Platform
-- **Fleet Management**: Create, manage, and monitor multiple Moltbot instances
+- **Fleet Management**: Create, manage, and monitor multiple OpenClaw instances
 - **Bot Instances**: Full lifecycle management with health tracking
 - **Manifest-Driven**: Everything defined as versioned, auditable manifests
 - **Template-Based**: Start quickly with built-in templates (Slack Bot, Webhook Bot, Minimal)
@@ -97,7 +97,7 @@ Open-source, self-hosted control plane for managing fleets of Moltbot instances.
 | `@molthub/database` | Prisma schema and PostgreSQL client |
 | `@molthub/adapters-aws` | AWS ECS, Secrets Manager, CloudWatch integrations |
 | `@molthub/cloud-providers` | Multi-cloud deployment providers |
-| `@molthub/gateway-client` | Moltbot Gateway WebSocket client |
+| `@molthub/gateway-client` | OpenClaw Gateway WebSocket client |
 | `@molthub/cli` | CLI for bootstrap, auth, and dev workflows |
 
 ## Quick Start

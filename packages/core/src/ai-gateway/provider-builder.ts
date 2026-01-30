@@ -1,4 +1,4 @@
-import type { MoltbotFullConfig } from "../moltbot-config";
+import type { OpenClawFullConfig } from "../openclaw-config";
 import type { AiGatewaySettings, ModelProviderConfig, ModelsConfig } from "./config";
 
 /**
@@ -45,7 +45,7 @@ export function buildFallbackChain(originalRef: string, existingFallbacks?: stri
 }
 
 /**
- * Inject an AI Gateway provider into a MoltbotFullConfig.
+ * Inject an AI Gateway provider into an OpenClawFullConfig.
  *
  * When enabled:
  * 1. Adds the gateway provider to `models.providers`
@@ -55,9 +55,9 @@ export function buildFallbackChain(originalRef: string, existingFallbacks?: stri
  * When disabled or settings incomplete: returns the config unchanged.
  */
 export function injectGatewayIntoConfig(
-  config: MoltbotFullConfig,
+  config: OpenClawFullConfig,
   settings: AiGatewaySettings,
-): MoltbotFullConfig {
+): OpenClawFullConfig {
   if (!settings.enabled || !settings.gatewayUrl) {
     return config;
   }

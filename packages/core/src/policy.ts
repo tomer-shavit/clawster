@@ -1,9 +1,9 @@
 import { InstanceManifest, validateManifest } from "./manifest";
 import {
-  MoltbotConfig,
-  MoltbotEvaluationContext,
-  evaluateMoltbotRule,
-} from "./moltbot-policies";
+  OpenClawConfig,
+  OpenClawEvaluationContext,
+  evaluateOpenClawRule,
+} from "./openclaw-policies";
 
 // Note: Use PolicyViolation from policy-pack.ts for the enhanced version
 export interface LegacyPolicyViolation {
@@ -18,8 +18,8 @@ export interface PolicyResult {
   violations: LegacyPolicyViolation[];
 }
 
-/** Moltbot-specific rule type identifiers */
-const MOLTBOT_RULE_TYPES = new Set([
+/** OpenClaw-specific rule type identifiers */
+const OPENCLAW_RULE_TYPES = new Set([
   "require_gateway_auth",
   "require_dm_policy",
   "require_config_permissions",
@@ -137,21 +137,21 @@ export class PolicyEngine {
   }
 
   /**
-   * Validate a Moltbot configuration against a specific rule type.
-   * Handles all Moltbot-specific rule types (gateway auth, DM policy,
+   * Validate an OpenClaw configuration against a specific rule type.
+   * Handles all OpenClaw-specific rule types (gateway auth, DM policy,
    * sandbox, tool profiles, workspace isolation, port spacing, etc.).
    */
-  validateMoltbotRule(
+  validateOpenClawRule(
     ruleType: string,
-    config: MoltbotConfig,
+    config: OpenClawConfig,
     ruleConfig: Record<string, unknown>,
-    context?: MoltbotEvaluationContext,
+    context?: OpenClawEvaluationContext,
   ): { passed: boolean; violation?: LegacyPolicyViolation } {
-    if (!MOLTBOT_RULE_TYPES.has(ruleType)) {
+    if (!OPENCLAW_RULE_TYPES.has(ruleType)) {
       return { passed: true };
     }
 
-    const result = evaluateMoltbotRule(ruleType, config, ruleConfig, context);
+    const result = evaluateOpenClawRule(ruleType, config, ruleConfig, context);
 
     if (!result.passed && result.violation) {
       return {
@@ -169,9 +169,9 @@ export class PolicyEngine {
   }
 
   /**
-   * Check whether a rule type is a Moltbot-specific rule.
+   * Check whether a rule type is an OpenClaw-specific rule.
    */
-  isMoltbotRuleType(ruleType: string): boolean {
-    return MOLTBOT_RULE_TYPES.has(ruleType);
+  isOpenClawRuleType(ruleType: string): boolean {
+    return OPENCLAW_RULE_TYPES.has(ruleType);
   }
 }

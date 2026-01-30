@@ -54,7 +54,7 @@ describe('BotInstancesService', () => {
 
   const validManifest = {
     apiVersion: 'molthub/v1',
-    kind: 'MoltbotInstance',
+    kind: 'OpenClawInstance',
     metadata: {
       name: 'test-bot',
       workspace: 'default',

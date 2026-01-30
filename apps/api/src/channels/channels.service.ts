@@ -17,8 +17,8 @@ import {
   SendTestMessageDto,
 } from "./channels.dto";
 import {
-  MoltbotChannelType,
-  MOLTBOT_CHANNEL_TYPES,
+  OpenClawChannelType,
+  OPENCLAW_CHANNEL_TYPES,
   CHANNEL_TYPE_META,
   NODE_REQUIRED_CHANNELS,
   DEFAULT_COMMON_CONFIG,
@@ -28,18 +28,18 @@ import { ChannelAuthService } from "./channel-auth.service";
 import { ChannelConfigGenerator, ChannelData } from "./channel-config-generator";
 
 // ============================================
-// Map MoltbotChannelType -> existing ChannelType enum
+// Map OpenClawChannelType -> existing ChannelType enum
 // ============================================
 
-const MOLTBOT_TO_DB_TYPE: Partial<Record<MoltbotChannelType, ChannelType>> = {
+const OPENCLAW_TO_DB_TYPE: Partial<Record<OpenClawChannelType, ChannelType>> = {
   slack: ChannelType.SLACK,
   telegram: ChannelType.TELEGRAM,
   discord: ChannelType.DISCORD,
 };
 
-function resolveDbChannelType(moltbotType: MoltbotChannelType, explicit?: ChannelType): ChannelType {
+function resolveDbChannelType(openclawType: OpenClawChannelType, explicit?: ChannelType): ChannelType {
   if (explicit) return explicit;
-  return MOLTBOT_TO_DB_TYPE[moltbotType] ?? ChannelType.CUSTOM;
+  return OPENCLAW_TO_DB_TYPE[openclawType] ?? ChannelType.CUSTOM;
 }
 
 @Injectable()
@@ -50,11 +50,11 @@ export class ChannelsService {
   ) {}
 
   // ==========================================
-  // Channel Type Definitions (Moltbot-native)
+  // Channel Type Definitions (OpenClaw-native)
   // ==========================================
 
   getChannelTypes(): ChannelTypeMeta[] {
-    return MOLTBOT_CHANNEL_TYPES.map((type) => CHANNEL_TYPE_META[type]);
+    return OPENCLAW_CHANNEL_TYPES.map((type) => CHANNEL_TYPE_META[type]);
   }
 
   // ==========================================
@@ -62,14 +62,14 @@ export class ChannelsService {
   // ==========================================
 
   async create(dto: CreateChannelDto): Promise<CommunicationChannel> {
-    const meta = CHANNEL_TYPE_META[dto.moltbotType];
+    const meta = CHANNEL_TYPE_META[dto.openclawType];
     if (!meta) {
-      throw new BadRequestException(`Unknown Moltbot channel type: ${dto.moltbotType}`);
+      throw new BadRequestException(`Unknown OpenClaw channel type: ${dto.openclawType}`);
     }
 
     // Runtime compatibility check
-    if (dto.botInstanceId && NODE_REQUIRED_CHANNELS.includes(dto.moltbotType)) {
-      await this.authService.validateRuntimeCompatibility(dto.botInstanceId, dto.moltbotType);
+    if (dto.botInstanceId && NODE_REQUIRED_CHANNELS.includes(dto.openclawType)) {
+      await this.authService.validateRuntimeCompatibility(dto.botInstanceId, dto.openclawType);
     }
 
     // Check for duplicate name in workspace
@@ -84,10 +84,10 @@ export class ChannelsService {
       throw new BadRequestException(`Channel with name '${dto.name}' already exists in this workspace`);
     }
 
-    // Build the config JSON that stores all Moltbot-specific data
+    // Build the config JSON that stores all OpenClaw-specific data
     const config = this.buildStoredConfig(dto);
 
-    const dbType = resolveDbChannelType(dto.moltbotType, dto.type);
+    const dbType = resolveDbChannelType(dto.openclawType, dto.type);
 
     return prisma.communicationChannel.create({
       data: {
@@ -121,11 +121,11 @@ export class ChannelsService {
       orderBy: { createdAt: "desc" },
     });
 
-    // Filter by moltbotType if specified
-    if (query.moltbotType) {
+    // Filter by openclawType if specified
+    if (query.openclawType) {
       return channels.filter((ch) => {
         const cfg = ch.config as Record<string, unknown> | null;
-        return cfg?.moltbotType === query.moltbotType;
+        return cfg?.openclawType === query.openclawType;
       });
     }
 
@@ -245,9 +245,9 @@ export class ChannelsService {
 
     // Runtime check for Node-required channels
     const config = channel.config as Record<string, unknown> | null;
-    const moltbotType = config?.moltbotType as MoltbotChannelType | undefined;
-    if (moltbotType && NODE_REQUIRED_CHANNELS.includes(moltbotType)) {
-      await this.authService.validateRuntimeCompatibility(dto.botId, moltbotType);
+    const openclawType = config?.openclawType as OpenClawChannelType | undefined;
+    if (openclawType && NODE_REQUIRED_CHANNELS.includes(openclawType)) {
+      await this.authService.validateRuntimeCompatibility(dto.botId, openclawType);
     }
 
     // Check for existing binding with same purpose
@@ -354,12 +354,12 @@ export class ChannelsService {
     const channelDataList: ChannelData[] = bindings
       .map((binding) => {
         const config = binding.channel.config as Record<string, unknown> | null;
-        if (!config?.moltbotType) return null;
+        if (!config?.openclawType) return null;
 
         return {
           id: binding.channel.id,
           name: binding.channel.name,
-          moltbotType: config.moltbotType as MoltbotChannelType,
+          openclawType: config.openclawType as OpenClawChannelType,
           enabled: config.enabled ?? true,
           policies: config.policies || {},
           typeConfig: config.typeConfig || {},
@@ -385,16 +385,16 @@ export class ChannelsService {
     }
 
     const config = dto.config || (channel.config as Record<string, unknown>);
-    const moltbotType = config?.moltbotType as MoltbotChannelType | undefined;
+    const openclawType = config?.openclawType as OpenClawChannelType | undefined;
 
-    if (!moltbotType) {
+    if (!openclawType) {
       return {
         success: false,
-        error: "Channel does not have a moltbotType configured",
+        error: "Channel does not have an openclawType configured",
       };
     }
 
-    const meta = CHANNEL_TYPE_META[moltbotType];
+    const meta = CHANNEL_TYPE_META[openclawType];
     const secrets = config?.secrets as Record<string, string> | undefined;
 
     // Validate required secrets are present
@@ -427,7 +427,7 @@ export class ChannelsService {
 
     const testResult = {
       success: true,
-      moltbotType,
+      openclawType,
       authMethod: meta.authMethod,
       latencyMs: Math.floor(Math.random() * 100),
     };
@@ -483,7 +483,7 @@ export class ChannelsService {
     const results = await Promise.all(
       bindings.map(async (binding) => {
         const config = binding.channel.config as Record<string, unknown> | null;
-        const moltbotType = config?.moltbotType as string | undefined;
+        const openclawType = config?.openclawType as string | undefined;
 
         // Simulate health check
         await new Promise((resolve) => setTimeout(resolve, 50 + Math.random() * 100));
@@ -502,7 +502,7 @@ export class ChannelsService {
           channelId: binding.channelId,
           channelName: binding.channel.name,
           type: binding.channel.type,
-          moltbotType: moltbotType || "unknown",
+          openclawType: openclawType || "unknown",
           purpose: binding.purpose,
           healthy,
         };
@@ -553,7 +553,7 @@ export class ChannelsService {
         id: channel.id,
         name: channel.name,
         type: channel.type,
-        moltbotType: config?.moltbotType || null,
+        openclawType: config?.openclawType || null,
         status: channel.status,
         enabled: config?.enabled ?? true,
       },
@@ -584,7 +584,7 @@ export class ChannelsService {
 
   private buildStoredConfig(dto: CreateChannelDto): Record<string, unknown> {
     return {
-      moltbotType: dto.moltbotType,
+      openclawType: dto.openclawType,
       enabled: dto.enabled ?? true,
       policies: {
         dmPolicy: dto.policies?.dmPolicy ?? DEFAULT_COMMON_CONFIG.dmPolicy,

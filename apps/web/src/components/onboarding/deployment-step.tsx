@@ -50,7 +50,7 @@ export function DeploymentStep({
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Docker must be installed on the target machine. Moltbot will run as a container.
+            Docker must be installed on the target machine. OpenClaw will run as a container.
           </p>
         </CardContent>
       </Card>

@@ -35,7 +35,7 @@ async function bootstrap() {
   if (process.env.NODE_ENV !== "production") {
     const config = new DocumentBuilder()
       .setTitle("Molthub API")
-      .setDescription("Control plane for Moltbot instances")
+      .setDescription("Control plane for OpenClaw instances")
       .setVersion("0.1.0")
       .addBearerAuth()
       .build();

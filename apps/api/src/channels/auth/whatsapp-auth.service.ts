@@ -4,8 +4,8 @@ import { ChannelAuthState } from "../channel-types";
 // ---------------------------------------------------------------------------
 // WhatsApp Auth Service
 //
-// WhatsApp uses QR-based pairing via `moltbot channels login`.
-// In production, this would execute the command on the Moltbot instance
+// WhatsApp uses QR-based pairing via `openclaw channels login`.
+// In production, this would execute the command on the OpenClaw instance
 // via the Gateway or deployment target and stream the QR code back.
 // The QR code refreshes every ~20 seconds.
 // ---------------------------------------------------------------------------
@@ -205,8 +205,8 @@ export class WhatsAppAuthService {
    * Generate a QR code payload for WhatsApp pairing.
    *
    * In production, this would:
-   * 1. Connect to the Moltbot instance via Gateway or deployment target
-   * 2. Execute `moltbot channels login` on the instance
+   * 1. Connect to the OpenClaw instance via Gateway or deployment target
+   * 2. Execute `openclaw channels login` on the instance
    * 3. Capture the QR code data from stdout
    * 4. Return the base64-encoded QR image data
    *
@@ -219,12 +219,12 @@ export class WhatsAppAuthService {
   ): Promise<string> {
     // TODO: Replace with real Gateway integration:
     //   const client = gatewayManager.getClient(botInstanceId);
-    //   const result = await client.agent({ prompt: 'moltbot channels login' });
+    //   const result = await client.agent({ prompt: 'openclaw channels login' });
     //   return result.completion.qrData;
 
     const timestamp = Date.now();
     const nonce = Math.random().toString(36).substring(2, 10);
-    return `moltbot-wa-qr://${channelId}/${timestamp}/${nonce}`;
+    return `openclaw-wa-qr://${channelId}/${timestamp}/${nonce}`;
   }
 
   // ========================================================================

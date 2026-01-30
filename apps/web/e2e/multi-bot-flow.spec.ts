@@ -40,7 +40,7 @@ test.describe('Add Bot Wizard Page', () => {
 
   test('should display wizard description', async ({ page }) => {
     await expect(
-      page.getByText(/configure and deploy a new moltbot instance/i)
+      page.getByText(/configure and deploy a new openclaw instance/i)
     ).toBeVisible({ timeout: 10000 });
   });
 

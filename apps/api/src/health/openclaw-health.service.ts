@@ -36,8 +36,8 @@ export interface StoredHealthSnapshot {
 }
 
 @Injectable()
-export class MoltbotHealthService {
-  private readonly logger = new Logger(MoltbotHealthService.name);
+export class OpenClawHealthService {
+  private readonly logger = new Logger(OpenClawHealthService.name);
 
   // ---- Scheduled polling ---------------------------------------------------
 

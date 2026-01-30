@@ -39,11 +39,11 @@ export interface BotInstance {
   ecsServiceArn?: string;
   taskDefinitionArn?: string;
   cloudwatchLogGroup?: string;
-  // Moltbot-native fields
+  // OpenClaw-native fields
   deploymentType?: string;
   gatewayPort?: number;
   profileName?: string;
-  moltbotVersion?: string;
+  openclawVersion?: string;
   configHash?: string;
   // AI Gateway settings
   aiGatewayEnabled: boolean;
@@ -830,7 +830,7 @@ class ApiClient {
     return this.fetch('/dashboard/activity');
   }
 
-  // Moltbot Instance Management
+  // OpenClaw Instance Management
   async getInstanceHealth(id: string): Promise<InstanceHealth> {
     return this.fetch(`/instances/${id}/health`);
   }

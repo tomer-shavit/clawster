@@ -141,14 +141,14 @@ export class OnboardingService {
     // 5. Build manifest
     const manifest = {
       apiVersion: "molthub/v2",
-      kind: "MoltbotInstance",
+      kind: "OpenClawInstance",
       metadata: {
         name: dto.botName,
         workspace: workspace.slug,
         environment: env,
       },
       spec: {
-        moltbotConfig: config,
+        openclawConfig: config,
       },
     };
 
@@ -164,13 +164,13 @@ export class OnboardingService {
             subnetIds: dto.deploymentTarget.subnetIds,
             securityGroupId: dto.deploymentTarget.securityGroupId,
             executionRoleArn: dto.deploymentTarget.executionRoleArn,
-            clusterName: `moltbot-${dto.botName}`,
+            clusterName: `openclaw-${dto.botName}`,
           }
         : {
             containerName:
-              dto.deploymentTarget.containerName || `moltbot-${dto.botName}`,
+              dto.deploymentTarget.containerName || `openclaw-${dto.botName}`,
             configPath:
-              dto.deploymentTarget.configPath || `/var/moltbot/${dto.botName}`,
+              dto.deploymentTarget.configPath || `/var/openclaw/${dto.botName}`,
             gatewayPort: 18789,
           };
 
@@ -264,7 +264,7 @@ export class OnboardingService {
           instance.status === "CREATING" ? "in_progress" : "completed",
       },
       {
-        name: "Installing Moltbot",
+        name: "Installing OpenClaw",
         status:
           instance.status === "CREATING"
             ? "pending"

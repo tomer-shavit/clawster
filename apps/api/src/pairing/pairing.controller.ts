@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import { PairingService } from "./pairing.service";
 import { PairingActionDto, ListPairingsQueryDto } from "./pairing.dto";
-import type { PairingState, MoltbotChannelType } from "@molthub/database";
+import type { PairingState, OpenClawChannelType } from "@molthub/database";
 
 @Controller("bot-instances/:id/pairings")
 export class PairingController {
@@ -40,7 +40,7 @@ export class PairingController {
     await this.pairingService.verifyInstanceExists(id);
     return this.pairingService.approvePairing(
       id,
-      body.channelType as MoltbotChannelType,
+      body.channelType as OpenClawChannelType,
       body.senderId,
     );
   }
@@ -53,7 +53,7 @@ export class PairingController {
     await this.pairingService.verifyInstanceExists(id);
     return this.pairingService.rejectPairing(
       id,
-      body.channelType as MoltbotChannelType,
+      body.channelType as OpenClawChannelType,
       body.senderId,
     );
   }
@@ -72,7 +72,7 @@ export class PairingController {
     await this.pairingService.verifyInstanceExists(id);
     return this.pairingService.revokePairing(
       id,
-      body.channelType as MoltbotChannelType,
+      body.channelType as OpenClawChannelType,
       body.senderId,
     );
   }

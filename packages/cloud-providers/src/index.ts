@@ -34,7 +34,7 @@ export type {
   ShouldRestoreResult,
   ValidationResult,
   WranglerConfigOutput,
-  MoltbotContainerEnv,
+  OpenClawContainerEnv,
   WorkerSecrets,
   EnvMappingResult,
 } from "./targets/cloudflare-workers";

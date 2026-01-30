@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import type {
   DeploymentTarget,
-  MoltbotConfigPayload,
+  OpenClawConfigPayload,
   GatewayEndpoint,
 } from "../../interface/deployment-target";
 
@@ -23,12 +23,12 @@ export function generateTestPort(): number {
 }
 
 /**
- * Build a minimal valid MoltbotConfigPayload for testing.
+ * Build a minimal valid OpenClawConfigPayload for testing.
  */
 export function buildTestConfig(
   profileName: string,
   port: number,
-): MoltbotConfigPayload {
+): OpenClawConfigPayload {
   return {
     profileName,
     gatewayPort: port,

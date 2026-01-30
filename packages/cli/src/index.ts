@@ -12,7 +12,7 @@ const program = new Command();
 
 program
   .name("molthub")
-  .description("Molthub CLI - Control plane for Moltbot instances")
+  .description("Molthub CLI - Control plane for OpenClaw instances")
   .version(MOLTHUB_VERSION);
 
 // Bootstrap command

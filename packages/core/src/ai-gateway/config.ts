@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { envString } from "../moltbot-config";
+import { envString } from "../openclaw-config";
 
 // =============================================================================
 // Model API Types — matches OpenClaw's supported API protocols
@@ -30,7 +30,7 @@ export const ModelProviderConfigSchema = z.object({
 export type ModelProviderConfig = z.infer<typeof ModelProviderConfigSchema>;
 
 // =============================================================================
-// Models Config Section — top-level config section for MoltbotConfigSchema
+// Models Config Section — top-level config section for OpenClawConfigSchema
 // =============================================================================
 
 export const ModelsConfigSchema = z.object({
@@ -39,7 +39,7 @@ export const ModelsConfigSchema = z.object({
 export type ModelsConfig = z.infer<typeof ModelsConfigSchema>;
 
 // =============================================================================
-// AI Gateway Settings — stored on BotInstance DB, NOT in moltbot.json
+// AI Gateway Settings — stored on BotInstance DB, NOT in openclaw.json
 // =============================================================================
 
 export const AiGatewaySettingsSchema = z.object({

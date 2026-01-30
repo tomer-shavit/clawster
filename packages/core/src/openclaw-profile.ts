@@ -5,13 +5,13 @@ import { z } from "zod";
 // =============================================================================
 
 /**
- * Minimum port gap between two Moltbot gateway instances.
+ * Minimum port gap between two OpenClaw gateway instances.
  * The docs recommend 20+ to leave room for auxiliary services.
  */
 export const MIN_PORT_SPACING = 20;
 
 /**
- * Represents a single Moltbot profile for multi-instance isolation.
+ * Represents a single OpenClaw profile for multi-instance isolation.
  *
  * Each profile gets:
  *   - Dedicated config file   (CLAWDBOT_CONFIG_PATH)
@@ -21,9 +21,9 @@ export const MIN_PORT_SPACING = 20;
  *
  * Service naming:
  *   - macOS: bot.molt.<profileName>
- *   - Linux: moltbot-gateway-<profileName>.service
+ *   - Linux: openclaw-gateway-<profileName>.service
  */
-export const MoltbotProfileSchema = z.object({
+export const OpenClawProfileSchema = z.object({
   /** Human-friendly profile name (also used in service names). */
   name: z
     .string()
@@ -37,7 +37,7 @@ export const MoltbotProfileSchema = z.object({
   /** Gateway port for this profile. */
   port: z.number().int().min(1).max(65535),
 
-  /** Path to this profile's moltbot.json config. */
+  /** Path to this profile's openclaw.json config. */
   configPath: z.string().min(1),
 
   /** Isolated state directory. */
@@ -52,15 +52,15 @@ export const MoltbotProfileSchema = z.object({
   /** Whether this profile is currently active. */
   enabled: z.boolean().default(true),
 });
-export type MoltbotProfile = z.infer<typeof MoltbotProfileSchema>;
+export type OpenClawProfile = z.infer<typeof OpenClawProfileSchema>;
 
 // =============================================================================
 // Multi-Profile Registry (validates port spacing)
 // =============================================================================
 
-export const MoltbotProfileRegistrySchema = z
+export const OpenClawProfileRegistrySchema = z
   .object({
-    profiles: z.array(MoltbotProfileSchema).min(1),
+    profiles: z.array(OpenClawProfileSchema).min(1),
   })
   .refine(
     (data) => {
@@ -86,8 +86,8 @@ export const MoltbotProfileRegistrySchema = z
       message: `Enabled profiles must have gateway ports spaced at least ${MIN_PORT_SPACING} apart`,
     },
   );
-export type MoltbotProfileRegistry = z.infer<
-  typeof MoltbotProfileRegistrySchema
+export type OpenClawProfileRegistry = z.infer<
+  typeof OpenClawProfileRegistrySchema
 >;
 
 /**
@@ -99,13 +99,13 @@ export function serviceName(
 ): string {
   return platform === "macos"
     ? `bot.molt.${profileName}`
-    : `moltbot-gateway-${profileName}.service`;
+    : `openclaw-gateway-${profileName}.service`;
 }
 
 /**
  * Build environment variables for launching a profile's gateway.
  */
-export function profileEnvVars(profile: MoltbotProfile): Record<string, string> {
+export function profileEnvVars(profile: OpenClawProfile): Record<string, string> {
   return {
     CLAWDBOT_CONFIG_PATH: profile.configPath,
     CLAWDBOT_STATE_DIR: profile.stateDir,

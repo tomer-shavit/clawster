@@ -128,7 +128,7 @@ const SlackChannelObjectSchema = z.object({
   slashCommand: z
     .object({
       enabled: z.boolean().default(false),
-      command: z.string().default("/moltbot"),
+      command: z.string().default("/openclaw"),
     })
     .optional(),
   thread: z
@@ -202,7 +202,7 @@ export type MatrixChannel = z.infer<typeof MatrixChannelSchema>;
 // Discriminated Union of All Channel Types
 // =============================================================================
 
-export const MoltbotChannelSchema = z.discriminatedUnion("type", [
+export const OpenClawChannelSchema = z.discriminatedUnion("type", [
   WhatsAppChannelObjectSchema,
   TelegramChannelObjectSchema,
   DiscordChannelObjectSchema,
@@ -230,7 +230,7 @@ export const MoltbotChannelSchema = z.discriminatedUnion("type", [
     });
   }
 });
-export type MoltbotChannel = z.infer<typeof MoltbotChannelSchema>;
+export type OpenClawChannel = z.infer<typeof OpenClawChannelSchema>;
 
 /**
  * Record keyed by channel type for the top-level `channels` config block.

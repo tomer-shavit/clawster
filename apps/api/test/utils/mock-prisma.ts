@@ -64,7 +64,7 @@ export function createMockBotInstance(overrides: Record<string, unknown> = {}) {
     desiredManifest: {
       apiVersion: "molthub/v2",
       metadata: { name: "test-bot", environment: "dev" },
-      spec: { moltbotConfig: { gateway: { port: 18789, host: "127.0.0.1" } } },
+      spec: { openclawConfig: { gateway: { port: 18789, host: "127.0.0.1" } } },
     },
     gatewayConnection: null,
     channelAuthSessions: [],

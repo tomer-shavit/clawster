@@ -4,7 +4,7 @@ import {
   DeploymentTargetType,
   InstallOptions,
   InstallResult,
-  MoltbotConfigPayload,
+  OpenClawConfigPayload,
   ConfigureResult,
   TargetStatus,
   DeploymentLogOptions,
@@ -30,7 +30,7 @@ function runCommand(cmd: string, args: string[]): Promise<string> {
 }
 
 /**
- * Kubernetes manifest types for Moltbot deployment.
+ * Kubernetes manifest types for OpenClaw deployment.
  */
 export interface KubernetesManifests {
   deployment: Record<string, unknown>;
@@ -39,7 +39,7 @@ export interface KubernetesManifests {
 }
 
 /**
- * KubernetesTarget manages a Moltbot gateway instance deployed as a
+ * KubernetesTarget manages an OpenClaw gateway instance deployed as a
  * Kubernetes Deployment with an associated Service and ConfigMap.
  *
  * The implementation generates Kubernetes manifest objects and applies
@@ -73,7 +73,7 @@ export class KubernetesTarget implements DeploymentTarget {
   }
 
   /**
-   * Generates the ConfigMap manifest for Moltbot configuration.
+   * Generates the ConfigMap manifest for OpenClaw configuration.
    */
   private generateConfigMap(configData?: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -84,7 +84,7 @@ export class KubernetesTarget implements DeploymentTarget {
         namespace: this.config.namespace,
         labels: {
           app: this.config.deploymentName,
-          "app.kubernetes.io/name": "moltbot-gateway",
+          "app.kubernetes.io/name": "openclaw-gateway",
           "app.kubernetes.io/managed-by": "molthub",
         },
       },
@@ -102,7 +102,7 @@ export class KubernetesTarget implements DeploymentTarget {
   }
 
   /**
-   * Generates the Deployment manifest for the Moltbot gateway.
+   * Generates the Deployment manifest for the OpenClaw gateway.
    */
   private generateDeployment(): Record<string, unknown> {
     const replicas = this.config.replicas ?? 1;
@@ -115,7 +115,7 @@ export class KubernetesTarget implements DeploymentTarget {
         namespace: this.config.namespace,
         labels: {
           app: this.config.deploymentName,
-          "app.kubernetes.io/name": "moltbot-gateway",
+          "app.kubernetes.io/name": "openclaw-gateway",
           "app.kubernetes.io/managed-by": "molthub",
         },
       },
@@ -130,13 +130,13 @@ export class KubernetesTarget implements DeploymentTarget {
           metadata: {
             labels: {
               app: this.config.deploymentName,
-              "app.kubernetes.io/name": "moltbot-gateway",
+              "app.kubernetes.io/name": "openclaw-gateway",
             },
           },
           spec: {
             containers: [
               {
-                name: "moltbot-gateway",
+                name: "openclaw-gateway",
                 image: this.image,
                 ports: [
                   {
@@ -210,7 +210,7 @@ export class KubernetesTarget implements DeploymentTarget {
         namespace: this.config.namespace,
         labels: {
           app: this.config.deploymentName,
-          "app.kubernetes.io/name": "moltbot-gateway",
+          "app.kubernetes.io/name": "openclaw-gateway",
           "app.kubernetes.io/managed-by": "molthub",
         },
       },
@@ -232,7 +232,7 @@ export class KubernetesTarget implements DeploymentTarget {
   }
 
   /**
-   * Generate all Kubernetes manifests for the Moltbot deployment.
+   * Generate all Kubernetes manifests for the OpenClaw deployment.
    * This is public so callers can inspect the generated manifests.
    */
   generateManifests(configData?: Record<string, unknown>): KubernetesManifests {
@@ -249,8 +249,8 @@ export class KubernetesTarget implements DeploymentTarget {
   async install(options: InstallOptions): Promise<InstallResult> {
     this.profileName = options.profileName;
 
-    if (options.moltbotVersion) {
-      this.image = this.image.replace(/:.*$/, `:${options.moltbotVersion}`);
+    if (options.openclawVersion) {
+      this.image = this.image.replace(/:.*$/, `:${options.openclawVersion}`);
     }
 
     this.manifests = this.generateManifests();
@@ -306,7 +306,7 @@ export class KubernetesTarget implements DeploymentTarget {
   /**
    * Update the ConfigMap with new configuration.
    */
-  async configure(config: MoltbotConfigPayload): Promise<ConfigureResult> {
+  async configure(config: OpenClawConfigPayload): Promise<ConfigureResult> {
     this.profileName = config.profileName;
 
     const configData: Record<string, unknown> = {

@@ -1,5 +1,5 @@
 /**
- * Cloudflare Workers deployment target for Moltbot.
+ * Cloudflare Workers deployment target for OpenClaw.
  *
  * Exports the target implementation, R2 state sync, wrangler config generator,
  * and environment mapper.
@@ -24,7 +24,7 @@ export {
   rewriteAiGatewayUrl,
   isSecretKey,
   getSecretEntries,
-  type MoltbotContainerEnv,
+  type OpenClawContainerEnv,
   type WorkerSecrets,
   type EnvMappingResult,
 } from "./env-mapper";

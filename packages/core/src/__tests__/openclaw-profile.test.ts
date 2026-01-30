@@ -1,43 +1,43 @@
 import { describe, it, expect } from "vitest";
 import {
-  MoltbotProfileSchema,
-  MoltbotProfileRegistrySchema,
+  OpenClawProfileSchema,
+  OpenClawProfileRegistrySchema,
   MIN_PORT_SPACING,
   serviceName,
   profileEnvVars,
-} from "../moltbot-profile";
+} from "../openclaw-profile";
 
-describe("MoltbotProfileSchema", () => {
+describe("OpenClawProfileSchema", () => {
   function createProfile(overrides: Record<string, unknown> = {}) {
     return {
       name: "main",
       port: 18789,
-      configPath: "/etc/moltbot/main.json",
-      stateDir: "/var/moltbot/main",
+      configPath: "/etc/openclaw/main.json",
+      stateDir: "/var/openclaw/main",
       workspace: "~/clawd-main",
       ...overrides,
     };
   }
 
   it("validates a minimal valid profile", () => {
-    const result = MoltbotProfileSchema.safeParse(createProfile());
+    const result = OpenClawProfileSchema.safeParse(createProfile());
     expect(result.success).toBe(true);
   });
 
   it("applies default enabled=true", () => {
-    const parsed = MoltbotProfileSchema.parse(createProfile());
+    const parsed = OpenClawProfileSchema.parse(createProfile());
     expect(parsed.enabled).toBe(true);
   });
 
   it("accepts optional description", () => {
-    const result = MoltbotProfileSchema.safeParse(
+    const result = OpenClawProfileSchema.safeParse(
       createProfile({ description: "Primary bot" }),
     );
     expect(result.success).toBe(true);
   });
 
   it("accepts enabled=false", () => {
-    const parsed = MoltbotProfileSchema.parse(
+    const parsed = OpenClawProfileSchema.parse(
       createProfile({ enabled: false }),
     );
     expect(parsed.enabled).toBe(false);
@@ -46,51 +46,51 @@ describe("MoltbotProfileSchema", () => {
   describe("name validation", () => {
     it("accepts lowercase alphanumeric names", () => {
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ name: "bot1" })).success,
+        OpenClawProfileSchema.safeParse(createProfile({ name: "bot1" })).success,
       ).toBe(true);
     });
 
     it("accepts names with hyphens", () => {
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ name: "my-bot" }))
+        OpenClawProfileSchema.safeParse(createProfile({ name: "my-bot" }))
           .success,
       ).toBe(true);
     });
 
     it("accepts single character names", () => {
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ name: "a" })).success,
+        OpenClawProfileSchema.safeParse(createProfile({ name: "a" })).success,
       ).toBe(true);
     });
 
     it("rejects names starting with hyphen", () => {
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ name: "-bot" })).success,
+        OpenClawProfileSchema.safeParse(createProfile({ name: "-bot" })).success,
       ).toBe(false);
     });
 
     it("rejects names ending with hyphen", () => {
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ name: "bot-" })).success,
+        OpenClawProfileSchema.safeParse(createProfile({ name: "bot-" })).success,
       ).toBe(false);
     });
 
     it("rejects uppercase names", () => {
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ name: "MyBot" }))
+        OpenClawProfileSchema.safeParse(createProfile({ name: "MyBot" }))
           .success,
       ).toBe(false);
     });
 
     it("rejects empty names", () => {
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ name: "" })).success,
+        OpenClawProfileSchema.safeParse(createProfile({ name: "" })).success,
       ).toBe(false);
     });
 
     it("rejects names over 63 characters", () => {
       expect(
-        MoltbotProfileSchema.safeParse(
+        OpenClawProfileSchema.safeParse(
           createProfile({ name: "a".repeat(64) }),
         ).success,
       ).toBe(false);
@@ -100,28 +100,28 @@ describe("MoltbotProfileSchema", () => {
   describe("port validation", () => {
     it("accepts valid port numbers", () => {
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ port: 1 })).success,
+        OpenClawProfileSchema.safeParse(createProfile({ port: 1 })).success,
       ).toBe(true);
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ port: 65535 })).success,
+        OpenClawProfileSchema.safeParse(createProfile({ port: 65535 })).success,
       ).toBe(true);
     });
 
     it("rejects port 0", () => {
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ port: 0 })).success,
+        OpenClawProfileSchema.safeParse(createProfile({ port: 0 })).success,
       ).toBe(false);
     });
 
     it("rejects ports above 65535", () => {
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ port: 65536 })).success,
+        OpenClawProfileSchema.safeParse(createProfile({ port: 65536 })).success,
       ).toBe(false);
     });
 
     it("rejects fractional ports", () => {
       expect(
-        MoltbotProfileSchema.safeParse(createProfile({ port: 18789.5 }))
+        OpenClawProfileSchema.safeParse(createProfile({ port: 18789.5 }))
           .success,
       ).toBe(false);
     });
@@ -129,17 +129,17 @@ describe("MoltbotProfileSchema", () => {
 
   it("requires configPath, stateDir, workspace", () => {
     const { configPath, ...noConfig } = createProfile();
-    expect(MoltbotProfileSchema.safeParse(noConfig).success).toBe(false);
+    expect(OpenClawProfileSchema.safeParse(noConfig).success).toBe(false);
 
     const { stateDir, ...noState } = createProfile();
-    expect(MoltbotProfileSchema.safeParse(noState).success).toBe(false);
+    expect(OpenClawProfileSchema.safeParse(noState).success).toBe(false);
 
     const { workspace, ...noWorkspace } = createProfile();
-    expect(MoltbotProfileSchema.safeParse(noWorkspace).success).toBe(false);
+    expect(OpenClawProfileSchema.safeParse(noWorkspace).success).toBe(false);
   });
 });
 
-describe("MoltbotProfileRegistrySchema", () => {
+describe("OpenClawProfileRegistrySchema", () => {
   function createRegistry(profiles: Array<Record<string, unknown>>) {
     return { profiles };
   }
@@ -161,7 +161,7 @@ describe("MoltbotProfileRegistrySchema", () => {
   };
 
   it("accepts profiles with sufficient port spacing", () => {
-    const result = MoltbotProfileRegistrySchema.safeParse(
+    const result = OpenClawProfileRegistrySchema.safeParse(
       createRegistry([profileA, profileB]),
     );
     expect(result.success).toBe(true);
@@ -169,7 +169,7 @@ describe("MoltbotProfileRegistrySchema", () => {
 
   it("rejects profiles with port spacing < 20", () => {
     const tooClose = { ...profileB, port: 18790 };
-    const result = MoltbotProfileRegistrySchema.safeParse(
+    const result = OpenClawProfileRegistrySchema.safeParse(
       createRegistry([profileA, tooClose]),
     );
     expect(result.success).toBe(false);
@@ -182,7 +182,7 @@ describe("MoltbotProfileRegistrySchema", () => {
 
   it("accepts exactly 20 port gap", () => {
     const exactly20 = { ...profileB, port: 18809 }; // 18809 - 18789 = 20
-    const result = MoltbotProfileRegistrySchema.safeParse(
+    const result = OpenClawProfileRegistrySchema.safeParse(
       createRegistry([profileA, exactly20]),
     );
     expect(result.success).toBe(true);
@@ -190,7 +190,7 @@ describe("MoltbotProfileRegistrySchema", () => {
 
   it("rejects duplicate profile names", () => {
     const duplicate = { ...profileB, name: "main" };
-    const result = MoltbotProfileRegistrySchema.safeParse(
+    const result = OpenClawProfileRegistrySchema.safeParse(
       createRegistry([profileA, duplicate]),
     );
     expect(result.success).toBe(false);
@@ -198,7 +198,7 @@ describe("MoltbotProfileRegistrySchema", () => {
 
   it("ignores port spacing for disabled profiles", () => {
     const disabled = { ...profileB, port: 18790, enabled: false };
-    const result = MoltbotProfileRegistrySchema.safeParse(
+    const result = OpenClawProfileRegistrySchema.safeParse(
       createRegistry([{ ...profileA, enabled: true }, disabled]),
     );
     expect(result.success).toBe(true);
@@ -212,7 +212,7 @@ describe("MoltbotProfileRegistrySchema", () => {
       stateDir: "/c",
       workspace: "/c",
     };
-    const result = MoltbotProfileRegistrySchema.safeParse(
+    const result = OpenClawProfileRegistrySchema.safeParse(
       createRegistry([profileA, profileB, profileC]),
     );
     expect(result.success).toBe(true);
@@ -227,14 +227,14 @@ describe("MoltbotProfileRegistrySchema", () => {
       workspace: "/c",
     };
     // B at 18809, C at 18815 -> gap of 6 (too close)
-    const result = MoltbotProfileRegistrySchema.safeParse(
+    const result = OpenClawProfileRegistrySchema.safeParse(
       createRegistry([profileA, profileB, profileC]),
     );
     expect(result.success).toBe(false);
   });
 
   it("requires at least one profile", () => {
-    const result = MoltbotProfileRegistrySchema.safeParse(createRegistry([]));
+    const result = OpenClawProfileRegistrySchema.safeParse(createRegistry([]));
     expect(result.success).toBe(false);
   });
 });
@@ -254,13 +254,13 @@ describe("serviceName", () => {
 
   it("generates Linux service name", () => {
     expect(serviceName("main", "linux")).toBe(
-      "moltbot-gateway-main.service",
+      "openclaw-gateway-main.service",
     );
     expect(serviceName("rescue", "linux")).toBe(
-      "moltbot-gateway-rescue.service",
+      "openclaw-gateway-rescue.service",
     );
     expect(serviceName("my-bot", "linux")).toBe(
-      "moltbot-gateway-my-bot.service",
+      "openclaw-gateway-my-bot.service",
     );
   });
 });
@@ -270,15 +270,15 @@ describe("profileEnvVars", () => {
     const env = profileEnvVars({
       name: "main",
       port: 18789,
-      configPath: "/etc/moltbot/main.json",
-      stateDir: "/var/moltbot/main",
+      configPath: "/etc/openclaw/main.json",
+      stateDir: "/var/openclaw/main",
       workspace: "~/clawd-main",
       enabled: true,
     });
 
     expect(env).toEqual({
-      CLAWDBOT_CONFIG_PATH: "/etc/moltbot/main.json",
-      CLAWDBOT_STATE_DIR: "/var/moltbot/main",
+      CLAWDBOT_CONFIG_PATH: "/etc/openclaw/main.json",
+      CLAWDBOT_STATE_DIR: "/var/openclaw/main",
     });
   });
 

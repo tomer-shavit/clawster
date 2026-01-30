@@ -115,7 +115,7 @@ export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
 
 export const InstanceManifestSchema = z.object({
   apiVersion: z.literal("molthub/v1"),
-  kind: z.literal("MoltbotInstance"),
+  kind: z.literal("OpenClawInstance"),
   metadata: z.object({
     name: z.string()
       .regex(/^[a-z0-9-]+$/, "Must be lowercase alphanumeric with hyphens")

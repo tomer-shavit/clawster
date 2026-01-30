@@ -160,10 +160,10 @@ export default function ComparePageContent() {
                     <span className="font-mono text-xs">{instance.gatewayPort}</span>
                   </div>
                 )}
-                {instance.moltbotVersion && (
+                {instance.openclawVersion && (
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Version</span>
-                    <span className="font-mono text-xs">{instance.moltbotVersion}</span>
+                    <span className="font-mono text-xs">{instance.openclawVersion}</span>
                   </div>
                 )}
               </div>

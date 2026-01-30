@@ -30,12 +30,12 @@ function getSuggestions(bot: BotInstance): Suggestion[] {
   // Check channel count from manifest
   const manifest = bot.desiredManifest as Record<string, unknown> | null;
   const spec = (manifest?.spec as Record<string, unknown>) || manifest;
-  const moltbotConfig = (spec?.moltbotConfig as Record<string, unknown>) || spec;
-  const channelsConfig = (moltbotConfig?.channels as Record<string, unknown>) || {};
+  const openclawConfig = (spec?.openclawConfig as Record<string, unknown>) || spec;
+  const channelsConfig = (openclawConfig?.channels as Record<string, unknown>) || {};
   const channelCount = Object.keys(channelsConfig).length;
 
   // Check skills
-  const skillsConfig = (moltbotConfig?.skills as Record<string, unknown>) || {};
+  const skillsConfig = (openclawConfig?.skills as Record<string, unknown>) || {};
   const skillEntries = (skillsConfig?.entries as Record<string, unknown>) || {};
   const bundledSkills = (skillsConfig?.allowBundled as string[]) || [];
   const hasSkills = Object.keys(skillEntries).length > 0 || bundledSkills.length > 0;

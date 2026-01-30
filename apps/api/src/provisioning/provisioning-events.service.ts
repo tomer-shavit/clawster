@@ -36,7 +36,7 @@ const STEP_NAMES: Record<string, string> = {
   create_container: "Create container",
   write_config: "Write configuration",
   start_container: "Start container",
-  install_moltbot: "Install Moltbot",
+  install_openclaw: "Install OpenClaw",
   install_service: "Install service",
   start_service: "Start service",
   generate_manifests: "Generate Kubernetes manifests",
@@ -69,7 +69,7 @@ export const PROVISIONING_STEPS: Record<string, string[]> = {
   local: [
     "validate_config",
     "security_audit",
-    "install_moltbot",
+    "install_openclaw",
     "write_config",
     "install_service",
     "start_service",

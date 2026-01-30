@@ -45,7 +45,7 @@ const CLUSTER_AVAILABLE = hasKubeCluster();
 
       const config: KubernetesTargetConfig = {
         namespace,
-        deploymentName: `moltbot-${profile}`,
+        deploymentName: `openclaw-${profile}`,
         gatewayPort: port,
         replicas: 1,
       };

@@ -87,7 +87,7 @@ export class DiagnosticsService {
       where: { id: instanceId },
       include: {
         gatewayConnection: true,
-        moltbotProfile: true,
+        openclawProfile: true,
         channelAuthSessions: true,
       },
     });
@@ -123,14 +123,14 @@ export class DiagnosticsService {
   }
 
   /**
-   * Run a doctor check (simplified moltbot doctor equivalent).
+   * Run a doctor check (simplified openclaw doctor equivalent).
    */
   async runDoctor(instanceId: string): Promise<DoctorResult> {
     const instance = await prisma.botInstance.findUniqueOrThrow({
       where: { id: instanceId },
       include: {
         gatewayConnection: true,
-        moltbotProfile: true,
+        openclawProfile: true,
         channelAuthSessions: true,
       },
     });
@@ -155,7 +155,7 @@ export class DiagnosticsService {
     }
 
     // Service audit
-    const profile = instance.moltbotProfile;
+    const profile = instance.openclawProfile;
     const serviceType = profile?.serviceType ?? null;
     let serviceStatus = "unknown";
     if (profile) {
@@ -392,7 +392,7 @@ export class DiagnosticsService {
   private checkServiceStatus(
     instance: {
       status: string;
-      moltbotProfile: {
+      openclawProfile: {
         serviceName: string | null;
         serviceType: string | null;
       } | null;
@@ -400,14 +400,14 @@ export class DiagnosticsService {
     },
     findings: DiagnosticFinding[],
   ): void {
-    const profile = instance.moltbotProfile;
+    const profile = instance.openclawProfile;
 
     if (!profile) {
       findings.push({
         category: "service",
         severity: "warning",
-        message: "No moltbot profile configured for this instance",
-        repairAction: "Create a moltbot profile to enable service management.",
+        message: "No openclaw profile configured for this instance",
+        repairAction: "Create an openclaw profile to enable service management.",
       });
       return;
     }
@@ -416,9 +416,9 @@ export class DiagnosticsService {
       findings.push({
         category: "service",
         severity: "warning",
-        message: "No service name configured in the moltbot profile",
+        message: "No service name configured in the openclaw profile",
         detail: `Service type: ${profile.serviceType ?? "not set"}`,
-        repairAction: "Configure the service name in the moltbot profile for process management.",
+        repairAction: "Configure the service name in the openclaw profile for process management.",
       });
     } else {
       findings.push({

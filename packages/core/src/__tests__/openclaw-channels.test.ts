@@ -3,7 +3,7 @@ import {
   DmPolicySchema,
   GroupPolicySchema,
   ChannelTypeSchema,
-  MoltbotChannelSchema,
+  OpenClawChannelSchema,
   ChannelsConfigSchema,
   WhatsAppChannelSchema,
   TelegramChannelSchema,
@@ -16,7 +16,7 @@ import {
   MSTeamsChannelSchema,
   LINEChannelSchema,
   MatrixChannelSchema,
-} from "../moltbot-channels";
+} from "../openclaw-channels";
 
 describe("DmPolicySchema", () => {
   it("accepts valid dm policies", () => {
@@ -65,7 +65,7 @@ describe("ChannelTypeSchema", () => {
   });
 });
 
-describe("MoltbotChannelSchema (discriminated union)", () => {
+describe("OpenClawChannelSchema (discriminated union)", () => {
   it("validates all 11 channel types with pairing policy", () => {
     const channels = [
       { type: "whatsapp" }, { type: "telegram" }, { type: "discord" },
@@ -74,17 +74,17 @@ describe("MoltbotChannelSchema (discriminated union)", () => {
       { type: "line" }, { type: "matrix" },
     ];
     for (const ch of channels) {
-      const result = MoltbotChannelSchema.safeParse({ ...ch, dmPolicy: "pairing" });
+      const result = OpenClawChannelSchema.safeParse({ ...ch, dmPolicy: "pairing" });
       expect(result.success).toBe(true);
     }
   });
 
   it("rejects unknown channel type", () => {
-    expect(MoltbotChannelSchema.safeParse({ type: "fax" }).success).toBe(false);
+    expect(OpenClawChannelSchema.safeParse({ type: "fax" }).success).toBe(false);
   });
 
   it("applies default values (with allowFrom for default allowlist)", () => {
-    const parsed = MoltbotChannelSchema.parse({
+    const parsed = OpenClawChannelSchema.parse({
       type: "whatsapp",
       allowFrom: ["user-1"],
     });
@@ -96,7 +96,7 @@ describe("MoltbotChannelSchema (discriminated union)", () => {
   });
 
   it("enforces allowFrom when dmPolicy is allowlist", () => {
-    const result = MoltbotChannelSchema.safeParse({
+    const result = OpenClawChannelSchema.safeParse({
       type: "whatsapp",
       dmPolicy: "allowlist",
       // Missing allowFrom
@@ -105,7 +105,7 @@ describe("MoltbotChannelSchema (discriminated union)", () => {
   });
 
   it("enforces groupAllowFrom when groupPolicy is allowlist", () => {
-    const result = MoltbotChannelSchema.safeParse({
+    const result = OpenClawChannelSchema.safeParse({
       type: "whatsapp",
       dmPolicy: "pairing",
       groupPolicy: "allowlist",
@@ -115,7 +115,7 @@ describe("MoltbotChannelSchema (discriminated union)", () => {
   });
 
   it("passes when allowlist has entries", () => {
-    const result = MoltbotChannelSchema.safeParse({
+    const result = OpenClawChannelSchema.safeParse({
       type: "whatsapp",
       dmPolicy: "allowlist",
       allowFrom: ["+15551234567"],

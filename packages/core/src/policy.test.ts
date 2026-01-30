@@ -6,7 +6,7 @@ describe('PolicyEngine', () => {
 
   const validManifest = {
     apiVersion: 'molthub/v1' as const,
-    kind: 'MoltbotInstance' as const,
+    kind: 'OpenClawInstance' as const,
     metadata: {
       name: 'test-bot',
       workspace: 'default',

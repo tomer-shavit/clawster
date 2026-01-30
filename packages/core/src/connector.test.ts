@@ -129,7 +129,7 @@ describe('IntegrationConnector', () => {
           arn: 'arn:aws:secretsmanager:us-east-1:123456789:secret:aws-secret-key',
         },
         region: 'us-west-2',
-        roleArn: 'arn:aws:iam::123456789:role/MoltbotRole',
+        roleArn: 'arn:aws:iam::123456789:role/OpenClawRole',
       },
     };
     const result = validateIntegrationConnector(awsConnector);

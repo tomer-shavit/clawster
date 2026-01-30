@@ -4,7 +4,7 @@ import {
   DeploymentTargetType,
   InstallOptions,
   InstallResult,
-  MoltbotConfigPayload,
+  OpenClawConfigPayload,
   ConfigureResult,
   TargetStatus,
   DeploymentLogOptions,
@@ -55,12 +55,12 @@ function runCommandWithStdin(cmd: string, args: string[], stdinData: string): Pr
 }
 
 /**
- * CloudflareWorkersTarget manages a Moltbot gateway instance deployed as a
+ * CloudflareWorkersTarget manages an OpenClaw gateway instance deployed as a
  * Cloudflare Worker with a Sandbox container and optional R2 state persistence.
  *
  * Operations:
- * - install(): Generate wrangler.jsonc, Dockerfile, start-moltbot.sh, then `wrangler deploy`
- * - configure(): Map env vars, generate moltbot.json, set worker secrets
+ * - install(): Generate wrangler.jsonc, Dockerfile, start-openclaw.sh, then `wrangler deploy`
+ * - configure(): Map env vars, generate openclaw.json, set worker secrets
  * - start(): `wrangler deploy` (Workers are always-on with Durable Objects)
  * - stop(): `wrangler delete`
  * - restart(): Redeploy with `wrangler deploy`
@@ -87,7 +87,7 @@ export class CloudflareWorkersTarget implements DeploymentTarget {
    *
    * Steps:
    * 1. Create project directory
-   * 2. Generate wrangler.jsonc, Dockerfile, start-moltbot.sh
+   * 2. Generate wrangler.jsonc, Dockerfile, start-openclaw.sh
    * 3. Generate Worker entry point
    * 4. Run `wrangler deploy`
    */
@@ -132,7 +132,7 @@ export class CloudflareWorkersTarget implements DeploymentTarget {
       );
 
       // Write start script
-      const startScriptPath = path.join(this.projectDir, "start-moltbot.sh");
+      const startScriptPath = path.join(this.projectDir, "start-openclaw.sh");
       fs.writeFileSync(startScriptPath, configOutput.startScript, "utf8");
       fs.chmodSync(startScriptPath, 0o755);
 
@@ -167,9 +167,9 @@ export class CloudflareWorkersTarget implements DeploymentTarget {
 
   /**
    * Configure the Worker by mapping environment variables, generating
-   * moltbot.json, and setting worker secrets via `wrangler secret put`.
+   * openclaw.json, and setting worker secrets via `wrangler secret put`.
    */
-  async configure(config: MoltbotConfigPayload): Promise<ConfigureResult> {
+  async configure(config: OpenClawConfigPayload): Promise<ConfigureResult> {
     const fs = await import("fs");
     const path = await import("path");
 
@@ -177,27 +177,27 @@ export class CloudflareWorkersTarget implements DeploymentTarget {
       // Map environment
       const envMapping = mapEnvironment(this.config, config.environment);
 
-      // Generate moltbot.json config
-      const moltbotConfig = {
+      // Generate openclaw.json config
+      const openclawConfig = {
         gateway: {
           port: config.gatewayPort,
           auth: {
             mode: "token",
-            token: "${MOLTBOT_GATEWAY_TOKEN}",
+            token: "${OPENCLAW_GATEWAY_TOKEN}",
           },
         },
         ...config.config,
       };
 
-      // Write moltbot.json to the project directory
+      // Write openclaw.json to the project directory
       if (this.projectDir) {
         const configDir = path.join(this.projectDir, "config");
         if (!fs.existsSync(configDir)) {
           fs.mkdirSync(configDir, { recursive: true });
         }
         fs.writeFileSync(
-          path.join(configDir, "moltbot.json"),
-          JSON.stringify(moltbotConfig, null, 2),
+          path.join(configDir, "openclaw.json"),
+          JSON.stringify(openclawConfig, null, 2),
           "utf8"
         );
       }
@@ -223,7 +223,7 @@ export class CloudflareWorkersTarget implements DeploymentTarget {
         message: `Configuration applied to Worker "${this.config.workerName}" (${secretEntries.length} secrets set)`,
         requiresRestart: true,
         configPath: this.projectDir
-          ? path.join(this.projectDir, "config", "moltbot.json")
+          ? path.join(this.projectDir, "config", "openclaw.json")
           : undefined,
       };
     } catch (error) {

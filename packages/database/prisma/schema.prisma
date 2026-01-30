@@ -159,13 +159,13 @@ model BotInstance {
   updatedAt DateTime @updatedAt
   createdBy String
 
-  // Moltbot-native fields
+  // OpenClaw-native fields
   deploymentType     DeploymentType?
   deploymentTargetId String?
   deploymentTarget   DeploymentTarget? @relation(fields: [deploymentTargetId], references: [id])
   gatewayPort        Int?
   profileName        String?
-  moltbotVersion     String?
+  openclawVersion     String?
   configHash         String?
 
   // AI Gateway settings
@@ -181,7 +181,7 @@ model BotInstance {
   skillPacks          BotInstanceSkillPack[]
   channelBindings     BotChannelBinding[]
   gatewayConnection   GatewayConnection?
-  moltbotProfile      MoltbotProfile?
+  openclawProfile      OpenClawProfile?
   channelAuthSessions ChannelAuthSession[]
   healthSnapshots     HealthSnapshot[]
   agentStateSnapshots AgentStateSnapshot[]
@@ -794,7 +794,7 @@ model BotChannelBinding {
 }
 
 // ============================================
-// MOLTBOT-NATIVE ENUMS
+// OPENCLAW-NATIVE ENUMS
 // ============================================
 
 enum DeploymentType {
@@ -822,7 +822,7 @@ enum ChannelAuthState {
   ERROR
 }
 
-enum MoltbotChannelType {
+enum OpenClawChannelType {
   WHATSAPP
   TELEGRAM
   DISCORD
@@ -834,13 +834,14 @@ enum MoltbotChannelType {
   MS_TEAMS
   LINE
   MATRIX
+
 }
 
 // ============================================
-// MOLTBOT-NATIVE MODELS
+// OPENCLAW-NATIVE MODELS
 // ============================================
 
-// GatewayConnection: Tracks the WebSocket connection to a Moltbot gateway
+// GatewayConnection: Tracks the WebSocket connection to an OpenClaw gateway
 model GatewayConnection {
   id         String      @id @default(cuid())
   instanceId String      @unique
@@ -865,20 +866,20 @@ model GatewayConnection {
   @@index([status])
 }
 
-// MoltbotProfile: Local profile configuration for a bot instance
-model MoltbotProfile {
+// OpenClawProfile: Local profile configuration for a bot instance
+model OpenClawProfile {
   id         String      @id @default(cuid())
   instanceId String      @unique
   instance   BotInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
   profileName String
-  configPath  String // e.g., ~/.clawdbot/profiles/<name>/moltbot.json
+  configPath  String // e.g., ~/.clawdbot/profiles/<name>/openclaw.json
   stateDir    String // e.g., ~/.clawdbot/profiles/<name>/state/
   workspace   String // e.g., ~/clawd/<name>/
   basePort    Int    @default(18789)
 
   // Service management
-  serviceName String? // e.g., bot.molt.<profile> or moltbot-gateway-<profile>.service
+  serviceName String? // e.g., bot.openclaw.<profile> or openclaw-gateway-<profile>.service
   serviceType String? // "launchd" | "systemd"
 
   createdAt DateTime @default(now())
@@ -894,7 +895,7 @@ model ChannelAuthSession {
   instanceId String
   instance   BotInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
-  channelType MoltbotChannelType
+  channelType OpenClawChannelType
   state       ChannelAuthState @default(PENDING)
 
   // Auth flow data
@@ -1218,7 +1219,7 @@ model DevicePairing {
   instanceId String
   instance   BotInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
-  channelType  MoltbotChannelType
+  channelType  OpenClawChannelType
   senderId     String
   senderName   String?
   platform     String?

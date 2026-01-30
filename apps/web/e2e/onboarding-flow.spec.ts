@@ -20,7 +20,7 @@ test.describe("Onboarding Wizard", () => {
 
       // Should show the wizard heading
       await expect(
-        page.getByRole("heading", { name: /set up your first moltbot/i })
+        page.getByRole("heading", { name: /set up your first openclaw/i })
       ).toBeVisible();
 
       // Should show the stepper with step labels

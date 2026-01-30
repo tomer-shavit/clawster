@@ -5,7 +5,7 @@ import {
   DeploymentTargetType,
   InstallOptions,
   InstallResult,
-  MoltbotConfigPayload,
+  OpenClawConfigPayload,
   ConfigureResult,
   TargetStatus,
   DeploymentLogOptions,
@@ -51,7 +51,7 @@ function detectOS(): DetectedOS {
 }
 
 /**
- * LocalMachineTarget manages a Moltbot gateway instance on the
+ * LocalMachineTarget manages an OpenClaw gateway instance on the
  * current machine using systemd (Linux/WSL2) or launchctl (macOS).
  *
  * Profile-based isolation means each instance gets its own service
@@ -75,7 +75,7 @@ export class LocalMachineTarget implements DeploymentTarget {
     if (this.os === "macos") {
       return `bot.molt.${profile}`;
     }
-    return `moltbot-gateway-${profile}`;
+    return `openclaw-gateway-${profile}`;
   }
 
   /**
@@ -90,7 +90,7 @@ export class LocalMachineTarget implements DeploymentTarget {
    * Returns the systemd user service unit name.
    */
   private getSystemdUnitName(profile: string): string {
-    return `moltbot-gateway-${profile}.service`;
+    return `openclaw-gateway-${profile}.service`;
   }
 
   async install(options: InstallOptions): Promise<InstallResult> {
@@ -109,12 +109,12 @@ export class LocalMachineTarget implements DeploymentTarget {
       options.port.toString(),
     ];
 
-    if (options.moltbotVersion) {
-      args.push("--version", options.moltbotVersion);
+    if (options.openclawVersion) {
+      args.push("--version", options.openclawVersion);
     }
 
     try {
-      const output = await runCommand("moltbot", args);
+      const output = await runCommand("openclaw", args);
 
       // On Linux, enable linger so user services persist after logout
       if (this.os === "linux" || this.os === "wsl2") {
@@ -129,7 +129,7 @@ export class LocalMachineTarget implements DeploymentTarget {
       return {
         success: true,
         instanceId: serviceName,
-        message: `Installed Moltbot gateway profile "${options.profileName}" on ${this.os}. ${output}`,
+        message: `Installed OpenClaw gateway profile "${options.profileName}" on ${this.os}. ${output}`,
         serviceName,
       };
     } catch (error) {
@@ -142,11 +142,11 @@ export class LocalMachineTarget implements DeploymentTarget {
     }
   }
 
-  async configure(config: MoltbotConfigPayload): Promise<ConfigureResult> {
+  async configure(config: OpenClawConfigPayload): Promise<ConfigureResult> {
     this.profileName = config.profileName;
     this.port = config.gatewayPort;
 
-    // Moltbot profiles scope config automatically via --profile,
+    // OpenClaw profiles scope config automatically via --profile,
     // so we invoke the config command to write settings.
     const args = [
       "gateway",
@@ -164,7 +164,7 @@ export class LocalMachineTarget implements DeploymentTarget {
     }
 
     try {
-      await runCommand("moltbot", args);
+      await runCommand("openclaw", args);
       return {
         success: true,
         message: `Configuration applied to profile "${config.profileName}"`,
@@ -308,9 +308,9 @@ export class LocalMachineTarget implements DeploymentTarget {
 
     try {
       if (this.os === "macos") {
-        // macOS: read from Moltbot log file
+        // macOS: read from OpenClaw log file
         const home = process.env.HOME || "~";
-        const logPath = `${home}/.moltbot/profiles/${this.profileName}/gateway.log`;
+        const logPath = `${home}/.openclaw/profiles/${this.profileName}/gateway.log`;
         const args = ["-n", String(options?.lines ?? 100), logPath];
         if (options?.follow) {
           args.unshift("-f");
@@ -360,7 +360,7 @@ export class LocalMachineTarget implements DeploymentTarget {
 
     // Uninstall the gateway profile
     try {
-      await runCommand("moltbot", ["gateway", "uninstall", "--profile", this.profileName]);
+      await runCommand("openclaw", ["gateway", "uninstall", "--profile", this.profileName]);
     } catch {
       // Best-effort cleanup
     }

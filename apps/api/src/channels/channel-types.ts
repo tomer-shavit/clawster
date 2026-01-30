@@ -1,19 +1,19 @@
 // ============================================
-// Moltbot Channel Types & Configuration
+// OpenClaw Channel Types & Configuration
 // ============================================
 
-export const MOLTBOT_CHANNEL_TYPES = [
+export const OPENCLAW_CHANNEL_TYPES = [
   'whatsapp', 'telegram', 'discord', 'slack', 'signal',
   'imessage', 'mattermost', 'google-chat', 'ms-teams', 'line', 'matrix',
 ] as const;
 
-export type MoltbotChannelType = typeof MOLTBOT_CHANNEL_TYPES[number];
+export type OpenClawChannelType = typeof OPENCLAW_CHANNEL_TYPES[number];
 
 /** Channels that require Node.js runtime (Bun not supported) */
-export const NODE_REQUIRED_CHANNELS: MoltbotChannelType[] = ['whatsapp', 'telegram'];
+export const NODE_REQUIRED_CHANNELS: OpenClawChannelType[] = ['whatsapp', 'telegram'];
 
 /** Channels that support QR-based pairing */
-export const QR_PAIRING_CHANNELS: MoltbotChannelType[] = ['whatsapp'];
+export const QR_PAIRING_CHANNELS: OpenClawChannelType[] = ['whatsapp'];
 
 // ============================================
 // Policy Types
@@ -113,7 +113,7 @@ export interface SlackConfig extends CommonChannelConfig {
 }
 
 export const DEFAULT_SLACK_CONFIG: Omit<SlackConfig, keyof CommonChannelConfig> = {
-  slashCommand: { enabled: false, name: '/moltbot' },
+  slashCommand: { enabled: false, name: '/openclaw' },
   thread: { historyScope: 'thread' },
 };
 
@@ -174,7 +174,7 @@ export const DEFAULT_MATRIX_CONFIG: Omit<MatrixConfig, keyof CommonChannelConfig
 // Union type for all channel configs
 // ============================================
 
-export type MoltbotChannelConfig =
+export type OpenClawChannelConfig =
   | WhatsAppConfig
   | TelegramConfig
   | DiscordConfig
@@ -192,7 +192,7 @@ export type MoltbotChannelConfig =
 // ============================================
 
 export interface ChannelTypeMeta {
-  type: MoltbotChannelType;
+  type: OpenClawChannelType;
   label: string;
   requiresNodeRuntime: boolean;
   authMethod: 'qr-pairing' | 'token' | 'credentials' | 'service-account';
@@ -201,7 +201,7 @@ export interface ChannelTypeMeta {
   defaultConfig: Record<string, unknown>;
 }
 
-export const CHANNEL_TYPE_META: Record<MoltbotChannelType, ChannelTypeMeta> = {
+export const CHANNEL_TYPE_META: Record<OpenClawChannelType, ChannelTypeMeta> = {
   whatsapp: {
     type: 'whatsapp',
     label: 'WhatsApp',
@@ -308,7 +308,7 @@ export const CHANNEL_TYPE_META: Record<MoltbotChannelType, ChannelTypeMeta> = {
 // Used for env var substitution in config generation
 // ============================================
 
-export const SECRET_FIELDS: Record<MoltbotChannelType, string[]> = {
+export const SECRET_FIELDS: Record<OpenClawChannelType, string[]> = {
   whatsapp: [],
   telegram: ['botToken', 'tokenFile'],
   discord: ['token'],

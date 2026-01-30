@@ -1,7 +1,7 @@
 /**
  * R2 State Sync for Cloudflare Workers deployment.
  *
- * Handles backup and restore of Moltbot state to/from Cloudflare R2 buckets.
+ * Handles backup and restore of OpenClaw state to/from Cloudflare R2 buckets.
  * Modeled after moltworker's pattern:
  * - Backup every 5 minutes via scheduler
  * - Timestamp-based: only restore if R2 has newer files
@@ -13,7 +13,7 @@ import { execFile } from "child_process";
 import { CloudflareWorkersConfig } from "../../interface/deployment-target";
 
 /**
- * Critical files that must exist in a valid Moltbot state directory.
+ * Critical files that must exist in a valid OpenClaw state directory.
  * These are checked before backup/restore to avoid corrupting state.
  */
 const CRITICAL_STATE_FILES = [
@@ -90,7 +90,7 @@ function runCommand(cmd: string, args: string[]): Promise<string> {
 }
 
 /**
- * R2StateSync manages backup and restore of Moltbot state to Cloudflare R2.
+ * R2StateSync manages backup and restore of OpenClaw state to Cloudflare R2.
  */
 export class R2StateSync {
   private config: CloudflareWorkersConfig;
@@ -282,7 +282,7 @@ export class R2StateSync {
 
   /**
    * Validates that a state directory contains the critical files needed
-   * for a valid Moltbot state. Used before both backup and restore to
+   * for a valid OpenClaw state. Used before both backup and restore to
    * prevent corrupting state.
    *
    * @param directory - Path to the state directory to validate

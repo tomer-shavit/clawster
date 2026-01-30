@@ -5,7 +5,7 @@ import {
   injectGatewayIntoConfig,
 } from "../provider-builder";
 import type { AiGatewaySettings } from "../config";
-import type { MoltbotFullConfig } from "../../moltbot-config";
+import type { OpenClawFullConfig } from "../../openclaw-config";
 
 describe("ai-gateway/provider-builder", () => {
   const baseSettings: AiGatewaySettings = {
@@ -16,7 +16,7 @@ describe("ai-gateway/provider-builder", () => {
     api: "anthropic-messages",
   };
 
-  const baseConfig: MoltbotFullConfig = {
+  const baseConfig: OpenClawFullConfig = {
     channels: {},
     agents: {
       defaults: {
@@ -158,7 +158,7 @@ describe("ai-gateway/provider-builder", () => {
     });
 
     it("handles config with no model specified", () => {
-      const configNoModel: MoltbotFullConfig = {
+      const configNoModel: OpenClawFullConfig = {
         channels: {},
       };
       const result = injectGatewayIntoConfig(configNoModel, baseSettings);
@@ -171,7 +171,7 @@ describe("ai-gateway/provider-builder", () => {
     });
 
     it("preserves existing models.providers", () => {
-      const configWithProviders: MoltbotFullConfig = {
+      const configWithProviders: OpenClawFullConfig = {
         ...baseConfig,
         models: {
           providers: {

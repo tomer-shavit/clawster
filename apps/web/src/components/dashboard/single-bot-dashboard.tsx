@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ContextualSuggestions } from "@/components/bots/contextual-suggestions";
 import { JustDeployedBanner } from "@/components/dashboard/just-deployed-banner";
-import { EvolutionIndicator } from "@/components/moltbot/evolution-indicator";
+import { EvolutionIndicator } from "@/components/openclaw/evolution-indicator";
 import { api, type BotInstance, type AgentEvolutionSnapshot } from "@/lib/api";
 import Link from "next/link";
 import {
@@ -141,8 +141,8 @@ export function SingleBotDashboard({ bot }: SingleBotDashboardProps) {
                 <Clock className="w-3.5 h-3.5" />
                 Uptime: {formatUptime(bot.uptimeSeconds)}
               </span>
-              {bot.moltbotVersion && (
-                <span className="font-mono text-xs">v{bot.moltbotVersion}</span>
+              {bot.openclawVersion && (
+                <span className="font-mono text-xs">v{bot.openclawVersion}</span>
               )}
               {bot.deploymentType && (
                 <Badge variant="outline" className="text-xs">

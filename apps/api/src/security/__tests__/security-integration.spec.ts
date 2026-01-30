@@ -40,19 +40,19 @@ import {
   SkillEntrySchema,
   SkillsConfigSchema,
   SkillIntegritySchema,
-} from "../../../../../packages/core/src/moltbot-config";
+} from "../../../../../packages/core/src/openclaw-config";
 
 import {
   WhatsAppChannelSchema,
-} from "../../../../../packages/core/src/moltbot-channels";
+} from "../../../../../packages/core/src/openclaw-channels";
 
 import {
   evaluateRequireGatewayHostBinding,
   evaluateRequireChannelAllowlist,
   evaluateForbidDangerousTools,
   evaluateRequireSkillVerification,
-} from "../../../../../packages/core/src/moltbot-policies";
-import type { MoltbotConfig } from "../../../../../packages/core/src/moltbot-policies";
+} from "../../../../../packages/core/src/openclaw-policies";
+import type { OpenClawConfig } from "../../../../../packages/core/src/openclaw-policies";
 
 import {
   getDefaultDenyList,
@@ -61,7 +61,7 @@ import {
 
 // --- API-local modules ---
 import { detectInjections } from "../injection-patterns";
-import { MoltbotSecurityAuditService } from "../security-audit.service";
+import { OpenClawSecurityAuditService } from "../security-audit.service";
 import { ProvisioningChecklistService } from "../provisioning-checklist.service";
 import { ConfigGeneratorService } from "../../reconciler/config-generator.service";
 import {
@@ -110,13 +110,13 @@ describe("Suite 2 — Config Generator Security Enforcement", () => {
   });
 
   function makeManifest(overrides: {
-    moltbotConfig?: Record<string, unknown>;
+    openclawConfig?: Record<string, unknown>;
     environment?: string;
     securityOverrides?: Record<string, unknown>;
   }) {
     return {
       apiVersion: "molthub/v2" as const,
-      kind: "MoltbotInstance" as const,
+      kind: "OpenClawInstance" as const,
       metadata: {
         name: "test-bot",
         workspace: "/tmp/test",
@@ -126,17 +126,17 @@ describe("Suite 2 — Config Generator Security Enforcement", () => {
         securityOverrides: overrides.securityOverrides,
       },
       spec: {
-        moltbotConfig: {
+        openclawConfig: {
           channels: {},
-          ...overrides.moltbotConfig,
+          ...overrides.openclawConfig,
         },
       },
     } as any;
   }
 
   it("auto-generates a gateway auth token when none is provided", () => {
-    const manifest = makeManifest({ moltbotConfig: {} });
-    const config = generator.generateMoltbotConfig(manifest);
+    const manifest = makeManifest({ openclawConfig: {} });
+    const config = generator.generateOpenClawConfig(manifest);
     expect(config.gateway?.auth?.token).toBeDefined();
     expect(typeof config.gateway?.auth?.token).toBe("string");
     expect((config.gateway?.auth?.token as string).length).toBeGreaterThan(0);
@@ -145,45 +145,45 @@ describe("Suite 2 — Config Generator Security Enforcement", () => {
   it("forces sandbox.mode to 'all' when 'off' in prod", () => {
     const manifest = makeManifest({
       environment: "prod",
-      moltbotConfig: {
+      openclawConfig: {
         sandbox: { mode: "off" },
       },
     });
-    const config = generator.generateMoltbotConfig(manifest);
+    const config = generator.generateOpenClawConfig(manifest);
     expect(config.sandbox?.mode).toBe("all");
   });
 
   it("forces sandbox.mode to 'all' when 'off' in staging", () => {
     const manifest = makeManifest({
       environment: "staging",
-      moltbotConfig: {
+      openclawConfig: {
         sandbox: { mode: "off" },
       },
     });
-    const config = generator.generateMoltbotConfig(manifest);
+    const config = generator.generateOpenClawConfig(manifest);
     expect(config.sandbox?.mode).toBe("all");
   });
 
   it("disables elevated tools when allowFrom is empty", () => {
     const manifest = makeManifest({
-      moltbotConfig: {
+      openclawConfig: {
         tools: {
           profile: "coding",
           elevated: { enabled: true, allowFrom: [] },
         },
       },
     });
-    const config = generator.generateMoltbotConfig(manifest);
+    const config = generator.generateOpenClawConfig(manifest);
     expect(config.tools?.elevated?.enabled).toBe(false);
   });
 
   it("sets logging.redactSensitive to 'tools' when unset", () => {
     const manifest = makeManifest({
-      moltbotConfig: {
+      openclawConfig: {
         logging: { level: "info" },
       },
     });
-    const config = generator.generateMoltbotConfig(manifest);
+    const config = generator.generateOpenClawConfig(manifest);
     expect(config.logging?.redactSensitive).toBe("tools");
   });
 });
@@ -387,14 +387,14 @@ describe("Suite 6 — Input Sanitization (Injection Detection)", () => {
 describe("Suite 7 — Policy Evaluation", () => {
   describe("evaluateRequireGatewayHostBinding", () => {
     it("fails when host is '0.0.0.0'", () => {
-      const config: MoltbotConfig = { gateway: { host: "0.0.0.0" } };
+      const config: OpenClawConfig = { gateway: { host: "0.0.0.0" } };
       const result = evaluateRequireGatewayHostBinding(config, { enabled: true });
       expect(result.passed).toBe(false);
       expect(result.violation?.ruleId).toBe("require_gateway_host_binding");
     });
 
     it("passes when host is '127.0.0.1'", () => {
-      const config: MoltbotConfig = { gateway: { host: "127.0.0.1" } };
+      const config: OpenClawConfig = { gateway: { host: "127.0.0.1" } };
       const result = evaluateRequireGatewayHostBinding(config, { enabled: true });
       expect(result.passed).toBe(true);
     });
@@ -402,7 +402,7 @@ describe("Suite 7 — Policy Evaluation", () => {
 
   describe("evaluateRequireChannelAllowlist", () => {
     it("fails when dmPolicy is 'open'", () => {
-      const config: MoltbotConfig = {
+      const config: OpenClawConfig = {
         channels: [{ name: "test-ch", dmPolicy: "open" }],
       };
       const result = evaluateRequireChannelAllowlist(config, { enabled: true });
@@ -411,7 +411,7 @@ describe("Suite 7 — Policy Evaluation", () => {
     });
 
     it("passes when dmPolicy is 'allowlist'", () => {
-      const config: MoltbotConfig = {
+      const config: OpenClawConfig = {
         channels: [{ name: "test-ch", dmPolicy: "allowlist" }],
       };
       const result = evaluateRequireChannelAllowlist(config, { enabled: true });
@@ -419,7 +419,7 @@ describe("Suite 7 — Policy Evaluation", () => {
     });
 
     it("fails when groupPolicy is 'open'", () => {
-      const config: MoltbotConfig = {
+      const config: OpenClawConfig = {
         channels: [{ name: "test-ch", groupPolicy: "open" }],
       };
       const result = evaluateRequireChannelAllowlist(config, { enabled: true });
@@ -430,7 +430,7 @@ describe("Suite 7 — Policy Evaluation", () => {
 
   describe("evaluateForbidDangerousTools", () => {
     it("fails when allow list contains 'op' (1Password CLI)", () => {
-      const config: MoltbotConfig = {
+      const config: OpenClawConfig = {
         tools: { allow: ["op"] } as any,
       };
       const result = evaluateForbidDangerousTools(config, { enabled: true });
@@ -439,7 +439,7 @@ describe("Suite 7 — Policy Evaluation", () => {
     });
 
     it("fails when allow list contains 'bw' (Bitwarden CLI)", () => {
-      const config: MoltbotConfig = {
+      const config: OpenClawConfig = {
         tools: { allow: ["bw"] } as any,
       };
       const result = evaluateForbidDangerousTools(config, { enabled: true });
@@ -447,7 +447,7 @@ describe("Suite 7 — Policy Evaluation", () => {
     });
 
     it("passes without dangerous tools in allow list", () => {
-      const config: MoltbotConfig = {
+      const config: OpenClawConfig = {
         tools: { allow: ["search", "github"] } as any,
       };
       const result = evaluateForbidDangerousTools(config, { enabled: true });
@@ -455,7 +455,7 @@ describe("Suite 7 — Policy Evaluation", () => {
     });
 
     it("passes when no allow list is defined", () => {
-      const config: MoltbotConfig = { tools: {} };
+      const config: OpenClawConfig = { tools: {} };
       const result = evaluateForbidDangerousTools(config, { enabled: true });
       expect(result.passed).toBe(true);
     });
@@ -463,7 +463,7 @@ describe("Suite 7 — Policy Evaluation", () => {
 
   describe("evaluateRequireSkillVerification", () => {
     it("fails for non-bundled skill without integrity hash", () => {
-      const config: MoltbotConfig = {
+      const config: OpenClawConfig = {
         skills: {
           allowUnverified: false,
           entries: {
@@ -477,7 +477,7 @@ describe("Suite 7 — Policy Evaluation", () => {
     });
 
     it("passes for bundled skill without integrity hash", () => {
-      const config: MoltbotConfig = {
+      const config: OpenClawConfig = {
         skills: {
           allowUnverified: false,
           entries: {
@@ -490,7 +490,7 @@ describe("Suite 7 — Policy Evaluation", () => {
     });
 
     it("passes for non-bundled skill with integrity hash", () => {
-      const config: MoltbotConfig = {
+      const config: OpenClawConfig = {
         skills: {
           allowUnverified: false,
           entries: {
@@ -506,7 +506,7 @@ describe("Suite 7 — Policy Evaluation", () => {
     });
 
     it("passes when no skill entries are defined", () => {
-      const config: MoltbotConfig = {};
+      const config: OpenClawConfig = {};
       const result = evaluateRequireSkillVerification(config, { enabled: true });
       expect(result.passed).toBe(true);
     });
@@ -518,10 +518,10 @@ describe("Suite 7 — Policy Evaluation", () => {
 // =============================================================================
 
 describe("Suite 8 — Security Audit Service", () => {
-  let auditService: MoltbotSecurityAuditService;
+  let auditService: OpenClawSecurityAuditService;
 
   beforeEach(() => {
-    auditService = new MoltbotSecurityAuditService();
+    auditService = new OpenClawSecurityAuditService();
   });
 
   describe("calculateSecurityScore", () => {
@@ -582,14 +582,14 @@ describe("Suite 8 — Security Audit Service", () => {
     it("blocks an insecure manifest", async () => {
       const insecureManifest = {
         apiVersion: "molthub/v2",
-        kind: "MoltbotInstance",
+        kind: "OpenClawInstance",
         metadata: {
           name: "insecure-bot",
           workspace: "/tmp/insecure",
           environment: "dev",
         },
         spec: {
-          moltbotConfig: {
+          openclawConfig: {
             gateway: { host: "0.0.0.0" },
             channels: [
               { name: "ch1", dmPolicy: "open" },
@@ -605,14 +605,14 @@ describe("Suite 8 — Security Audit Service", () => {
     it("allows a secure manifest", async () => {
       const secureManifest = {
         apiVersion: "molthub/v2",
-        kind: "MoltbotInstance",
+        kind: "OpenClawInstance",
         metadata: {
           name: "secure-bot",
           workspace: "/tmp/secure",
           environment: "dev",
         },
         spec: {
-          moltbotConfig: {
+          openclawConfig: {
             gateway: {
               host: "127.0.0.1",
               auth: { token: "secure-token" },

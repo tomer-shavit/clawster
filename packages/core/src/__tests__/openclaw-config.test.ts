@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  MoltbotConfigSchema,
-  validateMoltbotConfig,
+  OpenClawConfigSchema,
+  validateOpenClawConfig,
   SandboxConfigSchema,
   GatewayConfigSchema,
   ToolsConfigSchema,
@@ -9,9 +9,9 @@ import {
   AgentsConfigSchema,
   LoggingConfigSchema,
   BindingEntrySchema,
-} from "../moltbot-config";
+} from "../openclaw-config";
 import {
-  MoltbotChannelSchema,
+  OpenClawChannelSchema,
   ChannelsConfigSchema,
   WhatsAppChannelSchema,
   TelegramChannelSchema,
@@ -24,18 +24,18 @@ import {
   MSTeamsChannelSchema,
   LINEChannelSchema,
   MatrixChannelSchema,
-} from "../moltbot-channels";
+} from "../openclaw-channels";
 import {
-  MoltbotManifestSchema,
-  validateMoltbotManifest,
-} from "../moltbot-manifest";
+  OpenClawManifestSchema,
+  validateOpenClawManifest,
+} from "../openclaw-manifest";
 import {
-  MoltbotProfileRegistrySchema,
-  MoltbotProfileSchema,
+  OpenClawProfileRegistrySchema,
+  OpenClawProfileSchema,
   MIN_PORT_SPACING,
   serviceName,
   profileEnvVars,
-} from "../moltbot-profile";
+} from "../openclaw-profile";
 
 // =============================================================================
 // Realistic full config fixture
@@ -57,7 +57,7 @@ const realisticConfig = {
         scope: "session",
         workspaceAccess: "rw",
         docker: {
-          image: "moltbot/sandbox:latest",
+          image: "openclaw/sandbox:latest",
           network: "bridge",
           memory: "512m",
           cpus: 1,
@@ -167,7 +167,7 @@ const realisticConfig = {
   },
   logging: {
     level: "debug",
-    file: "/var/log/moltbot.log",
+    file: "/var/log/openclaw.log",
     redactSensitive: "tools",
   },
   bindings: [
@@ -186,19 +186,19 @@ const realisticConfig = {
 // Tests
 // =============================================================================
 
-describe("MoltbotConfigSchema", () => {
+describe("OpenClawConfigSchema", () => {
   it("parses a realistic full config", () => {
-    const result = MoltbotConfigSchema.safeParse(realisticConfig);
+    const result = OpenClawConfigSchema.safeParse(realisticConfig);
     expect(result.success).toBe(true);
   });
 
   it("accepts a minimal empty config", () => {
-    const result = MoltbotConfigSchema.safeParse({});
+    const result = OpenClawConfigSchema.safeParse({});
     expect(result.success).toBe(true);
   });
 
   it("validates via helper function", () => {
-    const parsed = validateMoltbotConfig(realisticConfig);
+    const parsed = validateOpenClawConfig(realisticConfig);
     expect(parsed.agents?.defaults?.workspace).toBe("~/clawd");
     expect(parsed.gateway?.port).toBe(18789);
   });
@@ -207,7 +207,7 @@ describe("MoltbotConfigSchema", () => {
     const bad = {
       agents: { defaults: { thinkingDefault: "ultra" } },
     };
-    const result = MoltbotConfigSchema.safeParse(bad);
+    const result = OpenClawConfigSchema.safeParse(bad);
     expect(result.success).toBe(false);
   });
 
@@ -215,7 +215,7 @@ describe("MoltbotConfigSchema", () => {
     const bad = {
       agents: { defaults: { sandbox: { mode: "custom" } } },
     };
-    const result = MoltbotConfigSchema.safeParse(bad);
+    const result = OpenClawConfigSchema.safeParse(bad);
     expect(result.success).toBe(false);
   });
 
@@ -223,18 +223,18 @@ describe("MoltbotConfigSchema", () => {
     const bad = {
       messages: { queue: { mode: "fifo" } },
     };
-    const result = MoltbotConfigSchema.safeParse(bad);
+    const result = OpenClawConfigSchema.safeParse(bad);
     expect(result.success).toBe(false);
   });
 
   it("rejects invalid tool profile", () => {
     const bad = { tools: { profile: "enterprise" } };
-    const result = MoltbotConfigSchema.safeParse(bad);
+    const result = OpenClawConfigSchema.safeParse(bad);
     expect(result.success).toBe(false);
   });
 
   it("applies defaults correctly", () => {
-    const result = MoltbotConfigSchema.parse({
+    const result = OpenClawConfigSchema.parse({
       gateway: {},
       logging: {},
       session: {},
@@ -262,13 +262,13 @@ describe("Channel schemas", () => {
       { type: "matrix" },
     ];
     for (const ch of channels) {
-      const result = MoltbotChannelSchema.safeParse(ch);
+      const result = OpenClawChannelSchema.safeParse(ch);
       expect(result.success).toBe(true);
     }
   });
 
   it("rejects an unknown channel type", () => {
-    const result = MoltbotChannelSchema.safeParse({ type: "fax" });
+    const result = OpenClawChannelSchema.safeParse({ type: "fax" });
     expect(result.success).toBe(false);
   });
 
@@ -344,10 +344,10 @@ describe("Channel schemas", () => {
   });
 });
 
-describe("MoltbotManifestSchema (v2)", () => {
+describe("OpenClawManifestSchema (v2)", () => {
   const validManifest = {
     apiVersion: "molthub/v2",
-    kind: "MoltbotInstance",
+    kind: "OpenClawInstance",
     metadata: {
       name: "my-bot",
       workspace: "default",
@@ -357,7 +357,7 @@ describe("MoltbotManifestSchema (v2)", () => {
       profileName: "main",
     },
     spec: {
-      moltbotConfig: realisticConfig,
+      openclawConfig: realisticConfig,
       molthubSettings: {
         fleetId: "fleet-123",
         autoRestart: true,
@@ -368,12 +368,12 @@ describe("MoltbotManifestSchema (v2)", () => {
   };
 
   it("parses a valid v2 manifest", () => {
-    const result = MoltbotManifestSchema.safeParse(validManifest);
+    const result = OpenClawManifestSchema.safeParse(validManifest);
     expect(result.success).toBe(true);
   });
 
   it("rejects v1 apiVersion in v2 schema", () => {
-    const result = MoltbotManifestSchema.safeParse({
+    const result = OpenClawManifestSchema.safeParse({
       ...validManifest,
       apiVersion: "molthub/v1",
     });
@@ -381,7 +381,7 @@ describe("MoltbotManifestSchema (v2)", () => {
   });
 
   it("validates metadata name format", () => {
-    const result = MoltbotManifestSchema.safeParse({
+    const result = OpenClawManifestSchema.safeParse({
       ...validManifest,
       metadata: { ...validManifest.metadata, name: "INVALID_NAME" },
     });
@@ -389,28 +389,28 @@ describe("MoltbotManifestSchema (v2)", () => {
   });
 
   it("validates via helper function", () => {
-    const parsed = validateMoltbotManifest(validManifest);
+    const parsed = validateOpenClawManifest(validManifest);
     expect(parsed.metadata.name).toBe("my-bot");
-    expect(parsed.spec.moltbotConfig.gateway?.port).toBe(18789);
+    expect(parsed.spec.openclawConfig.gateway?.port).toBe(18789);
   });
 });
 
-describe("MoltbotProfileRegistry", () => {
+describe("OpenClawProfileRegistry", () => {
   it("accepts profiles with sufficient port spacing", () => {
-    const result = MoltbotProfileRegistrySchema.safeParse({
+    const result = OpenClawProfileRegistrySchema.safeParse({
       profiles: [
         {
           name: "main",
           port: 18789,
-          configPath: "/etc/moltbot/main.json",
-          stateDir: "/var/moltbot/main",
+          configPath: "/etc/openclaw/main.json",
+          stateDir: "/var/openclaw/main",
           workspace: "~/clawd-main",
         },
         {
           name: "secondary",
           port: 18809,
-          configPath: "/etc/moltbot/secondary.json",
-          stateDir: "/var/moltbot/secondary",
+          configPath: "/etc/openclaw/secondary.json",
+          stateDir: "/var/openclaw/secondary",
           workspace: "~/clawd-secondary",
         },
       ],
@@ -419,7 +419,7 @@ describe("MoltbotProfileRegistry", () => {
   });
 
   it("rejects profiles with port spacing < 20", () => {
-    const result = MoltbotProfileRegistrySchema.safeParse({
+    const result = OpenClawProfileRegistrySchema.safeParse({
       profiles: [
         {
           name: "a",
@@ -446,7 +446,7 @@ describe("MoltbotProfileRegistry", () => {
   });
 
   it("rejects duplicate profile names", () => {
-    const result = MoltbotProfileRegistrySchema.safeParse({
+    const result = OpenClawProfileRegistrySchema.safeParse({
       profiles: [
         {
           name: "main",
@@ -468,7 +468,7 @@ describe("MoltbotProfileRegistry", () => {
   });
 
   it("ignores port spacing for disabled profiles", () => {
-    const result = MoltbotProfileRegistrySchema.safeParse({
+    const result = OpenClawProfileRegistrySchema.safeParse({
       profiles: [
         {
           name: "a",
@@ -499,7 +499,7 @@ describe("Profile utility functions", () => {
 
   it("generates correct Linux service name", () => {
     expect(serviceName("main", "linux")).toBe(
-      "moltbot-gateway-main.service",
+      "openclaw-gateway-main.service",
     );
   });
 
@@ -507,13 +507,13 @@ describe("Profile utility functions", () => {
     const env = profileEnvVars({
       name: "test",
       port: 18789,
-      configPath: "/etc/moltbot/test.json",
-      stateDir: "/var/moltbot/test",
+      configPath: "/etc/openclaw/test.json",
+      stateDir: "/var/openclaw/test",
       workspace: "~/clawd-test",
       enabled: true,
     });
-    expect(env.CLAWDBOT_CONFIG_PATH).toBe("/etc/moltbot/test.json");
-    expect(env.CLAWDBOT_STATE_DIR).toBe("/var/moltbot/test");
+    expect(env.CLAWDBOT_CONFIG_PATH).toBe("/etc/openclaw/test.json");
+    expect(env.CLAWDBOT_STATE_DIR).toBe("/var/openclaw/test");
   });
 });
 

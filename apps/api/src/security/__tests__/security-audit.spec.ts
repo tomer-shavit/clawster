@@ -1,5 +1,5 @@
 import { NotFoundException } from "@nestjs/common";
-import { MoltbotSecurityAuditService } from "../security-audit.service";
+import { OpenClawSecurityAuditService } from "../security-audit.service";
 
 jest.mock("@molthub/database", () => ({
   prisma: {
@@ -12,26 +12,26 @@ jest.mock("@molthub/database", () => ({
   Prisma: { InputJsonValue: {} },
 }));
 
-function createStoredInstance(moltbotConfig: Record<string, unknown> = {}, overrides: Record<string, unknown> = {}) {
+function createStoredInstance(openclawConfig: Record<string, unknown> = {}, overrides: Record<string, unknown> = {}) {
   return {
     id: "inst-1",
     name: "test-bot",
     desiredManifest: {
       apiVersion: "molthub/v2",
       metadata: { name: "test-bot", environment: "dev" },
-      spec: { moltbotConfig: { gateway: { port: 18789, host: "127.0.0.1" }, ...moltbotConfig } },
+      spec: { openclawConfig: { gateway: { port: 18789, host: "127.0.0.1" }, ...openclawConfig } },
     },
     ...overrides,
   };
 }
 
-describe("MoltbotSecurityAuditService", () => {
-  let service: MoltbotSecurityAuditService;
+describe("OpenClawSecurityAuditService", () => {
+  let service: OpenClawSecurityAuditService;
   const { prisma } = require("@molthub/database");
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new MoltbotSecurityAuditService();
+    service = new OpenClawSecurityAuditService();
   });
 
   describe("audit", () => {
@@ -111,7 +111,7 @@ describe("MoltbotSecurityAuditService", () => {
         apiVersion: "molthub/v2",
         metadata: { name: "test", environment: "dev" },
         spec: {
-          moltbotConfig: {
+          openclawConfig: {
             gateway: { port: 18789, host: "127.0.0.1", auth: { token: "tok" } },
             sandbox: { mode: "docker" },
             tools: { profile: "standard" },
@@ -128,7 +128,7 @@ describe("MoltbotSecurityAuditService", () => {
       const manifest = {
         apiVersion: "molthub/v2",
         metadata: { name: "test", environment: "local" },
-        spec: { moltbotConfig: { gateway: { port: 18789, auth: { token: "t" } } } },
+        spec: { openclawConfig: { gateway: { port: 18789, auth: { token: "t" } } } },
       } as any;
       const result = await service.preProvisioningAudit(manifest);
       expect(result).toHaveProperty("allowed");

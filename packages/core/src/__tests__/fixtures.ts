@@ -100,7 +100,7 @@ export interface BotInstanceOptions {
 export function createValidManifest(options: { name?: string; environment?: 'dev' | 'staging' | 'prod' } = {}) {
   return {
     apiVersion: 'molthub/v1',
-    kind: 'MoltbotInstance',
+    kind: 'OpenClawInstance',
     metadata: {
       name: options.name ?? 'test-bot',
       workspace: 'default',
@@ -286,7 +286,7 @@ export function createTemplate(options: TemplateOptions = {}) {
     workspaceId: options.isBuiltin ? undefined : (options.workspaceId ?? generateId('workspace')),
     manifestTemplate: {
       apiVersion: 'molthub/v1',
-      kind: 'MoltbotInstance',
+      kind: 'OpenClawInstance',
       spec: {
         runtime: {
           image: 'ghcr.io/clawdbot/clawdbot:v0.1.0',

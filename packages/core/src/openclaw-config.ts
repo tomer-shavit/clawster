@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ChannelsConfigSchema, ChannelTypeSchema } from "./moltbot-channels";
+import { ChannelsConfigSchema, ChannelTypeSchema } from "./openclaw-channels";
 import { ModelsConfigSchema } from "./ai-gateway/config";
 
 // =============================================================================
@@ -30,7 +30,7 @@ export const ToolGroupSchema = z.enum([
   "group:automation",
   "group:messaging",
   "group:nodes",
-  "group:moltbot",
+  "group:openclaw",
 ]);
 export type ToolGroup = z.infer<typeof ToolGroupSchema>;
 
@@ -434,10 +434,10 @@ export const ConfigPatchRequestSchema = z.object({
 export type ConfigPatchRequest = z.infer<typeof ConfigPatchRequestSchema>;
 
 // =============================================================================
-// Full Moltbot Config Schema
+// Full OpenClaw Config Schema
 // =============================================================================
 
-export const MoltbotConfigSchema = z.object({
+export const OpenClawConfigSchema = z.object({
   /** Optional $include for splitting config across files. */
   $include: z.union([z.string(), z.array(z.string())]).optional(),
 
@@ -455,18 +455,18 @@ export const MoltbotConfigSchema = z.object({
   models: ModelsConfigSchema.optional(),
 });
 /**
- * Full validated Moltbot config type inferred from the Zod schema.
+ * Full validated OpenClaw config type inferred from the Zod schema.
  *
- * Named `MoltbotFullConfig` to avoid collision with the lightweight
- * `MoltbotConfig` interface in `moltbot-policies.ts` (used for policy
+ * Named `OpenClawFullConfig` to avoid collision with the lightweight
+ * `OpenClawConfig` interface in `openclaw-policies.ts` (used for policy
  * evaluation).
  */
-export type MoltbotFullConfig = z.infer<typeof MoltbotConfigSchema>;
+export type OpenClawFullConfig = z.infer<typeof OpenClawConfigSchema>;
 
 /**
  * Parse & validate a raw config object (e.g. from JSON5) against the
- * full Moltbot config schema.
+ * full OpenClaw config schema.
  */
-export function validateMoltbotConfig(data: unknown): MoltbotFullConfig {
-  return MoltbotConfigSchema.parse(data);
+export function validateOpenClawConfig(data: unknown): OpenClawFullConfig {
+  return OpenClawConfigSchema.parse(data);
 }

@@ -12,7 +12,7 @@ import {
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiParam, ApiQuery } from "@nestjs/swagger";
 import { HealthService, HealthCheckResult } from "./health.service";
-import { MoltbotHealthService } from "./moltbot-health.service";
+import { OpenClawHealthService } from "./openclaw-health.service";
 import { HealthAggregatorService } from "./health-aggregator.service";
 import { DiagnosticsService } from "./diagnostics.service";
 import { AlertingService } from "./alerting.service";
@@ -23,7 +23,7 @@ import { Public } from "../auth/public.decorator";
 export class HealthController {
   constructor(
     private readonly healthService: HealthService,
-    private readonly moltbotHealth: MoltbotHealthService,
+    private readonly openclawHealth: OpenClawHealthService,
     private readonly healthAggregator: HealthAggregatorService,
     private readonly diagnostics: DiagnosticsService,
     private readonly alerting: AlertingService,
@@ -44,7 +44,7 @@ export class HealthController {
   @ApiOperation({ summary: "Get latest health snapshot for an instance" })
   @ApiParam({ name: "id", description: "Bot instance ID" })
   async getInstanceHealth(@Param("id") id: string) {
-    const snapshot = await this.moltbotHealth.getHealth(id);
+    const snapshot = await this.openclawHealth.getHealth(id);
     if (!snapshot) {
       throw new NotFoundException(
         `No health snapshot found for instance ${id}`,
@@ -57,7 +57,7 @@ export class HealthController {
   @ApiOperation({ summary: "Perform a live deep health check on an instance" })
   @ApiParam({ name: "id", description: "Bot instance ID" })
   async getDeepHealth(@Param("id") id: string) {
-    return this.moltbotHealth.getDeepHealth(id);
+    return this.openclawHealth.getDeepHealth(id);
   }
 
   @Get("instances/:id/diagnostics")

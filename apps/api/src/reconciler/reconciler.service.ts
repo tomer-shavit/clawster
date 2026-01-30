@@ -7,13 +7,13 @@ import {
   DeploymentEventType,
 } from "@molthub/database";
 import {
-  validateMoltbotManifest,
+  validateOpenClawManifest,
 } from "@molthub/core";
-import type { MoltbotManifest } from "@molthub/core";
+import type { OpenClawManifest } from "@molthub/core";
 import { ConfigGeneratorService } from "./config-generator.service";
 import { LifecycleManagerService } from "./lifecycle-manager.service";
 import { DriftDetectionService } from "./drift-detection.service";
-import { MoltbotSecurityAuditService } from "../security/security-audit.service";
+import { OpenClawSecurityAuditService } from "../security/security-audit.service";
 import type { DriftCheckResult } from "./drift-detection.service";
 
 // Re-export for backward compatibility with the controller
@@ -42,7 +42,7 @@ export interface DoctorCheck {
   message: string;
 }
 
-export interface UpdateMoltbotResult {
+export interface UpdateOpenClawResult {
   success: boolean;
   message: string;
   previousVersion?: string;
@@ -54,12 +54,12 @@ export interface UpdateMoltbotResult {
 // ---------------------------------------------------------------------------
 
 /**
- * ReconcilerService (v2) — Moltbot-aware lifecycle reconciler.
+ * ReconcilerService (v2) — OpenClaw-aware lifecycle reconciler.
  *
  * Reconciliation flow:
- *  1. Load BotInstance + desired manifest (v2 MoltbotManifest)
+ *  1. Load BotInstance + desired manifest (v2 OpenClawManifest)
  *  2. Validate manifest against schema
- *  3. Generate moltbot.json config + hash
+ *  3. Generate openclaw.json config + hash
  *  4. Determine deployment target type
  *  5. **New instance**: provision via DeploymentTarget -> write config -> start gateway
  *  6. **Existing instance**: config.get via Gateway WS -> compare hash -> config.apply if different
@@ -77,7 +77,7 @@ export class ReconcilerService {
     private readonly configGenerator: ConfigGeneratorService,
     private readonly lifecycleManager: LifecycleManagerService,
     private readonly driftDetection: DriftDetectionService,
-    private readonly securityAudit: MoltbotSecurityAuditService,
+    private readonly securityAudit: OpenClawSecurityAuditService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -126,7 +126,7 @@ export class ReconcilerService {
       changes.push(`Security audit: ${auditResult.blockers.length} blockers, ${auditResult.warnings.length} warnings`);
 
       // 3. Generate config + hash
-      const config = this.configGenerator.generateMoltbotConfig(manifest);
+      const config = this.configGenerator.generateOpenClawConfig(manifest);
       const desiredHash = this.configGenerator.generateConfigHash(config);
       changes.push(`Desired config hash: ${desiredHash.slice(0, 12)}...`);
 
@@ -257,7 +257,7 @@ export class ReconcilerService {
     // Check 2: Manifest valid
     try {
       this.parseManifest(instance);
-      checks.push({ name: "manifest_valid", status: "pass", message: "Manifest is a valid v2 MoltbotManifest" });
+      checks.push({ name: "manifest_valid", status: "pass", message: "Manifest is a valid v2 OpenClawManifest" });
     } catch (err) {
       checks.push({
         name: "manifest_valid",
@@ -337,21 +337,21 @@ export class ReconcilerService {
   }
 
   // ------------------------------------------------------------------
-  // Update Moltbot version
+  // Update OpenClaw version
   // ------------------------------------------------------------------
 
-  async updateMoltbotVersion(instanceId: string, newVersion: string): Promise<UpdateMoltbotResult> {
+  async updateOpenClawVersion(instanceId: string, newVersion: string): Promise<UpdateOpenClawResult> {
     try {
       const instance = await prisma.botInstance.findUniqueOrThrow({
         where: { id: instanceId },
       });
 
-      const previousVersion = instance.moltbotVersion ?? undefined;
+      const previousVersion = instance.openclawVersion ?? undefined;
 
       // Update version in DB
       await prisma.botInstance.update({
         where: { id: instanceId },
-        data: { moltbotVersion: newVersion },
+        data: { openclawVersion: newVersion },
       });
 
       // Full restart is required for version change — re-provision
@@ -394,7 +394,7 @@ export class ReconcilerService {
       where: { id: instanceId },
     });
 
-    // Stop via lifecycle manager if it's a moltbot-native instance
+    // Stop via lifecycle manager if it's an openclaw-native instance
     if (instance.deploymentType && instance.deploymentType !== "ECS_FARGATE") {
       await this.lifecycleManager.destroy(instance);
     }
@@ -425,9 +425,9 @@ export class ReconcilerService {
 
   /**
    * Parse and validate the desiredManifest JSON field into a typed
-   * MoltbotManifest.  Falls back to wrapping legacy manifests in a v2 envelope.
+   * OpenClawManifest.  Falls back to wrapping legacy manifests in a v2 envelope.
    */
-  private parseManifest(instance: BotInstance): MoltbotManifest {
+  private parseManifest(instance: BotInstance): OpenClawManifest {
     const raw = instance.desiredManifest;
 
     if (!raw || typeof raw !== "object") {
@@ -438,14 +438,14 @@ export class ReconcilerService {
 
     // If it's already a v2 manifest, validate directly
     if (obj.apiVersion === "molthub/v2") {
-      return validateMoltbotManifest(obj);
+      return validateOpenClawManifest(obj);
     }
 
     // Legacy format: wrap in v2 envelope
-    // Assume the raw manifest IS the moltbotConfig section
+    // Assume the raw manifest IS the openclawConfig section
     const wrapped = {
       apiVersion: "molthub/v2" as const,
-      kind: "MoltbotInstance" as const,
+      kind: "OpenClawInstance" as const,
       metadata: {
         name: instance.name.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
         workspace: instance.workspaceId,
@@ -454,11 +454,11 @@ export class ReconcilerService {
         deploymentTarget: "local" as const,
       },
       spec: {
-        moltbotConfig: obj,
+        openclawConfig: obj,
       },
     };
 
-    return validateMoltbotManifest(wrapped);
+    return validateOpenClawManifest(wrapped);
   }
 
   /**

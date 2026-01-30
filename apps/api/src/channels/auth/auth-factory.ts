@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException } from "@nestjs/common";
-import { MoltbotChannelType } from "../channel-types";
+import { OpenClawChannelType } from "../channel-types";
 import { WhatsAppAuthService, WhatsAppAuthResult } from "./whatsapp-auth.service";
 import { TelegramAuthService, TelegramAuthResult } from "./telegram-auth.service";
 import { DiscordAuthService, DiscordAuthResult } from "./discord-auth.service";
@@ -23,7 +23,7 @@ export type PlatformAuthResult =
   | SlackAuthResult;
 
 export interface ValidateTokenParams {
-  channelType: MoltbotChannelType;
+  channelType: OpenClawChannelType;
   /** Bot token (Telegram, Discord) or bot token (Slack) */
   token?: string;
   /** App-level token (Slack only) */
@@ -35,14 +35,14 @@ export interface ValidateTokenParams {
 }
 
 /** Channels that have real API-based auth validation */
-const TOKEN_AUTH_CHANNELS: MoltbotChannelType[] = [
+const TOKEN_AUTH_CHANNELS: OpenClawChannelType[] = [
   "telegram",
   "discord",
   "slack",
 ];
 
 /** Channels that use QR-based pairing */
-const QR_AUTH_CHANNELS: MoltbotChannelType[] = ["whatsapp"];
+const QR_AUTH_CHANNELS: OpenClawChannelType[] = ["whatsapp"];
 
 @Injectable()
 export class ChannelAuthFactory {
@@ -87,12 +87,12 @@ export class ChannelAuthFactory {
   // ========================================================================
 
   /** Returns true if this channel type supports real API-based token auth */
-  supportsTokenValidation(channelType: MoltbotChannelType): boolean {
+  supportsTokenValidation(channelType: OpenClawChannelType): boolean {
     return TOKEN_AUTH_CHANNELS.includes(channelType);
   }
 
   /** Returns true if this channel type uses QR-based pairing */
-  requiresQrPairing(channelType: MoltbotChannelType): boolean {
+  requiresQrPairing(channelType: OpenClawChannelType): boolean {
     return QR_AUTH_CHANNELS.includes(channelType);
   }
 

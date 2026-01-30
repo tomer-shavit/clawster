@@ -4,8 +4,8 @@ import { WebSocketProviderWrapper } from "./websocket-provider-wrapper";
 import { UserStageProviderWrapper } from "./user-stage-provider-wrapper";
 
 export const metadata: Metadata = {
-  title: "Molthub - Moltbot Control Plane",
-  description: "Self-hosted control plane for Moltbot instances",
+  title: "Molthub - OpenClaw Control Plane",
+  description: "Self-hosted control plane for OpenClaw instances",
 };
 
 export default function RootLayout({

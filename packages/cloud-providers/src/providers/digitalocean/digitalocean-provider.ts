@@ -76,7 +76,7 @@ interface DODeployment {
 /**
  * DigitalOcean App Platform Provider
  * 
- * Manages containerized Moltbot instances on DigitalOcean App Platform
+ * Manages containerized OpenClaw instances on DigitalOcean App Platform
  * PaaS with built-in CI/CD, automatic HTTPS, and global CDN
  */
 export class DigitalOceanProvider implements CloudProvider {
@@ -201,7 +201,7 @@ export class DigitalOceanProvider implements CloudProvider {
 
     // Build service spec
     const service: DOService = {
-      name: "moltbot",
+      name: "openclaw",
       image: {
         registry_type: this.detectRegistryType(config.image),
         repository: config.image,

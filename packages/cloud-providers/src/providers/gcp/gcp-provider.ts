@@ -46,7 +46,7 @@ interface GCPServiceInfo {
 /**
  * Google Cloud Run Provider
  * 
- * Manages containerized Moltbot instances on Google Cloud Run
+ * Manages containerized OpenClaw instances on Google Cloud Run
  * Fully managed serverless containers with automatic scaling
  */
 export class GCPProvider implements CloudProvider {

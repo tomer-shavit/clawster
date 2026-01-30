@@ -1,4 +1,4 @@
-import type { MoltbotFullConfig } from "@molthub/core";
+import type { OpenClawFullConfig } from "@molthub/core";
 
 // =============================================================================
 // Template Types
@@ -37,8 +37,8 @@ export interface BuiltinTemplate {
   name: string;
   description: string;
   category: TemplateCategory;
-  /** Partial MoltbotFullConfig with sensible defaults. */
-  defaultConfig: Partial<MoltbotFullConfig>;
+  /** Partial OpenClawFullConfig with sensible defaults. */
+  defaultConfig: Partial<OpenClawFullConfig>;
   /** Inputs the user *must* provide before generation. */
   requiredInputs: RequiredInput[];
   /** Pre-configured channel list. */
@@ -334,7 +334,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
           appToken: "${SLACK_APP_TOKEN}",
           slashCommand: {
             enabled: true,
-            command: "/moltbot",
+            command: "/openclaw",
           },
           thread: {
             historyScope: "thread",
@@ -416,7 +416,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
         defaults: {
           dmPolicy: "allowlist",
           groupPolicy: "allowlist",
-          slashCommand: { enabled: true, command: "/moltbot" },
+          slashCommand: { enabled: true, command: "/openclaw" },
           thread: { historyScope: "thread" },
         },
       },

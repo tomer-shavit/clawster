@@ -4,7 +4,7 @@ import {
   DeploymentTargetType,
   InstallOptions,
   InstallResult,
-  MoltbotConfigPayload,
+  OpenClawConfigPayload,
   ConfigureResult,
   TargetStatus,
   DeploymentLogOptions,
@@ -13,7 +13,7 @@ import {
 import type { EcsFargateConfig } from "./ecs-fargate-config";
 
 const DEFAULT_IMAGE = "ghcr.io/clawdbot/clawdbot:latest";
-const DEFAULT_CLUSTER = "moltbot-cluster";
+const DEFAULT_CLUSTER = "openclaw-cluster";
 const DEFAULT_CPU = 256;
 const DEFAULT_MEMORY = 512;
 
@@ -47,7 +47,7 @@ function runAwsCommand(args: string[], config: EcsFargateConfig): Promise<string
 }
 
 /**
- * EcsFargateTarget manages a Moltbot gateway instance running
+ * EcsFargateTarget manages an OpenClaw gateway instance running
  * on AWS ECS Fargate (serverless containers).
  *
  * Uses the AWS CLI to manage task definitions, services, secrets,
@@ -87,13 +87,13 @@ export class EcsFargateTarget implements DeploymentTarget {
   async install(options: InstallOptions): Promise<InstallResult> {
     const profileName = options.profileName;
     this.gatewayPort = options.port;
-    this.serviceName = `moltbot-${profileName}`;
-    this.taskFamily = `moltbot-${profileName}`;
-    this.secretName = `moltbot/${profileName}/config`;
-    this.logGroup = `/ecs/moltbot-${profileName}`;
+    this.serviceName = `openclaw-${profileName}`;
+    this.taskFamily = `openclaw-${profileName}`;
+    this.secretName = `openclaw/${profileName}/config`;
+    this.logGroup = `/ecs/openclaw-${profileName}`;
 
-    const resolvedImage = options.moltbotVersion
-      ? this.image.replace(/:.*$/, `:${options.moltbotVersion}`)
+    const resolvedImage = options.openclawVersion
+      ? this.image.replace(/:.*$/, `:${options.openclawVersion}`)
       : this.image;
 
     try {
@@ -130,7 +130,7 @@ export class EcsFargateTarget implements DeploymentTarget {
       // 3. Build container definition JSON
       const containerDef = [
         {
-          name: "moltbot",
+          name: "openclaw",
           image: resolvedImage,
           essential: true,
           portMappings: [
@@ -143,7 +143,7 @@ export class EcsFargateTarget implements DeploymentTarget {
           environment: [
             {
               name: "CLAWDBOT_CONFIG_PATH",
-              value: "/tmp/moltbot-config.json",
+              value: "/tmp/openclaw-config.json",
             },
           ],
           logConfiguration: {
@@ -236,12 +236,12 @@ export class EcsFargateTarget implements DeploymentTarget {
   // configure
   // ------------------------------------------------------------------
 
-  async configure(config: MoltbotConfigPayload): Promise<ConfigureResult> {
+  async configure(config: OpenClawConfigPayload): Promise<ConfigureResult> {
     const profileName = config.profileName;
     this.gatewayPort = config.gatewayPort;
 
     if (!this.secretName) {
-      this.secretName = `moltbot/${profileName}/config`;
+      this.secretName = `openclaw/${profileName}/config`;
     }
 
     const configData = JSON.stringify(
@@ -434,7 +434,7 @@ export class EcsFargateTarget implements DeploymentTarget {
         "--log-group-name",
         this.logGroup,
         "--log-stream-name-prefix",
-        "ecs/moltbot",
+        "ecs/openclaw",
         "--region",
         this.config.region,
         "--output",

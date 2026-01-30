@@ -20,7 +20,7 @@ export class InstancesController {
   constructor(private readonly instancesService: InstancesService) {}
 
   @Post()
-  @ApiOperation({ summary: "Create a new Moltbot instance" })
+  @ApiOperation({ summary: "Create a new OpenClaw instance" })
   @ApiResponse({ status: 201, description: "Instance created", type: InstanceResponseDto })
   @ApiResponse({ status: 400, description: "Invalid manifest" })
   async create(@Body() dto: CreateInstanceDto): Promise<Instance> {

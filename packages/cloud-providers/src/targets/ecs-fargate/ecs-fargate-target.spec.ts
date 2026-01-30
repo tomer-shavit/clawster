@@ -105,7 +105,7 @@ describe("EcsFargateTarget", () => {
     it("applies custom optional values from config", () => {
       const cfg = makeConfig({
         clusterName: "custom-cluster",
-        image: "my-registry/moltbot:v2",
+        image: "my-registry/openclaw:v2",
         cpu: 512,
         memory: 1024,
         assignPublicIp: false,
@@ -136,10 +136,10 @@ describe("EcsFargateTarget", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.instanceId).toBe("moltbot-prod");
-      expect(result.serviceName).toBe("moltbot-prod");
-      expect(result.message).toContain("moltbot-prod");
-      expect(result.message).toContain("moltbot-cluster");
+      expect(result.instanceId).toBe("openclaw-prod");
+      expect(result.serviceName).toBe("openclaw-prod");
+      expect(result.message).toContain("openclaw-prod");
+      expect(result.message).toContain("openclaw-cluster");
 
       // Verify the calls
       expect(mockedExecFile).toHaveBeenCalledTimes(4);
@@ -147,12 +147,12 @@ describe("EcsFargateTarget", () => {
       // First call — create-cluster
       const firstCallArgs = mockedExecFile.mock.calls[0][1] as string[];
       expect(firstCallArgs).toContain("create-cluster");
-      expect(firstCallArgs).toContain("moltbot-cluster");
+      expect(firstCallArgs).toContain("openclaw-cluster");
 
       // Second call — create-log-group
       const secondCallArgs = mockedExecFile.mock.calls[1][1] as string[];
       expect(secondCallArgs).toContain("create-log-group");
-      expect(secondCallArgs).toContain("/ecs/moltbot-prod");
+      expect(secondCallArgs).toContain("/ecs/openclaw-prod");
 
       // Third call — register-task-definition
       const thirdCallArgs = mockedExecFile.mock.calls[2][1] as string[];
@@ -163,10 +163,10 @@ describe("EcsFargateTarget", () => {
       // Fourth call — create-service
       const fourthCallArgs = mockedExecFile.mock.calls[3][1] as string[];
       expect(fourthCallArgs).toContain("create-service");
-      expect(fourthCallArgs).toContain("moltbot-prod");
+      expect(fourthCallArgs).toContain("openclaw-prod");
     });
 
-    it("resolves a specific moltbotVersion in the image tag", async () => {
+    it("resolves a specific openclawVersion in the image tag", async () => {
       const cfg = makeConfig();
       const target = new EcsFargateTarget(cfg);
       mockAwsCalls(["", "", "", ""]);
@@ -174,7 +174,7 @@ describe("EcsFargateTarget", () => {
       await target.install({
         profileName: "ver-test",
         port: 18800,
-        moltbotVersion: "v1.2.3",
+        openclawVersion: "v1.2.3",
       });
 
       // register-task-definition is the 3rd call (index 2)
@@ -239,7 +239,7 @@ describe("EcsFargateTarget", () => {
       // Should have called create-secret
       const args = mockedExecFile.mock.calls[0][1] as string[];
       expect(args).toContain("create-secret");
-      expect(args).toContain("moltbot/my-profile/config");
+      expect(args).toContain("openclaw/my-profile/config");
     });
 
     it("falls back to update-secret when create-secret fails", async () => {
@@ -461,7 +461,7 @@ describe("EcsFargateTarget", () => {
       mockAwsCalls([
         // list-tasks
         JSON.stringify({
-          taskArns: ["arn:aws:ecs:us-east-1:123:task/moltbot-cluster/abc123"],
+          taskArns: ["arn:aws:ecs:us-east-1:123:task/openclaw-cluster/abc123"],
         }),
         // describe-tasks
         JSON.stringify({
@@ -517,7 +517,7 @@ describe("EcsFargateTarget", () => {
       mockedExecFile.mockClear();
       mockAwsCalls([
         JSON.stringify({
-          taskArns: ["arn:aws:ecs:us-east-1:123:task/moltbot-cluster/abc123"],
+          taskArns: ["arn:aws:ecs:us-east-1:123:task/openclaw-cluster/abc123"],
         }),
         JSON.stringify({
           tasks: [{ attachments: [] }],
@@ -538,7 +538,7 @@ describe("EcsFargateTarget", () => {
       mockedExecFile.mockClear();
       mockAwsCalls([
         JSON.stringify({
-          taskArns: ["arn:aws:ecs:us-east-1:123:task/moltbot-cluster/abc123"],
+          taskArns: ["arn:aws:ecs:us-east-1:123:task/openclaw-cluster/abc123"],
         }),
         JSON.stringify({
           tasks: [
@@ -590,8 +590,8 @@ describe("EcsFargateTarget", () => {
         "", // delete-service
         JSON.stringify({
           taskDefinitionArns: [
-            "arn:aws:ecs:us-east-1:123:task-definition/moltbot-cleanup:1",
-            "arn:aws:ecs:us-east-1:123:task-definition/moltbot-cleanup:2",
+            "arn:aws:ecs:us-east-1:123:task-definition/openclaw-cleanup:1",
+            "arn:aws:ecs:us-east-1:123:task-definition/openclaw-cleanup:2",
           ],
         }),
         "", // deregister arn 1
@@ -617,7 +617,7 @@ describe("EcsFargateTarget", () => {
       // Verify list-task-definitions
       const call2Args = mockedExecFile.mock.calls[2][1] as string[];
       expect(call2Args).toContain("list-task-definitions");
-      expect(call2Args).toContain("moltbot-cleanup");
+      expect(call2Args).toContain("openclaw-cleanup");
 
       // Verify deregister calls
       const call3Args = mockedExecFile.mock.calls[3][1] as string[];
@@ -629,12 +629,12 @@ describe("EcsFargateTarget", () => {
       // Verify delete-secret
       const call5Args = mockedExecFile.mock.calls[5][1] as string[];
       expect(call5Args).toContain("delete-secret");
-      expect(call5Args).toContain("moltbot/cleanup/config");
+      expect(call5Args).toContain("openclaw/cleanup/config");
 
       // Verify delete-log-group
       const call6Args = mockedExecFile.mock.calls[6][1] as string[];
       expect(call6Args).toContain("delete-log-group");
-      expect(call6Args).toContain("/ecs/moltbot-cleanup");
+      expect(call6Args).toContain("/ecs/openclaw-cleanup");
     });
 
     it("continues cleanup even when individual steps fail", async () => {

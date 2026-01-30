@@ -1,9 +1,9 @@
 import { Injectable, BadRequestException } from "@nestjs/common";
 import {
-  MoltbotConfigSchema,
-  MoltbotManifestSchema,
-  type MoltbotFullConfig,
-  type MoltbotManifest,
+  OpenClawConfigSchema,
+  OpenClawManifestSchema,
+  type OpenClawFullConfig,
+  type OpenClawManifest,
 } from "@molthub/core";
 import type { BuiltinTemplate, RequiredInput } from "./builtin-templates";
 
@@ -12,10 +12,10 @@ import type { BuiltinTemplate, RequiredInput } from "./builtin-templates";
 // =============================================================================
 
 export interface GeneratedConfigResult {
-  /** Fully validated moltbot.json config. */
-  config: MoltbotFullConfig;
+  /** Fully validated openclaw.json config. */
+  config: OpenClawFullConfig;
   /** v2 manifest wrapping the config. */
-  manifest: MoltbotManifest;
+  manifest: OpenClawManifest;
   /** Map of env-var name -> description (secrets the user must provision). */
   secretRefs: Record<string, string>;
 }
@@ -67,13 +67,13 @@ function deepMerge<T extends Record<string, unknown>>(
 @Injectable()
 export class ConfigGenerator {
   /**
-   * Generate a complete moltbot config from a template and user-supplied inputs.
+   * Generate a complete openclaw config from a template and user-supplied inputs.
    *
    * 1. Start with the template's `defaultConfig`.
    * 2. Deep-merge `userInputs.configOverrides` on top.
    * 3. Inject secret env-var references for every required secret input.
-   * 4. Validate the final config against MoltbotConfigSchema.
-   * 5. Wrap into a MoltbotManifest.
+   * 4. Validate the final config against OpenClawConfigSchema.
+   * 5. Wrap into an OpenClawManifest.
    * 6. Collect secretRefs so the caller knows which env vars to provision.
    */
   generateConfig(
@@ -104,7 +104,7 @@ export class ConfigGenerator {
     }
 
     // --- 5. Validate against Zod schema ---
-    const parseResult = MoltbotConfigSchema.safeParse(merged);
+    const parseResult = OpenClawConfigSchema.safeParse(merged);
     if (!parseResult.success) {
       const issues = parseResult.error.issues
         .map((i) => `${i.path.join(".")}: ${i.message}`)
@@ -123,7 +123,7 @@ export class ConfigGenerator {
 
     const manifestRaw = {
       apiVersion: "molthub/v2" as const,
-      kind: "MoltbotInstance" as const,
+      kind: "OpenClawInstance" as const,
       metadata: {
         name: instanceName,
         workspace: userInputs.workspace ?? "default",
@@ -132,7 +132,7 @@ export class ConfigGenerator {
         deploymentTarget: userInputs.deploymentTarget ?? "local",
       },
       spec: {
-        moltbotConfig: config,
+        openclawConfig: config,
         molthubSettings: {
           templateId: template.id,
           enforcedPolicyPackIds: template.recommendedPolicies,
@@ -142,7 +142,7 @@ export class ConfigGenerator {
       },
     };
 
-    const manifestResult = MoltbotManifestSchema.safeParse(manifestRaw);
+    const manifestResult = OpenClawManifestSchema.safeParse(manifestRaw);
     if (!manifestResult.success) {
       const issues = manifestResult.error.issues
         .map((i) => `${i.path.join(".")}: ${i.message}`)
@@ -244,7 +244,7 @@ export interface ConfigGeneratorInput {
   /** Key-value pairs matching RequiredInput.key -> user-provided value. */
   values?: Record<string, string>;
   /** Arbitrary config overrides deep-merged onto the template defaults. */
-  configOverrides?: Partial<MoltbotFullConfig>;
+  configOverrides?: Partial<OpenClawFullConfig>;
   /** Instance name for the manifest (lowercase alphanumeric + hyphens). */
   instanceName?: string;
   /** Workspace slug for the manifest. */

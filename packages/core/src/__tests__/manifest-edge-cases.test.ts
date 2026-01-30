@@ -57,7 +57,7 @@ describe('Manifest - Edge Cases and Boundary Conditions', () => {
 
     it('is case-sensitive for kind', () => {
       const manifest = createValidManifest();
-      (manifest as any).kind = 'moltbotinstance';
+      (manifest as any).kind = 'openclawinstance';
       expect(() => validateManifest(manifest)).toThrow();
     });
   });
@@ -170,7 +170,7 @@ describe('Manifest - Edge Cases and Boundary Conditions', () => {
       manifest.metadata.labels = {
         team: 'platform',
         environment: 'production',
-        'app.kubernetes.io/name': 'moltbot',
+        'app.kubernetes.io/name': 'openclaw',
       };
       const result = validateManifest(manifest);
       expect(result.metadata.labels.team).toBe('platform');
@@ -624,7 +624,7 @@ describe('Manifest - Edge Cases and Boundary Conditions', () => {
     it('validates complete production manifest', () => {
       const manifest = {
         apiVersion: 'molthub/v1',
-        kind: 'MoltbotInstance',
+        kind: 'OpenClawInstance',
         metadata: {
           name: 'customer-service-bot',
           workspace: 'production',
@@ -680,7 +680,7 @@ describe('Manifest - Edge Cases and Boundary Conditions', () => {
     it('validates minimal development manifest', () => {
       const manifest = {
         apiVersion: 'molthub/v1',
-        kind: 'MoltbotInstance',
+        kind: 'OpenClawInstance',
         metadata: {
           name: 'dev-bot',
           workspace: 'default',

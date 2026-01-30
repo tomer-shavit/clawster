@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  MoltbotConfig,
-  MoltbotEvaluationContext,
+  OpenClawConfig,
+  OpenClawEvaluationContext,
   evaluateRequireGatewayAuth,
   evaluateRequireDmPolicy,
   evaluateRequireConfigPermissions,
@@ -12,18 +12,18 @@ import {
   evaluateRequireWorkspaceIsolation,
   evaluateRequirePortSpacing,
   evaluateForbidOpenGroupPolicy,
-  evaluateMoltbotRule,
-  evaluateMoltbotPolicyPack,
-  MOLTBOT_SECURITY_BASELINE,
-  MOLTBOT_PRODUCTION_HARDENING,
-  MOLTBOT_CHANNEL_SAFETY,
-  BUILTIN_MOLTBOT_POLICY_PACKS,
-} from "../moltbot-policies";
+  evaluateOpenClawRule,
+  evaluateOpenClawPolicyPack,
+  OPENCLAW_SECURITY_BASELINE,
+  OPENCLAW_PRODUCTION_HARDENING,
+  OPENCLAW_CHANNEL_SAFETY,
+  BUILTIN_OPENCLAW_POLICY_PACKS,
+} from "../openclaw-policies";
 import { PolicyEngine } from "../policy";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-function createBaseConfig(overrides: Partial<MoltbotConfig> = {}): MoltbotConfig {
+function createBaseConfig(overrides: Partial<OpenClawConfig> = {}): OpenClawConfig {
   return {
     gateway: {
       port: 3000,
@@ -43,7 +43,7 @@ function createBaseConfig(overrides: Partial<MoltbotConfig> = {}): MoltbotConfig
     agents: {
       defaults: {
         sandbox: { mode: "docker" },
-        workspace: "/var/moltbot/workspaces/instance-1",
+        workspace: "/var/openclaw/workspaces/instance-1",
         model: {
           maxTokens: 4096,
           temperature: 0.7,
@@ -58,7 +58,7 @@ function createBaseConfig(overrides: Partial<MoltbotConfig> = {}): MoltbotConfig
   };
 }
 
-function createProdContext(overrides: Partial<MoltbotEvaluationContext> = {}): MoltbotEvaluationContext {
+function createProdContext(overrides: Partial<OpenClawEvaluationContext> = {}): OpenClawEvaluationContext {
   return {
     environment: "prod",
     otherInstances: [],
@@ -68,7 +68,7 @@ function createProdContext(overrides: Partial<MoltbotEvaluationContext> = {}): M
 
 // ── Tests ───────────────────────────────────────────────────────────────
 
-describe("Moltbot Policy Rules", () => {
+describe("OpenClaw Policy Rules", () => {
   describe("require_gateway_auth", () => {
     it("passes when token auth is configured", () => {
       const config = createBaseConfig();
@@ -241,7 +241,7 @@ describe("Moltbot Policy Rules", () => {
         agents: {
           defaults: {
             sandbox: { mode: "off" },
-            workspace: "/var/moltbot/workspaces/instance-1",
+            workspace: "/var/openclaw/workspaces/instance-1",
             model: { maxTokens: 4096, temperature: 0.7 },
           },
         },
@@ -259,7 +259,7 @@ describe("Moltbot Policy Rules", () => {
       const config = createBaseConfig({
         agents: {
           defaults: {
-            workspace: "/var/moltbot/workspaces/instance-1",
+            workspace: "/var/openclaw/workspaces/instance-1",
             model: { maxTokens: 4096, temperature: 0.7 },
           },
         },
@@ -324,7 +324,7 @@ describe("Moltbot Policy Rules", () => {
         agents: {
           defaults: {
             sandbox: { mode: "docker" },
-            workspace: "/var/moltbot/workspaces/instance-1",
+            workspace: "/var/openclaw/workspaces/instance-1",
             model: { temperature: 0.7 },
           },
         },
@@ -342,7 +342,7 @@ describe("Moltbot Policy Rules", () => {
         agents: {
           defaults: {
             sandbox: { mode: "docker" },
-            workspace: "/var/moltbot/workspaces/instance-1",
+            workspace: "/var/openclaw/workspaces/instance-1",
             model: { maxTokens: 4096, temperature: 1.5 },
           },
         },
@@ -371,7 +371,7 @@ describe("Moltbot Policy Rules", () => {
       const config = createBaseConfig();
       const context = createProdContext({
         otherInstances: [
-          { instanceId: "other-1", workspace: "/var/moltbot/workspaces/other-1" },
+          { instanceId: "other-1", workspace: "/var/openclaw/workspaces/other-1" },
         ],
       });
       const result = evaluateRequireWorkspaceIsolation(config, { enabled: true }, context);
@@ -396,7 +396,7 @@ describe("Moltbot Policy Rules", () => {
       const config = createBaseConfig();
       const context = createProdContext({
         otherInstances: [
-          { instanceId: "other-1", workspace: "/var/moltbot/workspaces/instance-1" },
+          { instanceId: "other-1", workspace: "/var/openclaw/workspaces/instance-1" },
         ],
       });
       const result = evaluateRequireWorkspaceIsolation(config, { enabled: true }, context);
@@ -484,10 +484,10 @@ describe("Moltbot Policy Rules", () => {
   });
 });
 
-describe("evaluateMoltbotRule dispatcher", () => {
+describe("evaluateOpenClawRule dispatcher", () => {
   it("dispatches require_gateway_auth correctly", () => {
     const config = createBaseConfig({ gateway: { port: 3000 } });
-    const result = evaluateMoltbotRule("require_gateway_auth", config, { enabled: true });
+    const result = evaluateOpenClawRule("require_gateway_auth", config, { enabled: true });
     expect(result.passed).toBe(false);
   });
 
@@ -495,7 +495,7 @@ describe("evaluateMoltbotRule dispatcher", () => {
     const config = createBaseConfig({
       agents: { defaults: { sandbox: { mode: "off" }, workspace: "/tmp", model: {} } },
     });
-    const result = evaluateMoltbotRule("require_sandbox", config, {
+    const result = evaluateOpenClawRule("require_sandbox", config, {
       enabled: true,
       allowedModes: ["docker"],
     });
@@ -504,35 +504,35 @@ describe("evaluateMoltbotRule dispatcher", () => {
 
   it("returns passed for unknown rule types", () => {
     const config = createBaseConfig();
-    const result = evaluateMoltbotRule("unknown_rule", config, {});
+    const result = evaluateOpenClawRule("unknown_rule", config, {});
     expect(result.passed).toBe(true);
   });
 });
 
-describe("evaluateMoltbotPolicyPack", () => {
+describe("evaluateOpenClawPolicyPack", () => {
   it("evaluates Security Baseline pack fully", () => {
     const config = createBaseConfig();
     const context = createProdContext();
-    const result = evaluateMoltbotPolicyPack(
-      MOLTBOT_SECURITY_BASELINE,
+    const result = evaluateOpenClawPolicyPack(
+      OPENCLAW_SECURITY_BASELINE,
       "test-instance",
       config,
       context,
     );
     expect(result.valid).toBe(true);
     expect(result.violations).toHaveLength(0);
-    expect(result.packId).toBe("builtin-moltbot-security-baseline");
+    expect(result.packId).toBe("builtin-openclaw-security-baseline");
   });
 
   it("reports violations for insecure config", () => {
-    const config: MoltbotConfig = {
+    const config: OpenClawConfig = {
       gateway: { port: 3000 },
       channels: [{ name: "slack", dmPolicy: "open" }],
       tools: { elevated: { enabled: true } },
     };
     const context = createProdContext();
-    const result = evaluateMoltbotPolicyPack(
-      MOLTBOT_SECURITY_BASELINE,
+    const result = evaluateOpenClawPolicyPack(
+      OPENCLAW_SECURITY_BASELINE,
       "test-instance",
       config,
       context,
@@ -548,21 +548,21 @@ describe("evaluateMoltbotPolicyPack", () => {
       agents: {
         defaults: {
           sandbox: { mode: "off" },
-          workspace: "/var/moltbot/workspaces/instance-1",
+          workspace: "/var/openclaw/workspaces/instance-1",
           model: { maxTokens: 4096, temperature: 0.7 },
         },
       },
     });
     const context = createProdContext();
-    const result = evaluateMoltbotPolicyPack(
-      MOLTBOT_PRODUCTION_HARDENING,
+    const result = evaluateOpenClawPolicyPack(
+      OPENCLAW_PRODUCTION_HARDENING,
       "test-instance",
       config,
       context,
     );
     expect(result.valid).toBe(false); // sandbox off is an ERROR
-    expect(result.violations.some((v) => v.ruleId === "moltbot-require-sandbox")).toBe(true);
-    expect(result.warnings.some((w) => w.ruleId === "moltbot-limit-tool-profile")).toBe(true);
+    expect(result.violations.some((v) => v.ruleId === "openclaw-require-sandbox")).toBe(true);
+    expect(result.warnings.some((w) => w.ruleId === "openclaw-limit-tool-profile")).toBe(true);
   });
 
   it("skips production rules in dev environment", () => {
@@ -571,16 +571,16 @@ describe("evaluateMoltbotPolicyPack", () => {
       agents: {
         defaults: {
           sandbox: { mode: "off" },
-          workspace: "/var/moltbot/workspaces/instance-1",
+          workspace: "/var/openclaw/workspaces/instance-1",
         },
       },
     });
-    const context: MoltbotEvaluationContext = {
+    const context: OpenClawEvaluationContext = {
       environment: "dev",
       otherInstances: [],
     };
-    const result = evaluateMoltbotPolicyPack(
-      MOLTBOT_PRODUCTION_HARDENING,
+    const result = evaluateOpenClawPolicyPack(
+      OPENCLAW_PRODUCTION_HARDENING,
       "test-instance",
       config,
       context,
@@ -592,59 +592,59 @@ describe("evaluateMoltbotPolicyPack", () => {
   });
 });
 
-describe("Built-in Moltbot Policy Packs", () => {
+describe("Built-in OpenClaw Policy Packs", () => {
   it("exports three built-in packs", () => {
-    expect(BUILTIN_MOLTBOT_POLICY_PACKS).toHaveLength(3);
+    expect(BUILTIN_OPENCLAW_POLICY_PACKS).toHaveLength(3);
   });
 
   it("Security Baseline has correct rules", () => {
-    expect(MOLTBOT_SECURITY_BASELINE.rules).toHaveLength(4);
-    expect(MOLTBOT_SECURITY_BASELINE.autoApply).toBe(true);
-    expect(MOLTBOT_SECURITY_BASELINE.isEnforced).toBe(true);
+    expect(OPENCLAW_SECURITY_BASELINE.rules).toHaveLength(4);
+    expect(OPENCLAW_SECURITY_BASELINE.autoApply).toBe(true);
+    expect(OPENCLAW_SECURITY_BASELINE.isEnforced).toBe(true);
   });
 
   it("Production Hardening targets prod environment", () => {
-    expect(MOLTBOT_PRODUCTION_HARDENING.targetEnvironments).toEqual(["prod"]);
-    expect(MOLTBOT_PRODUCTION_HARDENING.rules).toHaveLength(4);
+    expect(OPENCLAW_PRODUCTION_HARDENING.targetEnvironments).toEqual(["prod"]);
+    expect(OPENCLAW_PRODUCTION_HARDENING.rules).toHaveLength(4);
   });
 
   it("Channel Safety has correct rules", () => {
-    expect(MOLTBOT_CHANNEL_SAFETY.rules).toHaveLength(2);
-    expect(MOLTBOT_CHANNEL_SAFETY.autoApply).toBe(true);
+    expect(OPENCLAW_CHANNEL_SAFETY.rules).toHaveLength(2);
+    expect(OPENCLAW_CHANNEL_SAFETY.autoApply).toBe(true);
   });
 });
 
-describe("PolicyEngine Moltbot integration", () => {
-  it("identifies Moltbot rule types correctly", () => {
+describe("PolicyEngine OpenClaw integration", () => {
+  it("identifies OpenClaw rule types correctly", () => {
     const engine = new PolicyEngine();
-    expect(engine.isMoltbotRuleType("require_gateway_auth")).toBe(true);
-    expect(engine.isMoltbotRuleType("require_dm_policy")).toBe(true);
-    expect(engine.isMoltbotRuleType("require_sandbox")).toBe(true);
-    expect(engine.isMoltbotRuleType("forbid_elevated_tools")).toBe(true);
-    expect(engine.isMoltbotRuleType("limit_tool_profile")).toBe(true);
-    expect(engine.isMoltbotRuleType("require_model_guardrails")).toBe(true);
-    expect(engine.isMoltbotRuleType("require_workspace_isolation")).toBe(true);
-    expect(engine.isMoltbotRuleType("require_port_spacing")).toBe(true);
-    expect(engine.isMoltbotRuleType("forbid_open_group_policy")).toBe(true);
-    expect(engine.isMoltbotRuleType("require_config_permissions")).toBe(true);
-    // Existing types are NOT moltbot types
-    expect(engine.isMoltbotRuleType("required_field")).toBe(false);
-    expect(engine.isMoltbotRuleType("require_secret_manager")).toBe(false);
+    expect(engine.isOpenClawRuleType("require_gateway_auth")).toBe(true);
+    expect(engine.isOpenClawRuleType("require_dm_policy")).toBe(true);
+    expect(engine.isOpenClawRuleType("require_sandbox")).toBe(true);
+    expect(engine.isOpenClawRuleType("forbid_elevated_tools")).toBe(true);
+    expect(engine.isOpenClawRuleType("limit_tool_profile")).toBe(true);
+    expect(engine.isOpenClawRuleType("require_model_guardrails")).toBe(true);
+    expect(engine.isOpenClawRuleType("require_workspace_isolation")).toBe(true);
+    expect(engine.isOpenClawRuleType("require_port_spacing")).toBe(true);
+    expect(engine.isOpenClawRuleType("forbid_open_group_policy")).toBe(true);
+    expect(engine.isOpenClawRuleType("require_config_permissions")).toBe(true);
+    // Existing types are NOT openclaw types
+    expect(engine.isOpenClawRuleType("required_field")).toBe(false);
+    expect(engine.isOpenClawRuleType("require_secret_manager")).toBe(false);
   });
 
-  it("validates Moltbot rules through the engine", () => {
+  it("validates OpenClaw rules through the engine", () => {
     const engine = new PolicyEngine();
     const config = createBaseConfig({ gateway: { port: 3000 } });
-    const result = engine.validateMoltbotRule("require_gateway_auth", config, { enabled: true });
+    const result = engine.validateOpenClawRule("require_gateway_auth", config, { enabled: true });
     expect(result.passed).toBe(false);
     expect(result.violation).toBeDefined();
     expect(result.violation!.code).toBe("REQUIRE_GATEWAY_AUTH");
   });
 
-  it("returns passed for non-moltbot rule types", () => {
+  it("returns passed for non-openclaw rule types", () => {
     const engine = new PolicyEngine();
     const config = createBaseConfig();
-    const result = engine.validateMoltbotRule("required_field", config, { field: "test" });
+    const result = engine.validateOpenClawRule("required_field", config, { field: "test" });
     expect(result.passed).toBe(true);
   });
 });

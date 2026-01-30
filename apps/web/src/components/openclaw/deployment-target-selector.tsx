@@ -164,7 +164,7 @@ export function DeploymentTargetSelector({
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Image</label>
               <Input
-                placeholder="molthub/moltbot:latest"
+                placeholder="molthub/openclaw:latest"
                 value={value.image || ""}
                 onChange={(e) => handleFieldChange("image", e.target.value)}
                 className="h-8 text-sm"
@@ -186,7 +186,7 @@ export function DeploymentTargetSelector({
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Image</label>
                 <Input
-                  placeholder="molthub/moltbot:latest"
+                  placeholder="molthub/openclaw:latest"
                   value={value.image || ""}
                   onChange={(e) => handleFieldChange("image", e.target.value)}
                   className="h-8 text-sm"
@@ -250,7 +250,7 @@ export function DeploymentTargetSelector({
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Image</label>
                 <Input
-                  placeholder="gcr.io/project/moltbot:latest"
+                  placeholder="gcr.io/project/openclaw:latest"
                   value={value.image || ""}
                   onChange={(e) => handleFieldChange("image", e.target.value)}
                   className="h-8 text-sm"
@@ -273,7 +273,7 @@ export function DeploymentTargetSelector({
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Image</label>
                 <Input
-                  placeholder="myregistry.azurecr.io/moltbot:latest"
+                  placeholder="myregistry.azurecr.io/openclaw:latest"
                   value={value.image || ""}
                   onChange={(e) => handleFieldChange("image", e.target.value)}
                   className="h-8 text-sm"

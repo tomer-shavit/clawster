@@ -1,7 +1,7 @@
 import { Module, forwardRef } from "@nestjs/common";
 import { HealthService } from "./health.service";
 import { HealthController } from "./health.controller";
-import { MoltbotHealthService } from "./moltbot-health.service";
+import { OpenClawHealthService } from "./openclaw-health.service";
 import { HealthAggregatorService } from "./health-aggregator.service";
 import { DiagnosticsService } from "./diagnostics.service";
 import { AlertingService } from "./alerting.service";
@@ -13,7 +13,7 @@ import { AlertsModule } from "../alerts/alerts.module";
   controllers: [HealthController],
   providers: [
     HealthService,
-    MoltbotHealthService,
+    OpenClawHealthService,
     HealthAggregatorService,
     DiagnosticsService,
     AlertingService,
@@ -21,7 +21,7 @@ import { AlertsModule } from "../alerts/alerts.module";
   ],
   exports: [
     HealthService,
-    MoltbotHealthService,
+    OpenClawHealthService,
     HealthAggregatorService,
     DiagnosticsService,
     AlertingService,

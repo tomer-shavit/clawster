@@ -2,19 +2,19 @@
  * Environment variable mapper for Cloudflare Workers deployment.
  *
  * Maps Molthub configuration into Worker secrets and container environment
- * variables for the Moltbot gateway running inside a Cloudflare Sandbox.
+ * variables for the OpenClaw gateway running inside a Cloudflare Sandbox.
  */
 
 import { CloudflareWorkersConfig } from "../../interface/deployment-target";
 
 /**
- * Standard Moltbot environment variables used inside the container.
+ * Standard OpenClaw environment variables used inside the container.
  */
-export interface MoltbotContainerEnv {
+export interface OpenClawContainerEnv {
   /** Gateway auth token */
-  MOLTBOT_GATEWAY_TOKEN: string;
+  OPENCLAW_GATEWAY_TOKEN: string;
   /** Gateway port inside the container */
-  MOLTBOT_GATEWAY_PORT: string;
+  OPENCLAW_GATEWAY_PORT: string;
   /** Config file path inside the container */
   CLAWDBOT_CONFIG_PATH: string;
   /** State directory path inside the container */
@@ -28,7 +28,7 @@ export interface MoltbotContainerEnv {
  */
 export interface WorkerSecrets {
   /** Gateway auth token */
-  MOLTBOT_GATEWAY_TOKEN: string;
+  OPENCLAW_GATEWAY_TOKEN: string;
   /** R2 access key ID (if R2 state sync is enabled) */
   R2_ACCESS_KEY_ID?: string;
   /** R2 secret access key (if R2 state sync is enabled) */
@@ -44,7 +44,7 @@ export interface WorkerSecrets {
  */
 export interface EnvMappingResult {
   /** Environment variables for the container */
-  containerEnv: MoltbotContainerEnv;
+  containerEnv: OpenClawContainerEnv;
   /** Secrets that should be set via wrangler secret */
   workerSecrets: WorkerSecrets;
   /** Plain-text variables safe for wrangler.jsonc [vars] section */
@@ -63,15 +63,15 @@ export function mapEnvironment(
   config: CloudflareWorkersConfig,
   additionalEnv?: Record<string, string>
 ): EnvMappingResult {
-  const containerEnv: MoltbotContainerEnv = {
-    MOLTBOT_GATEWAY_TOKEN: config.gatewayToken,
-    MOLTBOT_GATEWAY_PORT: String(config.gatewayPort),
-    CLAWDBOT_CONFIG_PATH: "/app/config/moltbot.json",
+  const containerEnv: OpenClawContainerEnv = {
+    OPENCLAW_GATEWAY_TOKEN: config.gatewayToken,
+    OPENCLAW_GATEWAY_PORT: String(config.gatewayPort),
+    CLAWDBOT_CONFIG_PATH: "/app/config/openclaw.json",
     CLAWDBOT_STATE_DIR: "/app/state",
   };
 
   const workerSecrets: WorkerSecrets = {
-    MOLTBOT_GATEWAY_TOKEN: config.gatewayToken,
+    OPENCLAW_GATEWAY_TOKEN: config.gatewayToken,
   };
 
   const workerVars: Record<string, string> = {

@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import {
-  MoltbotChannelType,
-  MOLTBOT_CHANNEL_TYPES,
+  OpenClawChannelType,
+  OPENCLAW_CHANNEL_TYPES,
   DEFAULT_COMMON_CONFIG,
   SECRET_FIELDS,
   CHANNEL_TYPE_META,
@@ -15,7 +15,7 @@ import {
 export interface ChannelData {
   id: string;
   name: string;
-  moltbotType: MoltbotChannelType;
+  openclawType: OpenClawChannelType;
   enabled: boolean;
   policies: Partial<CommonChannelConfig>;
   typeConfig: Record<string, unknown>;
@@ -29,23 +29,23 @@ export interface ChannelData {
 @Injectable()
 export class ChannelConfigGenerator {
   /**
-   * Generate a complete Moltbot channel config block from stored channel data.
+   * Generate a complete OpenClaw channel config block from stored channel data.
    *
    * Secrets are referenced as `${VAR_NAME}` environment variable substitutions
    * and are never embedded directly in the output.
    *
-   * @returns Object keyed by channel type with Moltbot-compatible config sections
+   * @returns Object keyed by channel type with OpenClaw-compatible config sections
    */
   generateChannelConfig(channels: ChannelData[]): Record<string, unknown> {
     const config: Record<string, unknown> = {};
 
     for (const channel of channels) {
-      if (!(MOLTBOT_CHANNEL_TYPES as readonly string[]).includes(channel.moltbotType)) {
+      if (!(OPENCLAW_CHANNEL_TYPES as readonly string[]).includes(channel.openclawType)) {
         continue;
       }
 
       const section = this.buildChannelSection(channel);
-      config[channel.moltbotType] = section;
+      config[channel.openclawType] = section;
     }
 
     return config;
@@ -93,7 +93,7 @@ export class ChannelConfigGenerator {
     const config: Record<string, unknown> = {};
     const tc = channel.typeConfig || {};
 
-    switch (channel.moltbotType) {
+    switch (channel.openclawType) {
       case 'whatsapp':
         config.sendReadReceipts = tc.sendReadReceipts ?? true;
         if (tc.chunkMode) {
@@ -180,13 +180,13 @@ export class ChannelConfigGenerator {
    */
   private buildSecretReferences(channel: ChannelData): Record<string, string> {
     const refs: Record<string, string> = {};
-    const secretFieldNames = SECRET_FIELDS[channel.moltbotType] || [];
+    const secretFieldNames = SECRET_FIELDS[channel.openclawType] || [];
 
     for (const field of secretFieldNames) {
       if (channel.secrets[field]) {
         // Convert secret field name to env var format:
         // e.g., "botToken" for telegram -> "${TELEGRAM_BOT_TOKEN}"
-        const envVarName = this.toEnvVarName(channel.moltbotType, field);
+        const envVarName = this.toEnvVarName(channel.openclawType, field);
         refs[field] = `\${${envVarName}}`;
       }
     }
@@ -203,7 +203,7 @@ export class ChannelConfigGenerator {
    *   ('slack', 'appToken')      -> 'SLACK_APP_TOKEN'
    *   ('google-chat', 'serviceAccountJson') -> 'GOOGLE_CHAT_SERVICE_ACCOUNT_JSON'
    */
-  toEnvVarName(channelType: MoltbotChannelType, fieldName: string): string {
+  toEnvVarName(channelType: OpenClawChannelType, fieldName: string): string {
     // Convert channel type: 'google-chat' -> 'GOOGLE_CHAT'
     const typePrefix = channelType.toUpperCase().replace(/-/g, '_');
 
@@ -222,11 +222,11 @@ export class ChannelConfigGenerator {
    */
   extractSecrets(channel: ChannelData): Record<string, string> {
     const result: Record<string, string> = {};
-    const secretFieldNames = SECRET_FIELDS[channel.moltbotType] || [];
+    const secretFieldNames = SECRET_FIELDS[channel.openclawType] || [];
 
     for (const field of secretFieldNames) {
       if (channel.secrets[field]) {
-        const envVarName = this.toEnvVarName(channel.moltbotType, field);
+        const envVarName = this.toEnvVarName(channel.openclawType, field);
         result[envVarName] = channel.secrets[field];
       }
     }

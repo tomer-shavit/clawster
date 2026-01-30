@@ -114,7 +114,7 @@ describe("AgentEvolutionService", () => {
     it("creates snapshot with gatewayReachable=false when gateway unreachable", async () => {
       prisma.botInstance.findUnique.mockResolvedValue({
         id: "bot-1",
-        desiredManifest: { spec: { moltbotConfig: {} } },
+        desiredManifest: { spec: { openclawConfig: {} } },
         gatewayPort: 18789,
       });
       prisma.gatewayConnection.findUnique.mockResolvedValue(null);

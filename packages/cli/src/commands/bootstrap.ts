@@ -42,7 +42,7 @@ const REGIONS: Record<CloudProviderType, string[]> = {
 
 export async function bootstrap(options: CLIBootstrapOptions) {
   console.log(chalk.blue.bold("🚀 Molthub Bootstrap"));
-  console.log(chalk.gray("Set up cloud infrastructure for your Moltbot fleet\n"));
+  console.log(chalk.gray("Set up cloud infrastructure for your OpenClaw fleet\n"));
 
   // Interactive wizard if not all options provided
   let config = await gatherConfiguration(options);

@@ -1,20 +1,20 @@
 ---
-description: "Technical reference for Moltbot Gateway, config model, health, security, and channels"
+description: "Technical reference for OpenClaw Gateway, config model, health, security, and channels"
 globs: ["packages/gateway-client/**/*.ts", "apps/api/src/channels/**/*.ts", "apps/api/src/health/**/*.ts", "apps/api/src/reconciler/**/*.ts"]
 alwaysApply: true
 ---
 
-# Moltbot Documentation Reference
+# OpenClaw Documentation Reference
 
 Source: https://docs.molt.bot/
 
-This document captures the key technical details from Moltbot's official documentation that Molthub needs to integrate with.
+This document captures the key technical details from OpenClaw's official documentation that Molthub needs to integrate with.
 
 ---
 
 ## 1. Gateway Architecture
 
-The Gateway is Moltbot's always-on process managing messaging connections and the control/event plane. It runs continuously and exits with non-zero status on fatal errors to trigger supervisor restarts.
+The Gateway is OpenClaw's always-on process managing messaging connections and the control/event plane. It runs continuously and exits with non-zero status on fatal errors to trigger supervisor restarts.
 
 ### WebSocket Protocol
 
@@ -48,12 +48,12 @@ Gateway responds with either success (snapshot of presence, health, state versio
 
 ### Lifecycle & Daemon Management
 
-**Local execution**: `moltbot gateway --port 18789`
+**Local execution**: `openclaw gateway --port 18789`
 - `--verbose` for debug logging
 - `--force` to terminate conflicting listeners
 
 **Service installation**:
-- macOS: `moltbot gateway install` creates LaunchAgent at `~/Library/LaunchAgents/bot.molt.gateway.plist`
+- macOS: `openclaw gateway install` creates LaunchAgent at `~/Library/LaunchAgents/bot.molt.gateway.plist`
 - Linux/WSL2: systemd user service with `loginctl enable-linger`
 - Windows: WSL2 with systemd
 
@@ -83,8 +83,8 @@ Each Gateway instance requires:
 ### Profile-Based Setup (Recommended)
 
 ```bash
-moltbot --profile main gateway --port 18789
-moltbot --profile rescue gateway --port 19001
+openclaw --profile main gateway --port 18789
+openclaw --profile rescue gateway --port 19001
 ```
 
 `--profile` automatically scopes state directories and config paths while suffixing service names.
@@ -96,7 +96,7 @@ moltbot --profile rescue gateway --port 19001
 
 **Service names**:
 - macOS: `bot.molt.<profile>`
-- Linux: `moltbot-gateway-<profile>.service`
+- Linux: `openclaw-gateway-<profile>.service`
 
 ---
 
@@ -104,10 +104,10 @@ moltbot --profile rescue gateway --port 19001
 
 ### File & Format
 
-- JSON5 config at `~/.clawdbot/moltbot.json` (comments and trailing commas allowed)
+- JSON5 config at `~/.clawdbot/openclaw.json` (comments and trailing commas allowed)
 - If missing, safe defaults apply
 - Strict schema validation at startup — unknown keys, malformed types, or invalid values prevent startup
-- When validation fails, only diagnostic commands work (`moltbot doctor`, `moltbot logs`, `moltbot health`)
+- When validation fails, only diagnostic commands work (`openclaw doctor`, `openclaw logs`, `openclaw health`)
 
 ### Config Sections
 
@@ -154,7 +154,7 @@ moltbot --profile rescue gateway --port 19001
 **WhatsApp-specific**:
 - `sendReadReceipts`: bool (default true)
 - `chunkMode`: `"length"` | `"newline"`
-- QR pairing via `moltbot channels login`
+- QR pairing via `openclaw channels login`
 - **Node.js required** (Bun not supported)
 
 **Telegram-specific**:
@@ -179,7 +179,7 @@ moltbot --profile rescue gateway --port 19001
 
 #### tools
 - `profile`: `"minimal"` | `"coding"` | `"messaging"` | `"full"`
-- `allow`: tool names or groups (`"group:runtime"`, `"group:fs"`, `"group:sessions"`, `"group:memory"`, `"group:web"`, `"group:ui"`, `"group:automation"`, `"group:messaging"`, `"group:nodes"`, `"group:moltbot"`)
+- `allow`: tool names or groups (`"group:runtime"`, `"group:fs"`, `"group:sessions"`, `"group:memory"`, `"group:web"`, `"group:ui"`, `"group:automation"`, `"group:messaging"`, `"group:nodes"`, `"group:openclaw"`)
 - `deny`: blocklist (deny wins)
 - `elevated.enabled`: elevated host exec (default true)
 - `elevated.allowFrom`: per-channel sender allowlists
@@ -252,24 +252,24 @@ moltbot --profile rescue gateway --port 19001
 ### CLI Commands
 
 ```bash
-moltbot status              # Local overview
-moltbot status --all        # Full diagnosis (safe to share)
-moltbot status --deep       # Gateway health checks
-moltbot status --json       # Machine-readable output
-moltbot health              # Health snapshot
-moltbot health --json       # Structured health snapshot
-moltbot doctor              # Config validation, service audit, auth check
-moltbot doctor --fix        # Auto-repair (never writes without opt-in)
-moltbot logs --follow       # Live log streaming
-moltbot security audit      # Security audit
-moltbot security audit --deep --fix  # Deep audit with auto-fix
+openclaw status              # Local overview
+openclaw status --all        # Full diagnosis (safe to share)
+openclaw status --deep       # Gateway health checks
+openclaw status --json       # Machine-readable output
+openclaw health              # Health snapshot
+openclaw health --json       # Structured health snapshot
+openclaw doctor              # Config validation, service audit, auth check
+openclaw doctor --fix        # Auto-repair (never writes without opt-in)
+openclaw logs --follow       # Live log streaming
+openclaw security audit      # Security audit
+openclaw security audit --deep --fix  # Deep audit with auto-fix
 ```
 
 ### Health Check via Gateway WS
 
 - Send `health` method → returns structured snapshot with linked channels, `ok: true/false`
 - Send `status` method → returns status summary
-- `moltbot gateway status` probes Gateway RPC
+- `openclaw gateway status` probes Gateway RPC
   - `--deep`: system-level supervisor scans
   - `--no-probe`: skip RPC checks
   - `--json`: script-safe output
@@ -303,7 +303,7 @@ Three-layer access control: **identity verification** → **operational scope** 
 ### File Permissions
 - Config: `600` (user read/write only)
 - State directory: `700` (user only)
-- `moltbot security audit --fix` auto-corrects
+- `openclaw security audit --fix` auto-corrects
 
 ### Tool Safety
 - Sandbox Docker isolation for tool execution
@@ -312,9 +312,9 @@ Three-layer access control: **identity verification** → **operational scope** 
 - Model selection impacts injection resistance
 
 ### Credential Storage
-- WhatsApp: `~/.moltbot/credentials/whatsapp/<accountId>/creds.json`
-- Model auth: `~/.moltbot/agents/<agentId>/agent/auth-profiles.json`
-- Sessions: `~/.moltbot/agents/<agentId>/sessions/*.jsonl`
+- WhatsApp: `~/.openclaw/credentials/whatsapp/<accountId>/creds.json`
+- Model auth: `~/.openclaw/agents/<agentId>/agent/auth-profiles.json`
+- Sessions: `~/.openclaw/agents/<agentId>/sessions/*.jsonl`
 
 ### Secure Baseline Config
 
@@ -352,14 +352,14 @@ curl -fsSL https://molt.bot/install.sh | bash
 iwr -useb https://molt.bot/install.ps1 | iex
 
 # npm/pnpm
-npm install -g moltbot@latest
-pnpm add -g moltbot@latest
+npm install -g openclaw@latest
+pnpm add -g openclaw@latest
 ```
 
 ### Onboarding Wizard
 
 ```bash
-moltbot onboard --install-daemon
+openclaw onboard --install-daemon
 ```
 
 Configures: model auth, gateway settings, channels, DM pairing, workspace, skills, background service.
@@ -371,19 +371,19 @@ Configures: model auth, gateway settings, channels, DM pairing, workspace, skill
 curl -fsSL https://molt.bot/install.sh | bash
 
 # Channel switching
-moltbot update --channel beta|dev|stable
+openclaw update --channel beta|dev|stable
 
 # Post-update verification
-moltbot doctor
-moltbot gateway restart
-moltbot health
+openclaw doctor
+openclaw gateway restart
+openclaw health
 ```
 
 ### Version Pinning & Rollback
 
 ```bash
 # Pin specific version
-npm i -g moltbot@<version>
+npm i -g openclaw@<version>
 
 # Source rollback
 git checkout "$(git rev-list -n 1 --before=\"2026-01-01\" origin/main)"
@@ -395,7 +395,7 @@ pnpm install && pnpm build
 ## 7. Discovery & Transports
 
 ### Bonjour/mDNS (LAN-only)
-- Service type: `_moltbot-gw._tcp`
+- Service type: `_openclaw-gw._tcp`
 - TXT records: `lanHost`, `gatewayPort`, `gatewayTls`, `tailnetDns`
 - Disable: `CLAWDBOT_DISABLE_BONJOUR=1`
 
@@ -566,6 +566,6 @@ Base URL: `https://docs.molt.bot`
 | Link | Description |
 |------|-------------|
 | [llms.txt](https://docs.molt.bot/llms.txt) | Complete documentation index in machine-readable format |
-| [GitHub](https://github.com/moltbot/moltbot) | Source repository |
-| [Releases](https://github.com/moltbot/moltbot/releases) | Release notes and downloads |
+| [GitHub](https://github.com/openclaw/openclaw) | Source repository |
+| [Releases](https://github.com/openclaw/openclaw/releases) | Release notes and downloads |
 | [Clawd](https://clawd.me) | Clawd assistant companion site |

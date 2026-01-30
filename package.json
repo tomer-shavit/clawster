@@ -2,7 +2,7 @@
   "name": "molthub",
   "version": "0.1.0",
   "private": true,
-  "description": "Self-hosted control plane for managing fleets of Moltbot instances",
+  "description": "Self-hosted control plane for managing fleets of OpenClaw instances",
   "license": "MIT",
   "author": "Molthub Contributors",
   "homepage": "https://github.com/tomer-shavit/molthub",
@@ -14,7 +14,7 @@
     "url": "https://github.com/tomer-shavit/molthub/issues"
   },
   "keywords": [
-    "moltbot",
+    "openclaw",
     "control-plane",
     "bot-management",
     "fleet-management",

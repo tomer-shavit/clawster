@@ -1,11 +1,11 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { prisma, Prisma } from "@molthub/database";
 import {
-  BUILTIN_MOLTBOT_POLICY_PACKS,
-  MoltbotConfig,
-  MoltbotEvaluationContext,
-  MoltbotManifest,
-  evaluateMoltbotPolicyPack,
+  BUILTIN_OPENCLAW_POLICY_PACKS,
+  OpenClawConfig,
+  OpenClawEvaluationContext,
+  OpenClawManifest,
+  evaluateOpenClawPolicyPack,
 } from "@molthub/core";
 import * as crypto from "crypto";
 
@@ -47,10 +47,10 @@ export interface ApplyFixResult {
 // ── Service ─────────────────────────────────────────────────────────────
 
 @Injectable()
-export class MoltbotSecurityAuditService {
+export class OpenClawSecurityAuditService {
   /**
-   * Run a full security audit on a Moltbot instance.
-   * Evaluates all built-in Moltbot policy packs against the instance config.
+   * Run a full security audit on an OpenClaw instance.
+   * Evaluates all built-in OpenClaw policy packs against the instance config.
    */
   async audit(instanceId: string): Promise<SecurityAuditResult> {
     const instance = await prisma.botInstance.findUnique({
@@ -64,7 +64,7 @@ export class MoltbotSecurityAuditService {
     const manifest = (instance.desiredManifest as Record<string, unknown>) || {};
     const spec = (manifest?.spec as Record<string, unknown>) || {};
     const metadata = (manifest?.metadata as Record<string, unknown>) || {};
-    const moltbotConfig = (spec.moltbotConfig || {}) as unknown as MoltbotConfig;
+    const openclawConfig = (spec.openclawConfig || {}) as unknown as OpenClawConfig;
     const rawEnv = (metadata.environment as string) || "dev";
     const environment: "dev" | "staging" | "prod" = rawEnv === "local" ? "dev" : (rawEnv as "dev" | "staging" | "prod");
 
@@ -74,30 +74,30 @@ export class MoltbotSecurityAuditService {
       select: { id: true, desiredManifest: true },
     });
 
-    const context: MoltbotEvaluationContext = {
+    const context: OpenClawEvaluationContext = {
       environment,
       otherInstances: otherInstances.map((inst) => {
         const otherManifest = (inst.desiredManifest as Record<string, unknown>) || {};
         const otherSpec = (otherManifest?.spec as Record<string, unknown>) || {};
-        const otherMoltbot = (otherSpec?.moltbotConfig || {}) as unknown as MoltbotConfig;
+        const otherOpenClaw = (otherSpec?.openclawConfig || {}) as unknown as OpenClawConfig;
         return {
           instanceId: inst.id,
-          workspace: otherMoltbot.agents?.defaults?.workspace,
-          gatewayPort: otherMoltbot.gateway?.port,
+          workspace: otherOpenClaw.agents?.defaults?.workspace,
+          gatewayPort: otherOpenClaw.gateway?.port,
         };
       }),
     };
 
     const findings: SecurityFinding[] = [];
 
-    // Evaluate each built-in Moltbot policy pack
-    for (const pack of BUILTIN_MOLTBOT_POLICY_PACKS) {
+    // Evaluate each built-in OpenClaw policy pack
+    for (const pack of BUILTIN_OPENCLAW_POLICY_PACKS) {
       // Check if the pack applies to this environment
       if (pack.targetEnvironments && !pack.targetEnvironments.includes(environment)) {
         continue;
       }
 
-      const result = evaluateMoltbotPolicyPack(pack, instanceId, moltbotConfig, context);
+      const result = evaluateOpenClawPolicyPack(pack, instanceId, openclawConfig, context);
 
       for (const violation of result.violations) {
         findings.push({
@@ -130,7 +130,7 @@ export class MoltbotSecurityAuditService {
 
     const configHash = crypto
       .createHash("sha256")
-      .update(JSON.stringify(moltbotConfig))
+      .update(JSON.stringify(openclawConfig))
       .digest("hex")
       .slice(0, 16);
 
@@ -184,7 +184,7 @@ export class MoltbotSecurityAuditService {
 
     const manifest = (instance.desiredManifest as Record<string, unknown>) || {};
     const manifestSpec = (manifest.spec as Record<string, unknown>) || {};
-    let config = (manifestSpec.moltbotConfig as Record<string, unknown>) || {};
+    let config = (manifestSpec.openclawConfig as Record<string, unknown>) || {};
 
     for (const fixId of fixIds) {
       const fix = fixes.find((f) => f.findingId === fixId);
@@ -208,7 +208,7 @@ export class MoltbotSecurityAuditService {
     if (appliedFixes.length > 0) {
       const updatedManifest = {
         ...manifest,
-        spec: { ...manifestSpec, moltbotConfig: config },
+        spec: { ...manifestSpec, openclawConfig: config },
       };
       await prisma.botInstance.update({
         where: { id: instanceId },
@@ -231,33 +231,33 @@ export class MoltbotSecurityAuditService {
    * Evaluate a manifest BEFORE provisioning to determine if it meets
    * security requirements. Returns blockers (must fix) and warnings (should fix).
    */
-  async preProvisioningAudit(manifest: MoltbotManifest): Promise<{
+  async preProvisioningAudit(manifest: OpenClawManifest): Promise<{
     allowed: boolean;
     blockers: Array<{ ruleId: string; message: string; field?: string }>;
     warnings: Array<{ ruleId: string; message: string; field?: string }>;
   }> {
-    // Extract the moltbot config from the manifest
-    const config = manifest.spec.moltbotConfig;
+    // Extract the openclaw config from the manifest
+    const config = manifest.spec.openclawConfig;
     const rawEnv = manifest.metadata.environment ?? "dev";
-    // Map "local" to "dev" for policy evaluation (MoltbotEvaluationContext only accepts dev/staging/prod)
+    // Map "local" to "dev" for policy evaluation (OpenClawEvaluationContext only accepts dev/staging/prod)
     const environment: "dev" | "staging" | "prod" = rawEnv === "local" ? "dev" : rawEnv as "dev" | "staging" | "prod";
 
-    const context: MoltbotEvaluationContext = { environment };
+    const context: OpenClawEvaluationContext = { environment };
 
     const blockers: Array<{ ruleId: string; message: string; field?: string }> = [];
     const warnings: Array<{ ruleId: string; message: string; field?: string }> = [];
 
     // Evaluate all built-in policy packs
-    for (const pack of BUILTIN_MOLTBOT_POLICY_PACKS) {
+    for (const pack of BUILTIN_OPENCLAW_POLICY_PACKS) {
       // Skip packs that don't apply to this environment
       if (pack.targetEnvironments && !pack.targetEnvironments.includes(environment)) {
         continue;
       }
 
-      const result = evaluateMoltbotPolicyPack(
+      const result = evaluateOpenClawPolicyPack(
         pack,
         "pre-provisioning",
-        config as unknown as MoltbotConfig,
+        config as unknown as OpenClawConfig,
         context,
       );
 
@@ -382,29 +382,29 @@ export class MoltbotSecurityAuditService {
 
   private generateDefaultFix(finding: SecurityFinding): Record<string, unknown> {
     switch (finding.ruleId) {
-      case "moltbot-require-gateway-auth":
+      case "openclaw-require-gateway-auth":
         return { gateway: { auth: { token: "<REPLACE_WITH_SECURE_TOKEN>" } } };
 
-      case "moltbot-require-dm-policy":
-      case "moltbot-channel-dm-policy":
+      case "openclaw-require-dm-policy":
+      case "openclaw-channel-dm-policy":
         return { channels: [{ dmPolicy: "pairing" }] };
 
-      case "moltbot-forbid-elevated-tools":
+      case "openclaw-forbid-elevated-tools":
         return { tools: { elevated: { allowFrom: ["admin"] } } };
 
-      case "moltbot-require-sandbox":
+      case "openclaw-require-sandbox":
         return { agents: { defaults: { sandbox: { mode: "docker" } } } };
 
-      case "moltbot-limit-tool-profile":
+      case "openclaw-limit-tool-profile":
         return { tools: { profile: "standard" } };
 
-      case "moltbot-require-model-guardrails":
+      case "openclaw-require-model-guardrails":
         return { agents: { defaults: { model: { maxTokens: 4096, temperature: 0.7 } } } };
 
-      case "moltbot-require-workspace-isolation":
-        return { agents: { defaults: { workspace: `/var/moltbot/workspaces/${finding.ruleId}-${Date.now()}` } } };
+      case "openclaw-require-workspace-isolation":
+        return { agents: { defaults: { workspace: `/var/openclaw/workspaces/${finding.ruleId}-${Date.now()}` } } };
 
-      case "moltbot-forbid-open-group-policy":
+      case "openclaw-forbid-open-group-policy":
         return { channels: [{ groupPolicy: "allowlist" }] };
 
       default:

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from "@nestjs/common";
 import { prisma } from "@molthub/database";
 import {
-  MoltbotChannelType,
+  OpenClawChannelType,
   ChannelAuthState,
   CHANNEL_TYPE_META,
   NODE_REQUIRED_CHANNELS,
@@ -16,7 +16,7 @@ import { ChannelAuthFactory } from "./auth/auth-factory";
 export interface AuthSession {
   id: string;
   channelId: string;
-  moltbotType: MoltbotChannelType;
+  openclawType: OpenClawChannelType;
   state: ChannelAuthState;
   qrCode?: string;
   qrExpiresAt?: Date;
@@ -62,17 +62,17 @@ export class ChannelAuthService {
     }
 
     const config = channel.config as Record<string, unknown>;
-    const moltbotType = config?.moltbotType as MoltbotChannelType | undefined;
+    const openclawType = config?.openclawType as OpenClawChannelType | undefined;
 
-    if (!moltbotType) {
+    if (!openclawType) {
       throw new BadRequestException(
-        `Channel ${channelId} does not have a moltbotType configured`,
+        `Channel ${channelId} does not have an openclawType configured`,
       );
     }
 
     // Runtime compatibility check for Node-required channels
-    if (botInstanceId && NODE_REQUIRED_CHANNELS.includes(moltbotType)) {
-      await this.validateRuntimeCompatibility(botInstanceId, moltbotType);
+    if (botInstanceId && NODE_REQUIRED_CHANNELS.includes(openclawType)) {
+      await this.validateRuntimeCompatibility(botInstanceId, openclawType);
     }
 
     // Check if there is already an active (non-expired, non-error) session
@@ -83,13 +83,13 @@ export class ChannelAuthService {
     }
 
     const now = new Date();
-    const isQrPairing = QR_PAIRING_CHANNELS.includes(moltbotType);
+    const isQrPairing = QR_PAIRING_CHANNELS.includes(openclawType);
     const timeoutMs = isQrPairing ? this.QR_TIMEOUT_MS : this.TOKEN_TIMEOUT_MS;
 
     const session: AuthSession = {
       id: `auth_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       channelId,
-      moltbotType,
+      openclawType,
       state: "pending",
       startedAt: now,
       expiresAt: new Date(now.getTime() + timeoutMs),
@@ -99,7 +99,7 @@ export class ChannelAuthService {
     // Delegate to platform-specific auth service via factory
     if (isQrPairing) {
       const result = await this.authFactory.validateCredentials({
-        channelType: moltbotType,
+        channelType: openclawType,
         channelId,
         botInstanceId,
       });
@@ -111,14 +111,14 @@ export class ChannelAuthService {
       if ("qrExpiresAt" in result && result.qrExpiresAt) {
         session.qrExpiresAt = result.qrExpiresAt as Date;
       }
-      session.pairingUrl = `moltbot://pair/${moltbotType}/${channelId}`;
+      session.pairingUrl = `openclaw://pair/${openclawType}/${channelId}`;
       if (result.error) {
         session.error = result.error;
       }
-    } else if (CHANNEL_TYPE_META[moltbotType].authMethod === "token") {
+    } else if (CHANNEL_TYPE_META[openclawType].authMethod === "token") {
       // For token-based channels, check if required secrets are already present
       const secrets = (config?.secrets as Record<string, string>) || undefined;
-      const meta = CHANNEL_TYPE_META[moltbotType];
+      const meta = CHANNEL_TYPE_META[openclawType];
       const hasAllSecrets = meta.requiredSecrets.every(
         (s) => secrets?.[s] && secrets[s].length > 0,
       );
@@ -162,34 +162,34 @@ export class ChannelAuthService {
     }
 
     const config = channel.config as Record<string, unknown>;
-    const moltbotType = config?.moltbotType as MoltbotChannelType | undefined;
+    const openclawType = config?.openclawType as OpenClawChannelType | undefined;
 
-    if (!moltbotType) {
+    if (!openclawType) {
       throw new BadRequestException(
-        `Channel ${channelId} does not have a moltbotType configured`,
+        `Channel ${channelId} does not have an openclawType configured`,
       );
     }
 
-    if (!this.authFactory.supportsTokenValidation(moltbotType)) {
+    if (!this.authFactory.supportsTokenValidation(openclawType)) {
       throw new BadRequestException(
-        `Channel type '${moltbotType}' does not support token-based validation. ` +
-          (this.authFactory.requiresQrPairing(moltbotType)
+        `Channel type '${openclawType}' does not support token-based validation. ` +
+          (this.authFactory.requiresQrPairing(openclawType)
             ? "Use QR pairing instead."
             : "Use startAuth flow instead."),
       );
     }
 
-    this.logger.log(`Validating ${moltbotType} token for channel ${channelId}`);
+    this.logger.log(`Validating ${openclawType} token for channel ${channelId}`);
 
     const result = await this.authFactory.validateCredentials({
-      channelType: moltbotType,
+      channelType: openclawType,
       token,
       appToken,
     });
 
     // Update session
     const session =
-      this.sessions.get(channelId) || this.createSession(channelId, moltbotType);
+      this.sessions.get(channelId) || this.createSession(channelId, openclawType);
     session.state = result.state;
     session.error = result.error;
 
@@ -218,7 +218,7 @@ export class ChannelAuthService {
         where: { id: channelId },
         data: {
           status: "ACTIVE",
-          statusMessage: `${moltbotType} channel validated successfully`,
+          statusMessage: `${openclawType} channel validated successfully`,
         },
       });
     }
@@ -240,9 +240,9 @@ export class ChannelAuthService {
     }
 
     const config = channel.config as Record<string, unknown>;
-    const moltbotType = config?.moltbotType as MoltbotChannelType | undefined;
+    const openclawType = config?.openclawType as OpenClawChannelType | undefined;
 
-    if (moltbotType !== "whatsapp") {
+    if (openclawType !== "whatsapp") {
       throw new BadRequestException(
         "QR refresh is only supported for WhatsApp channels",
       );
@@ -279,13 +279,13 @@ export class ChannelAuthService {
 
     if (!session) {
       const config = channel.config as Record<string, unknown>;
-      const moltbotType =
-        (config?.moltbotType as MoltbotChannelType) || "whatsapp";
+      const openclawType =
+        (config?.openclawType as OpenClawChannelType) || "whatsapp";
 
       return {
         id: "none",
         channelId,
-        moltbotType,
+        openclawType,
         state: "pending",
         startedAt: new Date(),
         expiresAt: new Date(),
@@ -302,7 +302,7 @@ export class ChannelAuthService {
     }
 
     // For WhatsApp, also get real-time QR status
-    if (session.moltbotType === "whatsapp" && session.state === "pairing") {
+    if (session.openclawType === "whatsapp" && session.state === "pairing") {
       const whatsappService = this.authFactory.getWhatsAppService();
       const status = whatsappService.getSessionStatus(channelId);
       session.qrCode = status.qrCode;
@@ -330,7 +330,7 @@ export class ChannelAuthService {
 
     session.state = "paired";
 
-    if (session.moltbotType === "whatsapp") {
+    if (session.openclawType === "whatsapp") {
       this.authFactory.getWhatsAppService().completePairing(channelId);
     }
 
@@ -338,7 +338,7 @@ export class ChannelAuthService {
       where: { id: channelId },
       data: {
         status: "ACTIVE",
-        statusMessage: `${session.moltbotType} channel paired successfully`,
+        statusMessage: `${session.openclawType} channel paired successfully`,
       },
     });
 
@@ -361,7 +361,7 @@ export class ChannelAuthService {
     session.state = "error";
     session.error = error;
 
-    if (session.moltbotType === "whatsapp") {
+    if (session.openclawType === "whatsapp") {
       this.authFactory.getWhatsAppService().failPairing(channelId, error);
     }
 
@@ -384,9 +384,9 @@ export class ChannelAuthService {
 
   async validateRuntimeCompatibility(
     botInstanceId: string,
-    moltbotType: MoltbotChannelType,
+    openclawType: OpenClawChannelType,
   ): Promise<void> {
-    if (!NODE_REQUIRED_CHANNELS.includes(moltbotType)) {
+    if (!NODE_REQUIRED_CHANNELS.includes(openclawType)) {
       return;
     }
 
@@ -404,7 +404,7 @@ export class ChannelAuthService {
 
     if (runtime && runtime.toLowerCase() === "bun") {
       throw new BadRequestException(
-        `Channel type '${moltbotType}' requires Node.js runtime but bot '${bot.name}' ` +
+        `Channel type '${openclawType}' requires Node.js runtime but bot '${bot.name}' ` +
           `is configured to use Bun. WhatsApp and Telegram channels are not supported on Bun.`,
       );
     }
@@ -416,16 +416,16 @@ export class ChannelAuthService {
 
   private createSession(
     channelId: string,
-    moltbotType: MoltbotChannelType,
+    openclawType: OpenClawChannelType,
   ): AuthSession {
     const now = new Date();
-    const isQrPairing = QR_PAIRING_CHANNELS.includes(moltbotType);
+    const isQrPairing = QR_PAIRING_CHANNELS.includes(openclawType);
     const timeoutMs = isQrPairing ? this.QR_TIMEOUT_MS : this.TOKEN_TIMEOUT_MS;
 
     return {
       id: `auth_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       channelId,
-      moltbotType,
+      openclawType,
       state: "pending",
       startedAt: now,
       expiresAt: new Date(now.getTime() + timeoutMs),

@@ -53,7 +53,7 @@ jest.mock("@molthub/database", () => ({
     gatewayConnection: {
       findUnique: jest.fn(),
     },
-    moltbotProfile: {
+    openClawProfile: {
       findUnique: jest.fn(),
     },
   },
@@ -70,7 +70,7 @@ import { prisma } from "@molthub/database";
 const mockPrisma = prisma as unknown as {
   botInstance: { findUnique: jest.Mock };
   gatewayConnection: { findUnique: jest.Mock };
-  moltbotProfile: { findUnique: jest.Mock };
+  openClawProfile: { findUnique: jest.Mock };
 };
 
 describe("DebugService", () => {
@@ -84,7 +84,7 @@ describe("DebugService", () => {
     configHash: "abc123",
     desiredManifest: {
       spec: {
-        moltbotConfig: {
+        openclawConfig: {
           channels: {
             whatsapp: { enabled: true, dmPolicy: "pairing" },
           },
@@ -114,11 +114,11 @@ describe("DebugService", () => {
   const mockProfile = {
     instanceId: "inst-1",
     profileName: "main",
-    configPath: "~/.clawdbot/profiles/main/moltbot.json",
+    configPath: "~/.clawdbot/profiles/main/openclaw.json",
     stateDir: "~/.clawdbot/profiles/main/state/",
     workspace: "~/clawd/main/",
     basePort: 18789,
-    serviceName: "moltbot-gateway-main",
+    serviceName: "openclaw-gateway-main",
     serviceType: "systemd",
   };
 
@@ -131,7 +131,7 @@ describe("DebugService", () => {
     jest.clearAllMocks();
     mockPrisma.botInstance.findUnique.mockResolvedValue(mockInstance);
     mockPrisma.gatewayConnection.findUnique.mockResolvedValue(mockConnection);
-    mockPrisma.moltbotProfile.findUnique.mockResolvedValue(mockProfile);
+    mockPrisma.openClawProfile.findUnique.mockResolvedValue(mockProfile);
   });
 
   describe("getProcesses", () => {
@@ -139,7 +139,7 @@ describe("DebugService", () => {
       const result = await service.getProcesses("inst-1");
       expect(result).toBeDefined();
       expect(result.length).toBeGreaterThan(0);
-      expect(result[0].command).toContain("moltbot gateway");
+      expect(result[0].command).toContain("openclaw gateway");
     });
 
     it("should throw NotFoundException for non-existent instance", async () => {
@@ -224,10 +224,10 @@ describe("DebugService", () => {
     });
 
     it("should return default paths when no profile exists", async () => {
-      mockPrisma.moltbotProfile.findUnique.mockResolvedValue(null);
+      mockPrisma.openClawProfile.findUnique.mockResolvedValue(null);
       const result = await service.getStateFiles("inst-1");
       expect(result.length).toBe(3);
-      expect(result.map((f) => f.path)).toContain("~/.clawdbot/moltbot.json");
+      expect(result.map((f) => f.path)).toContain("~/.clawdbot/openclaw.json");
     });
   });
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useWebSocketContext, type ConnectionState } from '@/lib/websocket-context';
-import type { LogEntry, LogLevel } from '@/components/moltbot/log-viewer';
+import type { LogEntry, LogLevel } from '@/components/openclaw/log-viewer';
 
 interface UseLogStreamOptions {
   minLevel?: LogLevel;

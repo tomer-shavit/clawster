@@ -4,7 +4,7 @@ import {
   ReconcilerService,
   ReconcileResult,
   DoctorResult,
-  UpdateMoltbotResult,
+  UpdateOpenClawResult,
 } from "./reconciler.service";
 import type { DriftCheckResult } from "./drift-detection.service";
 
@@ -21,7 +21,7 @@ export class ReconcilerController {
   @ApiOperation({
     summary: "Trigger reconciliation for a bot instance",
     description:
-      "Runs the v2 Moltbot-aware reconciliation flow: validate manifest, " +
+      "Runs the v2 OpenClaw-aware reconciliation flow: validate manifest, " +
       "generate config, provision or update via Gateway WS, health check.",
   })
   @ApiParam({ name: "id", description: "BotInstance ID" })
@@ -51,9 +51,9 @@ export class ReconcilerController {
 
   @Post(":id/update")
   @ApiOperation({
-    summary: "Update Moltbot version on a bot instance",
+    summary: "Update OpenClaw version on a bot instance",
     description:
-      "Changes the Moltbot binary version and triggers a full restart.",
+      "Changes the OpenClaw binary version and triggers a full restart.",
   })
   @ApiParam({ name: "id", description: "BotInstance ID" })
   @ApiBody({
@@ -68,8 +68,8 @@ export class ReconcilerController {
   async updateVersion(
     @Param("id") instanceId: string,
     @Body("version") version: string,
-  ): Promise<UpdateMoltbotResult> {
-    return this.reconcilerService.updateMoltbotVersion(instanceId, version);
+  ): Promise<UpdateOpenClawResult> {
+    return this.reconcilerService.updateOpenClawVersion(instanceId, version);
   }
 
   // ------------------------------------------------------------------

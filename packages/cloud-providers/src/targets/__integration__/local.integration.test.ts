@@ -10,16 +10,16 @@ import {
 
 const IS_SUPPORTED_OS = ["linux", "darwin"].includes(os.platform());
 
-function isMoltbotAvailable(): boolean {
+function isOpenClawAvailable(): boolean {
   try {
-    execFileSync("which", ["moltbot"], { stdio: "ignore" });
+    execFileSync("which", ["openclaw"], { stdio: "ignore" });
     return true;
   } catch {
     return false;
   }
 }
 
-const CAN_RUN = IS_SUPPORTED_OS && isMoltbotAvailable();
+const CAN_RUN = IS_SUPPORTED_OS && isOpenClawAvailable();
 
 (CAN_RUN ? describe : describe.skip)(
   "Local Machine Target Integration",

@@ -26,7 +26,7 @@ export class CreateTemplateDto {
   @IsString()
   category: string;
 
-  @ApiProperty({ description: "Partial MoltbotFullConfig used as defaults" })
+  @ApiProperty({ description: "Partial OpenClawFullConfig used as defaults" })
   @IsObject()
   defaultConfig: Record<string, unknown>;
 
@@ -207,7 +207,7 @@ export class TemplateResponseDto {
 }
 
 export class ConfigPreviewResponseDto {
-  @ApiProperty({ description: "Fully resolved moltbot.json config" })
+  @ApiProperty({ description: "Fully resolved openclaw.json config" })
   config: Record<string, unknown>;
 
   @ApiProperty({
@@ -217,10 +217,10 @@ export class ConfigPreviewResponseDto {
 }
 
 export class GenerateConfigResponseDto {
-  @ApiProperty({ description: "Fully resolved moltbot.json config" })
+  @ApiProperty({ description: "Fully resolved openclaw.json config" })
   config: Record<string, unknown>;
 
-  @ApiProperty({ description: "v2 MoltbotManifest wrapping the config" })
+  @ApiProperty({ description: "v2 OpenClawManifest wrapping the config" })
   manifest: Record<string, unknown>;
 
   @ApiProperty({

@@ -131,7 +131,7 @@ export default async function AlertsPage({
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Health Alerts</h1>
           <p className="text-muted-foreground mt-1">
-            Monitor, acknowledge, and remediate alerts across your Moltbot fleet
+            Monitor, acknowledge, and remediate alerts across your OpenClaw fleet
           </p>
         </div>
         {summary && (

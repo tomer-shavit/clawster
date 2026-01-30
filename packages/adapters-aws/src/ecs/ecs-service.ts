@@ -29,7 +29,7 @@ export class ECSService {
     manifest: InstanceManifest,
     secrets: Record<string, string> = {}
   ): Promise<string> {
-    const containerName = "moltbot";
+    const containerName = "openclaw";
     const image = manifest.spec.runtime.image;
     const cpu = manifest.spec.runtime.cpu.toString();
     const memory = manifest.spec.runtime.memory.toString();
@@ -57,16 +57,16 @@ export class ECSService {
         command,
         secrets: secretsList.length > 0 ? secretsList : undefined,
         environment: [
-          { name: "MOLTBOT_LOG_LEVEL", value: manifest.spec.observability?.logLevel || "info" },
-          { name: "MOLTBOT_WORKSPACE", value: manifest.metadata.workspace },
-          { name: "MOLTBOT_INSTANCE", value: manifest.metadata.name },
+          { name: "OPENCLAW_LOG_LEVEL", value: manifest.spec.observability?.logLevel || "info" },
+          { name: "OPENCLAW_WORKSPACE", value: manifest.metadata.workspace },
+          { name: "OPENCLAW_INSTANCE", value: manifest.metadata.name },
         ],
         logConfiguration: {
           logDriver: "awslogs",
           options: {
             "awslogs-group": `/molthub/${manifest.metadata.workspace}/${manifest.metadata.name}`,
             "awslogs-region": process.env.AWS_REGION || "us-east-1",
-            "awslogs-stream-prefix": "moltbot",
+            "awslogs-stream-prefix": "openclaw",
           },
         },
         portMappings: manifest.spec.network.inbound === "WEBHOOK" ? [

@@ -108,7 +108,7 @@ describe('Fleet', () => {
 describe('BotInstance', () => {
   const validManifest = {
     apiVersion: 'molthub/v1' as const,
-    kind: 'MoltbotInstance' as const,
+    kind: 'OpenClawInstance' as const,
     metadata: {
       name: 'test-bot',
       workspace: 'default',
@@ -281,7 +281,7 @@ describe('BotInstance', () => {
 describe('ResolvedBotConfig', () => {
   const validManifest = {
     apiVersion: 'molthub/v1' as const,
-    kind: 'MoltbotInstance' as const,
+    kind: 'OpenClawInstance' as const,
     metadata: {
       name: 'test-bot',
       workspace: 'default',

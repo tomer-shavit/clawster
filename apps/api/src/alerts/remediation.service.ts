@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { prisma, AlertStatus } from "@molthub/database";
 import { ReconcilerService } from "../reconciler/reconciler.service";
-import { MoltbotHealthService } from "../health/moltbot-health.service";
+import { OpenClawHealthService } from "../health/openclaw-health.service";
 import { ChannelAuthState } from "@molthub/database";
 
 // ---------------------------------------------------------------------------
@@ -25,7 +25,7 @@ export class RemediationService {
 
   constructor(
     private readonly reconciler: ReconcilerService,
-    private readonly moltbotHealth: MoltbotHealthService,
+    private readonly openclawHealth: OpenClawHealthService,
   ) {}
 
   /**
@@ -181,8 +181,8 @@ export class RemediationService {
 
   private async executeRunDoctor(instanceId: string): Promise<RemediationResult> {
     try {
-      // Trigger a deep health check via MoltbotHealthService
-      const deepHealth = await this.moltbotHealth.getDeepHealth(instanceId);
+      // Trigger a deep health check via OpenClawHealthService
+      const deepHealth = await this.openclawHealth.getDeepHealth(instanceId);
 
       return {
         success: deepHealth.reachable,

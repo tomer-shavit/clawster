@@ -1,7 +1,7 @@
 /**
  * Configuration for AWS ECS Fargate deployment targets.
  *
- * Provides all settings needed to deploy a Moltbot gateway instance
+ * Provides all settings needed to deploy an OpenClaw gateway instance
  * on AWS ECS Fargate (serverless containers).
  */
 export interface EcsFargateConfig {
@@ -11,7 +11,7 @@ export interface EcsFargateConfig {
   accessKeyId: string;
   /** AWS secret access key for CLI authentication */
   secretAccessKey: string;
-  /** ECS cluster name (default: "moltbot-cluster") */
+  /** ECS cluster name (default: "openclaw-cluster") */
   clusterName?: string;
   /** VPC subnet IDs for Fargate tasks */
   subnetIds: string[];

@@ -1,7 +1,7 @@
 /**
- * Deployment Target Abstraction for Moltbot
+ * Deployment Target Abstraction for OpenClaw
  *
- * Provides a unified interface for deploying Moltbot gateway instances
+ * Provides a unified interface for deploying OpenClaw gateway instances
  * across different environments: local machines, remote VMs, Docker
  * containers, and Kubernetes clusters.
  */
@@ -21,13 +21,13 @@ export enum DeploymentTargetType {
 }
 
 /**
- * Options for installing a Moltbot gateway instance on a deployment target
+ * Options for installing an OpenClaw gateway instance on a deployment target
  */
 export interface InstallOptions {
   /** Profile name for isolation (scopes config/state/workspace) */
   profileName: string;
-  /** Specific Moltbot version to install */
-  moltbotVersion?: string;
+  /** Specific OpenClaw version to install */
+  openclawVersion?: string;
   /** Gateway port number. Instances should be spaced 20+ ports apart. */
   port: number;
   /** Method to use for installation */
@@ -50,9 +50,9 @@ export interface InstallResult {
 }
 
 /**
- * Moltbot configuration payload to be applied to a deployment target
+ * OpenClaw configuration payload to be applied to a deployment target
  */
-export interface MoltbotConfigPayload {
+export interface OpenClawConfigPayload {
   /** Profile name this configuration applies to */
   profileName: string;
   /** Gateway port */
@@ -114,10 +114,10 @@ export interface DeploymentLogOptions {
 }
 
 /**
- * Unified interface for Moltbot deployment targets.
+ * Unified interface for OpenClaw deployment targets.
  *
  * Each deployment target represents a distinct environment where a
- * Moltbot gateway instance can be installed, configured, and managed.
+ * OpenClaw gateway instance can be installed, configured, and managed.
  * Implementations handle the specifics of each environment (systemd,
  * Docker, Kubernetes, etc.) behind this common interface.
  */
@@ -126,22 +126,22 @@ export interface DeploymentTarget {
   readonly type: DeploymentTargetType;
 
   /**
-   * Install the Moltbot gateway on this target.
-   * For local/VM: runs `moltbot gateway install`.
+   * Install the OpenClaw gateway on this target.
+   * For local/VM: runs `openclaw gateway install`.
    * For Docker: pulls the container image.
    * For Kubernetes: generates and applies manifests.
    */
   install(options: InstallOptions): Promise<InstallResult>;
 
   /**
-   * Apply configuration to the installed Moltbot instance.
+   * Apply configuration to the installed OpenClaw instance.
    * Writes config files, updates ConfigMaps, or sets environment variables
    * depending on the target type.
    */
-  configure(config: MoltbotConfigPayload): Promise<ConfigureResult>;
+  configure(config: OpenClawConfigPayload): Promise<ConfigureResult>;
 
   /**
-   * Start the Moltbot gateway instance.
+   * Start the OpenClaw gateway instance.
    * For local: starts the service via systemctl/launchctl.
    * For Docker: runs/starts the container.
    * For Kubernetes: scales replicas up.
@@ -149,12 +149,12 @@ export interface DeploymentTarget {
   start(): Promise<void>;
 
   /**
-   * Stop the Moltbot gateway instance gracefully (SIGTERM).
+   * Stop the OpenClaw gateway instance gracefully (SIGTERM).
    */
   stop(): Promise<void>;
 
   /**
-   * Restart the Moltbot gateway instance.
+   * Restart the OpenClaw gateway instance.
    * May use SIGUSR1 for hybrid reload when only configuration changed.
    */
   restart(): Promise<void>;
@@ -165,7 +165,7 @@ export interface DeploymentTarget {
   getStatus(): Promise<TargetStatus>;
 
   /**
-   * Retrieve log lines from the Moltbot gateway instance.
+   * Retrieve log lines from the OpenClaw gateway instance.
    */
   getLogs(options?: DeploymentLogOptions): Promise<string[]>;
 
@@ -175,7 +175,7 @@ export interface DeploymentTarget {
   getEndpoint(): Promise<GatewayEndpoint>;
 
   /**
-   * Tear down and remove the Moltbot instance from this target.
+   * Tear down and remove the OpenClaw instance from this target.
    * Stops the service, removes files/containers/manifests, and cleans up.
    */
   destroy(): Promise<void>;
@@ -246,7 +246,7 @@ export interface KubernetesTargetConfig {
 /**
  * Configuration for Cloudflare Workers deployment targets.
  *
- * Deploys a Moltbot gateway inside a Cloudflare Workers Sandbox container
+ * Deploys an OpenClaw gateway inside a Cloudflare Workers Sandbox container
  * with optional R2 state persistence.
  */
 export interface CloudflareWorkersConfig {
@@ -293,7 +293,7 @@ export type DeploymentTargetConfig =
 export type DetectedOS = "macos" | "linux" | "wsl2";
 
 /**
- * Minimum port spacing between Moltbot instances.
+ * Minimum port spacing between OpenClaw instances.
  * Each instance uses a range of derived ports, so instances
  * must be spaced at least this many ports apart.
  */

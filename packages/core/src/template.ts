@@ -25,7 +25,7 @@ export const TemplateSchema = z.object({
   // The base manifest template
   manifestTemplate: z.object({
     apiVersion: z.literal("molthub/v1"),
-    kind: z.literal("MoltbotInstance"),
+    kind: z.literal("OpenClawInstance"),
     spec: z.object({
       runtime: RuntimeConfigSchema.partial().optional(),
       secrets: z.array(SecretRefSchema).default([]),

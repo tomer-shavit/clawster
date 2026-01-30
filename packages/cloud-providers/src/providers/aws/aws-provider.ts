@@ -353,7 +353,7 @@ export class AWSProvider implements CloudProvider {
       }
     }
 
-    // Task role for Moltbot
+    // Task role for OpenClaw
     const taskRoleName = `molthub-${workspace}-ecs-task`;
     const taskAssumeRolePolicy = JSON.stringify({
       Version: "2012-10-17",
@@ -440,7 +440,7 @@ export class AWSProvider implements CloudProvider {
       executionRoleArn: this.executionRoleArn,
       taskRoleArn: this.taskRoleArn,
       containerDefinitions: [{
-        name: "moltbot",
+        name: "openclaw",
         image: config.image,
         essential: true,
         command: config.command,
@@ -451,7 +451,7 @@ export class AWSProvider implements CloudProvider {
           options: {
             "awslogs-group": `/molthub/${this.workspace}/${config.name}`,
             "awslogs-region": this.region,
-            "awslogs-stream-prefix": "moltbot",
+            "awslogs-stream-prefix": "openclaw",
           },
         },
         portMappings: config.ports?.map((p: PortMapping) => ({

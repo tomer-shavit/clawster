@@ -29,7 +29,7 @@ export const PolicyRuleType = z.enum([
   "custom_json_schema",
   "custom_regex",
 
-  // Moltbot-specific security rules
+  // OpenClaw-specific security rules
   "require_gateway_auth",
   "require_dm_policy",
   "require_config_permissions",
@@ -146,14 +146,14 @@ export const PolicyRuleSchema = z.object({
       message: z.string(),
     }),
 
-    // Moltbot: Gateway must have token/password auth
+    // OpenClaw: Gateway must have token/password auth
     z.object({
       type: z.literal("require_gateway_auth"),
       enabled: z.boolean().default(true),
       message: z.string().optional(),
     }),
 
-    // Moltbot: dmPolicy must not be "open" in production
+    // OpenClaw: dmPolicy must not be "open" in production
     z.object({
       type: z.literal("require_dm_policy"),
       forbiddenValues: z.array(z.string()).default(["open"]),
@@ -161,7 +161,7 @@ export const PolicyRuleSchema = z.object({
       message: z.string().optional(),
     }),
 
-    // Moltbot: File permissions must be 600/700
+    // OpenClaw: File permissions must be 600/700
     z.object({
       type: z.literal("require_config_permissions"),
       configFileMode: z.string().default("600"),
@@ -169,14 +169,14 @@ export const PolicyRuleSchema = z.object({
       message: z.string().optional(),
     }),
 
-    // Moltbot: Elevated tools must have allowFrom restrictions
+    // OpenClaw: Elevated tools must have allowFrom restrictions
     z.object({
       type: z.literal("forbid_elevated_tools"),
       enabled: z.boolean().default(true),
       message: z.string().optional(),
     }),
 
-    // Moltbot: Docker sandbox required in non-dev environments
+    // OpenClaw: Docker sandbox required in non-dev environments
     z.object({
       type: z.literal("require_sandbox"),
       enabled: z.boolean().default(true),
@@ -184,14 +184,14 @@ export const PolicyRuleSchema = z.object({
       message: z.string().optional(),
     }),
 
-    // Moltbot: "full" tool profile not allowed in production
+    // OpenClaw: "full" tool profile not allowed in production
     z.object({
       type: z.literal("limit_tool_profile"),
       forbiddenProfiles: z.array(z.string()).default(["full"]),
       message: z.string().optional(),
     }),
 
-    // Moltbot: Model restrictions for production
+    // OpenClaw: Model restrictions for production
     z.object({
       type: z.literal("require_model_guardrails"),
       enabled: z.boolean().default(true),
@@ -201,56 +201,56 @@ export const PolicyRuleSchema = z.object({
       message: z.string().optional(),
     }),
 
-    // Moltbot: Each instance must have unique workspace
+    // OpenClaw: Each instance must have unique workspace
     z.object({
       type: z.literal("require_workspace_isolation"),
       enabled: z.boolean().default(true),
       message: z.string().optional(),
     }),
 
-    // Moltbot: 20+ port gap between instances
+    // OpenClaw: 20+ port gap between instances
     z.object({
       type: z.literal("require_port_spacing"),
       minimumGap: z.number().int().default(20),
       message: z.string().optional(),
     }),
 
-    // Moltbot: groupPolicy must not be "open" in production
+    // OpenClaw: groupPolicy must not be "open" in production
     z.object({
       type: z.literal("forbid_open_group_policy"),
       forbiddenValues: z.array(z.string()).default(["open"]),
       message: z.string().optional(),
     }),
 
-    // Moltbot: password managers and credential stores must not be allowed
+    // OpenClaw: password managers and credential stores must not be allowed
     z.object({
       type: z.literal("forbid_dangerous_tools"),
       enabled: z.boolean().default(true),
       message: z.string().optional(),
     }),
 
-    // Moltbot: Gateway must not bind to 0.0.0.0
+    // OpenClaw: Gateway must not bind to 0.0.0.0
     z.object({
       type: z.literal("require_gateway_host_binding"),
       enabled: z.boolean().default(true),
       message: z.string().optional(),
     }),
 
-    // Moltbot: Docker sandbox must have hardened security options
+    // OpenClaw: Docker sandbox must have hardened security options
     z.object({
       type: z.literal("require_sandbox_security_options"),
       enabled: z.boolean().default(true),
       message: z.string().optional(),
     }),
 
-    // Moltbot: All channels must use allowlist or pairing-based access control
+    // OpenClaw: All channels must use allowlist or pairing-based access control
     z.object({
       type: z.literal("require_channel_allowlist"),
       enabled: z.boolean().default(true),
       message: z.string().optional(),
     }),
 
-    // Moltbot: Token rotation must be configured in production
+    // OpenClaw: Token rotation must be configured in production
     z.object({
       type: z.literal("require_token_rotation"),
       enabled: z.boolean().default(true),
@@ -258,7 +258,7 @@ export const PolicyRuleSchema = z.object({
       message: z.string().optional(),
     }),
 
-    // Moltbot: Non-bundled skills must have integrity hashes
+    // OpenClaw: Non-bundled skills must have integrity hashes
     z.object({
       type: z.literal("require_skill_verification"),
       enabled: z.boolean().default(true),
@@ -349,7 +349,7 @@ export const BUILTIN_POLICY_PACKS: PolicyPack[] = [
   {
     id: "builtin-security-baseline",
     name: "Security Baseline",
-    description: "Essential security policies for all Moltbot instances",
+    description: "Essential security policies for all OpenClaw instances",
     isBuiltin: true,
     autoApply: true,
     rules: [

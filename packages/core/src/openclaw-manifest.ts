@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MoltbotConfigSchema } from "./moltbot-config";
+import { OpenClawConfigSchema } from "./openclaw-config";
 
 // =============================================================================
 // Molthub Settings (control-plane specific metadata)
@@ -25,13 +25,13 @@ export type MolthubSettings = z.infer<typeof MolthubSettingsSchema>;
 // v2 Environment enum (extends v1 with "local")
 // =============================================================================
 
-export const MoltbotEnvironmentSchema = z.enum([
+export const OpenClawEnvironmentSchema = z.enum([
   "dev",
   "staging",
   "prod",
   "local",
 ]);
-export type MoltbotEnvironment = z.infer<typeof MoltbotEnvironmentSchema>;
+export type OpenClawEnvironment = z.infer<typeof OpenClawEnvironmentSchema>;
 
 // =============================================================================
 // v2 Deployment Target
@@ -58,12 +58,12 @@ export const SecurityOverridesSchema = z.object({
 export type SecurityOverrides = z.infer<typeof SecurityOverridesSchema>;
 
 // =============================================================================
-// v2 Manifest — wraps MoltbotConfigSchema
+// v2 Manifest — wraps OpenClawConfigSchema
 // =============================================================================
 
-export const MoltbotManifestSchema = z.object({
+export const OpenClawManifestSchema = z.object({
   apiVersion: z.literal("molthub/v2"),
-  kind: z.literal("MoltbotInstance"),
+  kind: z.literal("OpenClawInstance"),
   metadata: z.object({
     name: z
       .string()
@@ -74,22 +74,22 @@ export const MoltbotManifestSchema = z.object({
       .min(1)
       .max(63),
     workspace: z.string().min(1),
-    environment: MoltbotEnvironmentSchema.default("dev"),
+    environment: OpenClawEnvironmentSchema.default("dev"),
     labels: z.record(z.string()).default({}),
     deploymentTarget: DeploymentTargetSchema.default("local"),
     profileName: z.string().optional(),
     securityOverrides: SecurityOverridesSchema.optional(),
   }),
   spec: z.object({
-    moltbotConfig: MoltbotConfigSchema,
+    openclawConfig: OpenClawConfigSchema,
     molthubSettings: MolthubSettingsSchema.optional(),
   }),
 });
-export type MoltbotManifest = z.infer<typeof MoltbotManifestSchema>;
+export type OpenClawManifest = z.infer<typeof OpenClawManifestSchema>;
 
 /**
- * Parse & validate a v2 Moltbot manifest.
+ * Parse & validate a v2 OpenClaw manifest.
  */
-export function validateMoltbotManifest(data: unknown): MoltbotManifest {
-  return MoltbotManifestSchema.parse(data);
+export function validateOpenClawManifest(data: unknown): OpenClawManifest {
+  return OpenClawManifestSchema.parse(data);
 }

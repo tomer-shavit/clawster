@@ -197,7 +197,7 @@ export class AgentEvolutionService {
 
   private extractDeployedConfig(manifest: Record<string, unknown>): Record<string, unknown> {
     const spec = (manifest?.spec as Record<string, unknown>) || manifest;
-    return (spec?.moltbotConfig as Record<string, unknown>) || spec || {};
+    return (spec?.openclawConfig as Record<string, unknown>) || spec || {};
   }
 
   private hashConfig(config: Record<string, unknown>): string {

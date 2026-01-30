@@ -274,7 +274,7 @@ describe('Fleet API (e2e)', () => {
           name: 'test-instance',
           desiredManifest: {
             apiVersion: 'molthub/v1',
-            kind: 'MoltbotInstance',
+            kind: 'OpenClawInstance',
             metadata: {
               name: 'test-instance',
               workspace: 'default',

@@ -20,7 +20,7 @@ export class ProvisioningChecklistService {
   private readonly logger = new Logger(ProvisioningChecklistService.name);
 
   /**
-   * Generate a security checklist for a Moltbot config before deployment.
+   * Generate a security checklist for an OpenClaw config before deployment.
    */
   generateChecklist(config: Record<string, unknown>, environment: string): ChecklistResult {
     const items: ChecklistItem[] = [];

@@ -1,11 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { createHash, randomBytes } from "crypto";
-import type { MoltbotManifest, MoltbotFullConfig, SecurityOverrides, AiGatewaySettings } from "@molthub/core";
+import type { OpenClawManifest, OpenClawFullConfig, SecurityOverrides, AiGatewaySettings } from "@molthub/core";
 import { injectGatewayIntoConfig } from "@molthub/core";
 
 /**
- * ConfigGeneratorService — transforms a v2 MoltbotManifest into a
- * validated MoltbotFullConfig (the `moltbot.json` payload) and produces
+ * ConfigGeneratorService — transforms a v2 OpenClawManifest into a
+ * validated OpenClawFullConfig (the `openclaw.json` payload) and produces
  * deterministic config hashes for drift detection.
  */
 @Injectable()
@@ -13,22 +13,22 @@ export class ConfigGeneratorService {
   private readonly logger = new Logger(ConfigGeneratorService.name);
 
   /**
-   * Extract and transform the `spec.moltbotConfig` section of a manifest
-   * into a full MoltbotFullConfig suitable for writing to disk or pushing
+   * Extract and transform the `spec.openclawConfig` section of a manifest
+   * into a full OpenClawFullConfig suitable for writing to disk or pushing
    * via the Gateway `config.apply` RPC.
    *
    * The manifest metadata (environment, labels, deploymentTarget) is used
    * to set context-sensitive defaults (e.g. log level, gateway host) when
    * the spec does not explicitly set them.
    */
-  generateMoltbotConfig(
-    manifest: MoltbotManifest,
+  generateOpenClawConfig(
+    manifest: OpenClawManifest,
     aiGatewaySettings?: AiGatewaySettings,
-  ): MoltbotFullConfig {
-    const base = manifest.spec.moltbotConfig;
+  ): OpenClawFullConfig {
+    const base = manifest.spec.openclawConfig;
 
     // Apply environment-aware defaults that are not already set in the spec.
-    let config: MoltbotFullConfig = {
+    let config: OpenClawFullConfig = {
       ...base,
       // Ensure gateway section exists with sensible defaults for deployment
       gateway: {
@@ -73,7 +73,7 @@ export class ConfigGeneratorService {
    * Keys are sorted recursively so that logically identical configs
    * always produce the same hash regardless of property order.
    */
-  generateConfigHash(config: MoltbotFullConfig): string {
+  generateConfigHash(config: OpenClawFullConfig): string {
     const normalized = JSON.stringify(this.sortKeys(config));
     return createHash("sha256").update(normalized).digest("hex");
   }
@@ -83,10 +83,10 @@ export class ConfigGeneratorService {
   // ---------------------------------------------------------------------------
 
   private enforceSecureDefaults(
-    config: MoltbotFullConfig,
+    config: OpenClawFullConfig,
     environment: string,
     securityOverrides?: SecurityOverrides,
-  ): MoltbotFullConfig {
+  ): OpenClawFullConfig {
     const secured = { ...config };
 
     // Auto-generate a gateway auth token if auth is missing

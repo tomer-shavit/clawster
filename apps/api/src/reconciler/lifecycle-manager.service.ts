@@ -6,7 +6,7 @@ import {
   BotHealth,
   GatewayConnectionStatus,
 } from "@molthub/database";
-import type { MoltbotManifest, MoltbotFullConfig } from "@molthub/core";
+import type { OpenClawManifest, OpenClawFullConfig } from "@molthub/core";
 import {
   GatewayManager,
   GatewayClient,
@@ -57,7 +57,7 @@ export interface StatusResult {
 /**
  * LifecycleManagerService — orchestrates full instance lifecycle operations
  * (provision, update, restart, destroy) across deployment targets and the
- * Moltbot Gateway WebSocket protocol.
+ * OpenClaw Gateway WebSocket protocol.
  */
 @Injectable()
 export class LifecycleManagerService {
@@ -74,17 +74,17 @@ export class LifecycleManagerService {
   // ------------------------------------------------------------------
 
   /**
-   * Provision a brand-new Moltbot instance:
+   * Provision a brand-new OpenClaw instance:
    *  1. Resolve deployment target from DB or manifest
-   *  2. Install Moltbot via the deployment target
+   *  2. Install OpenClaw via the deployment target
    *  3. Write configuration
    *  4. Start the service
    *  5. Establish gateway WS connection
-   *  6. Update DB records (BotInstance, GatewayConnection, MoltbotProfile)
+   *  6. Update DB records (BotInstance, GatewayConnection, OpenClawProfile)
    */
   async provision(
     instance: BotInstance,
-    manifest: MoltbotManifest,
+    manifest: OpenClawManifest,
   ): Promise<ProvisionResult> {
     this.logger.log(`Provisioning instance ${instance.id} (${instance.name})`);
 
@@ -96,7 +96,7 @@ export class LifecycleManagerService {
       const target = await this.resolveTarget(instance);
 
       // 2. Generate config
-      const config = this.configGenerator.generateMoltbotConfig(manifest);
+      const config = this.configGenerator.generateOpenClawConfig(manifest);
       const configHash = this.configGenerator.generateConfigHash(config);
       const profileName = instance.profileName ?? manifest.metadata.name;
       const gatewayPort = instance.gatewayPort ?? config.gateway?.port ?? 18789;
@@ -107,7 +107,7 @@ export class LifecycleManagerService {
       this.provisioningEvents.updateStep(instance.id, installStepId, "in_progress");
       const installResult = await target.install({
         profileName,
-        moltbotVersion: instance.moltbotVersion ?? undefined,
+        openclawVersion: instance.openclawVersion ?? undefined,
         port: gatewayPort,
       });
 
@@ -162,8 +162,8 @@ export class LifecycleManagerService {
       // Upsert GatewayConnection record
       await this.upsertGatewayConnection(instance.id, endpoint, configHash);
 
-      // Upsert MoltbotProfile record
-      await this.upsertMoltbotProfile(instance.id, profileName, gatewayPort);
+      // Upsert OpenClawProfile record
+      await this.upsertOpenClawProfile(instance.id, profileName, gatewayPort);
       this.provisioningEvents.completeProvisioning(instance.id);
 
       this.logger.log(`Instance ${instance.id} provisioned successfully`);
@@ -203,12 +203,12 @@ export class LifecycleManagerService {
    */
   async update(
     instance: BotInstance,
-    manifest: MoltbotManifest,
+    manifest: OpenClawManifest,
   ): Promise<UpdateResult> {
     this.logger.log(`Updating config for instance ${instance.id}`);
 
     try {
-      const config = this.configGenerator.generateMoltbotConfig(manifest);
+      const config = this.configGenerator.generateOpenClawConfig(manifest);
       const desiredHash = this.configGenerator.generateConfigHash(config);
 
       // Fast-path: nothing to do if hashes match
@@ -301,7 +301,7 @@ export class LifecycleManagerService {
   // ------------------------------------------------------------------
 
   /**
-   * Trigger a lightweight reload on the Moltbot process.
+   * Trigger a lightweight reload on the OpenClaw process.
    * The deployment target sends SIGUSR1, which causes the gateway to
    * re-read its config from disk without a full process restart.
    */
@@ -347,7 +347,7 @@ export class LifecycleManagerService {
     await prisma.gatewayConnection.deleteMany({
       where: { instanceId: instance.id },
     });
-    await prisma.moltbotProfile.deleteMany({
+    await prisma.openClawProfile.deleteMany({
       where: { instanceId: instance.id },
     });
     await prisma.healthSnapshot.deleteMany({
@@ -415,7 +415,7 @@ export class LifecycleManagerService {
   }
 
   private getInstallStepId(deploymentType: string): string {
-    const stepMap: Record<string, string> = { docker: "pull_image", local: "install_moltbot", kubernetes: "generate_manifests", "ecs-fargate": "create_task_definition", "cloudflare-workers": "generate_wrangler_config" };
+    const stepMap: Record<string, string> = { docker: "pull_image", local: "install_openclaw", kubernetes: "generate_manifests", "ecs-fargate": "create_task_definition", "cloudflare-workers": "generate_wrangler_config" };
     return stepMap[deploymentType] ?? "pull_image";
   }
 
@@ -444,16 +444,16 @@ export class LifecycleManagerService {
       DOCKER: {
         type: "docker",
         docker: {
-          containerName: `moltbot-${instance.name}`,
-          configPath: `/var/moltbot/${instance.name}`,
+          containerName: `openclaw-${instance.name}`,
+          configPath: `/var/openclaw/${instance.name}`,
           gatewayPort: instance.gatewayPort ?? 18789,
         },
       },
       KUBERNETES: {
         type: "kubernetes",
         k8s: {
-          namespace: "moltbot",
-          deploymentName: `moltbot-${instance.name}`,
+          namespace: "openclaw",
+          deploymentName: `openclaw-${instance.name}`,
           gatewayPort: instance.gatewayPort ?? 18789,
         },
       },
@@ -465,7 +465,7 @@ export class LifecycleManagerService {
           secretAccessKey: (instanceMeta?.awsSecretAccessKey as string) ?? "",
           subnetIds: (instanceMeta?.subnetIds as string[]) ?? [],
           securityGroupId: (instanceMeta?.securityGroupId as string) ?? "",
-          clusterName: `moltbot-${instance.name}`,
+          clusterName: `openclaw-${instance.name}`,
         },
       },
     };
@@ -492,7 +492,7 @@ export class LifecycleManagerService {
           ssh: {
             host: (cfg.host as string) ?? "localhost",
             port: (cfg.sshPort as number) ?? 22,
-            username: (cfg.username as string) ?? "moltbot",
+            username: (cfg.username as string) ?? "openclaw",
             privateKey: cfg.privateKeyRef as string | undefined,
           },
         };
@@ -500,8 +500,8 @@ export class LifecycleManagerService {
         return {
           type: "docker",
           docker: {
-            containerName: (cfg.containerName as string) ?? "moltbot",
-            configPath: (cfg.configPath as string) ?? "/var/moltbot",
+            containerName: (cfg.containerName as string) ?? "openclaw",
+            configPath: (cfg.configPath as string) ?? "/var/openclaw",
             gatewayPort: (cfg.gatewayPort as number) ?? 18789,
             networkName: cfg.networkName as string | undefined,
           },
@@ -510,8 +510,8 @@ export class LifecycleManagerService {
         return {
           type: "kubernetes",
           k8s: {
-            namespace: (cfg.namespace as string) ?? "moltbot",
-            deploymentName: (cfg.deploymentName as string) ?? "moltbot",
+            namespace: (cfg.namespace as string) ?? "openclaw",
+            deploymentName: (cfg.deploymentName as string) ?? "openclaw",
             gatewayPort: (cfg.gatewayPort as number) ?? 18789,
             kubeContext: cfg.kubeContext as string | undefined,
           },
@@ -525,7 +525,7 @@ export class LifecycleManagerService {
             secretAccessKey: (cfg.secretAccessKey as string) ?? "",
             subnetIds: (cfg.subnetIds as string[]) ?? [],
             securityGroupId: (cfg.securityGroupId as string) ?? "",
-            clusterName: (cfg.clusterName as string) ?? "moltbot-cluster",
+            clusterName: (cfg.clusterName as string) ?? "openclaw-cluster",
             executionRoleArn: cfg.executionRoleArn as string | undefined,
             taskRoleArn: cfg.taskRoleArn as string | undefined,
             cpu: cfg.cpu as number | undefined,
@@ -600,16 +600,16 @@ export class LifecycleManagerService {
     });
   }
 
-  private async upsertMoltbotProfile(
+  private async upsertOpenClawProfile(
     instanceId: string,
     profileName: string,
     basePort: number,
   ): Promise<void> {
-    const configPath = `~/.clawdbot/profiles/${profileName}/moltbot.json`;
+    const configPath = `~/.clawdbot/profiles/${profileName}/openclaw.json`;
     const stateDir = `~/.clawdbot/profiles/${profileName}/state/`;
     const workspace = `~/clawd/${profileName}/`;
 
-    await prisma.moltbotProfile.upsert({
+    await prisma.openClawProfile.upsert({
       where: { instanceId },
       create: {
         instanceId,

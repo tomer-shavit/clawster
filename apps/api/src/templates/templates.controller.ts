@@ -70,7 +70,7 @@ export class TemplatesController {
 
   @Post(":id/generate")
   @ApiOperation({
-    summary: "Generate a full moltbot config and manifest from a template",
+    summary: "Generate a full openclaw config and manifest from a template",
   })
   @ApiResponse({ status: 201, type: GenerateConfigResponseDto })
   async generateConfig(

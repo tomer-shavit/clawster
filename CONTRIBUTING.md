@@ -1,6 +1,6 @@
 # Contributing to Molthub
 
-Thank you for your interest in contributing to Molthub! Molthub is a self-hosted control plane for Moltbot instances, and we welcome contributions from the community.
+Thank you for your interest in contributing to Molthub! Molthub is a self-hosted control plane for OpenClaw instances, and we welcome contributions from the community.
 
 Please note that this project follows a [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold it.
 
@@ -55,7 +55,7 @@ molthub/
 │   ├── database/         # Prisma schema + PostgreSQL client
 │   ├── adapters-aws/     # AWS SDK integrations
 │   ├── cloud-providers/  # Deployment provider abstractions
-│   ├── gateway-client/   # Moltbot Gateway client library
+│   ├── gateway-client/   # OpenClaw Gateway client library
 │   └── cli/              # CLI tool
 ```
 

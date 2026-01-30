@@ -1,17 +1,17 @@
 import { describe, it, expect } from "vitest";
 import {
-  MoltbotManifestSchema,
-  MoltbotEnvironmentSchema,
+  OpenClawManifestSchema,
+  OpenClawEnvironmentSchema,
   DeploymentTargetSchema,
   SecurityOverridesSchema,
   MolthubSettingsSchema,
-  validateMoltbotManifest,
-} from "../moltbot-manifest";
+  validateOpenClawManifest,
+} from "../openclaw-manifest";
 
 function createValidManifest(overrides: Record<string, unknown> = {}) {
   return {
     apiVersion: "molthub/v2",
-    kind: "MoltbotInstance",
+    kind: "OpenClawInstance",
     metadata: {
       name: "test-bot",
       workspace: "/home/user/workspace",
@@ -19,36 +19,36 @@ function createValidManifest(overrides: Record<string, unknown> = {}) {
       ...(overrides.metadata as Record<string, unknown> ?? {}),
     },
     spec: {
-      moltbotConfig: {
+      openclawConfig: {
         gateway: { port: 18789, host: "127.0.0.1" },
-        ...(overrides.moltbotConfig as Record<string, unknown> ?? {}),
+        ...(overrides.openclawConfig as Record<string, unknown> ?? {}),
       },
       ...(overrides.spec as Record<string, unknown> ?? {}),
     },
     ...Object.fromEntries(
       Object.entries(overrides).filter(
-        ([k]) => !["metadata", "spec", "moltbotConfig"].includes(k),
+        ([k]) => !["metadata", "spec", "openclawConfig"].includes(k),
       ),
     ),
   };
 }
 
-describe("MoltbotManifestSchema", () => {
+describe("OpenClawManifestSchema", () => {
   it("validates a minimal valid manifest", () => {
-    const result = MoltbotManifestSchema.safeParse(createValidManifest());
+    const result = OpenClawManifestSchema.safeParse(createValidManifest());
     expect(result.success).toBe(true);
   });
 
   it("requires apiVersion molthub/v2", () => {
-    const result = MoltbotManifestSchema.safeParse({
+    const result = OpenClawManifestSchema.safeParse({
       ...createValidManifest(),
       apiVersion: "molthub/v1",
     });
     expect(result.success).toBe(false);
   });
 
-  it("requires kind MoltbotInstance", () => {
-    const result = MoltbotManifestSchema.safeParse({
+  it("requires kind OpenClawInstance", () => {
+    const result = OpenClawManifestSchema.safeParse({
       ...createValidManifest(),
       kind: "SomethingElse",
     });
@@ -57,49 +57,49 @@ describe("MoltbotManifestSchema", () => {
 
   describe("metadata.name validation", () => {
     it("accepts lowercase alphanumeric names", () => {
-      const result = MoltbotManifestSchema.safeParse(
+      const result = OpenClawManifestSchema.safeParse(
         createValidManifest({ metadata: { name: "bot1", workspace: "/ws" } }),
       );
       expect(result.success).toBe(true);
     });
 
     it("accepts names with hyphens", () => {
-      const result = MoltbotManifestSchema.safeParse(
+      const result = OpenClawManifestSchema.safeParse(
         createValidManifest({ metadata: { name: "my-bot", workspace: "/ws" } }),
       );
       expect(result.success).toBe(true);
     });
 
     it("rejects names starting with hyphen", () => {
-      const result = MoltbotManifestSchema.safeParse(
+      const result = OpenClawManifestSchema.safeParse(
         createValidManifest({ metadata: { name: "-bot", workspace: "/ws" } }),
       );
       expect(result.success).toBe(false);
     });
 
     it("rejects names ending with hyphen", () => {
-      const result = MoltbotManifestSchema.safeParse(
+      const result = OpenClawManifestSchema.safeParse(
         createValidManifest({ metadata: { name: "bot-", workspace: "/ws" } }),
       );
       expect(result.success).toBe(false);
     });
 
     it("rejects uppercase names", () => {
-      const result = MoltbotManifestSchema.safeParse(
+      const result = OpenClawManifestSchema.safeParse(
         createValidManifest({ metadata: { name: "MyBot", workspace: "/ws" } }),
       );
       expect(result.success).toBe(false);
     });
 
     it("rejects consecutive hyphens", () => {
-      const result = MoltbotManifestSchema.safeParse(
+      const result = OpenClawManifestSchema.safeParse(
         createValidManifest({ metadata: { name: "my--bot", workspace: "/ws" } }),
       );
       expect(result.success).toBe(false);
     });
 
     it("rejects names over 63 characters", () => {
-      const result = MoltbotManifestSchema.safeParse(
+      const result = OpenClawManifestSchema.safeParse(
         createValidManifest({
           metadata: { name: "a".repeat(64), workspace: "/ws" },
         }),
@@ -111,7 +111,7 @@ describe("MoltbotManifestSchema", () => {
   it("requires metadata.workspace", () => {
     const manifest = createValidManifest();
     delete (manifest as Record<string, unknown>).metadata;
-    const result = MoltbotManifestSchema.safeParse({
+    const result = OpenClawManifestSchema.safeParse({
       ...manifest,
       metadata: { name: "bot" },
     });
@@ -119,16 +119,16 @@ describe("MoltbotManifestSchema", () => {
   });
 });
 
-describe("MoltbotEnvironmentSchema", () => {
+describe("OpenClawEnvironmentSchema", () => {
   it("accepts dev, staging, prod, local", () => {
     for (const env of ["dev", "staging", "prod", "local"]) {
-      expect(MoltbotEnvironmentSchema.safeParse(env).success).toBe(true);
+      expect(OpenClawEnvironmentSchema.safeParse(env).success).toBe(true);
     }
   });
 
   it("rejects invalid environments", () => {
-    expect(MoltbotEnvironmentSchema.safeParse("production").success).toBe(false);
-    expect(MoltbotEnvironmentSchema.safeParse("test").success).toBe(false);
+    expect(OpenClawEnvironmentSchema.safeParse("production").success).toBe(false);
+    expect(OpenClawEnvironmentSchema.safeParse("test").success).toBe(false);
   });
 });
 
@@ -193,14 +193,14 @@ describe("MolthubSettingsSchema", () => {
   });
 });
 
-describe("validateMoltbotManifest", () => {
+describe("validateOpenClawManifest", () => {
   it("returns parsed manifest for valid input", () => {
-    const manifest = validateMoltbotManifest(createValidManifest());
+    const manifest = validateOpenClawManifest(createValidManifest());
     expect(manifest.apiVersion).toBe("molthub/v2");
     expect(manifest.metadata.name).toBe("test-bot");
   });
 
   it("throws for invalid input", () => {
-    expect(() => validateMoltbotManifest({ apiVersion: "v1" })).toThrow();
+    expect(() => validateOpenClawManifest({ apiVersion: "v1" })).toThrow();
   });
 });

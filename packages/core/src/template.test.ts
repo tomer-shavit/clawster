@@ -22,7 +22,7 @@ describe('Template', () => {
     workspaceId: 'workspace-123',
     manifestTemplate: {
       apiVersion: 'molthub/v1' as const,
-      kind: 'MoltbotInstance' as const,
+      kind: 'OpenClawInstance' as const,
       spec: {
         runtime: {
           image: 'ghcr.io/clawdbot/clawdbot:v0.1.0',
@@ -379,7 +379,7 @@ describe('Overlay', () => {
 describe('Config Resolution', () => {
   const baseConfig = {
     apiVersion: 'molthub/v1' as const,
-    kind: 'MoltbotInstance' as const,
+    kind: 'OpenClawInstance' as const,
     metadata: {
       name: 'test-bot',
       workspace: 'default',

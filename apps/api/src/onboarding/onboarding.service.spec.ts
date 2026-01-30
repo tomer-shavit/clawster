@@ -476,7 +476,7 @@ describe('OnboardingService', () => {
 
       const stepMap = Object.fromEntries(result.steps.map((s: any) => [s.name, s.status]));
       expect(stepMap['Creating infrastructure']).toBe('in_progress');
-      expect(stepMap['Installing Moltbot']).toBe('pending');
+      expect(stepMap['Installing OpenClaw']).toBe('pending');
       expect(stepMap['Applying configuration']).toBe('pending');
       expect(stepMap['Starting gateway']).toBe('pending');
       expect(stepMap['Running health check']).toBe('pending');
@@ -496,7 +496,7 @@ describe('OnboardingService', () => {
 
       const stepMap = Object.fromEntries(result.steps.map((s: any) => [s.name, s.status]));
       expect(stepMap['Creating infrastructure']).toBe('completed');
-      expect(stepMap['Installing Moltbot']).toBe('in_progress');
+      expect(stepMap['Installing OpenClaw']).toBe('in_progress');
       // When RECONCILING with no configHash, "Applying configuration" is pending
       // (the first branch of the ternary matches: status in [CREATING, RECONCILING] && !configHash)
       expect(stepMap['Applying configuration']).toBe('pending');

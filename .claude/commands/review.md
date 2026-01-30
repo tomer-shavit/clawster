@@ -13,7 +13,7 @@ Before looking at any code, re-read the **original user request** from the start
 Read the following project docs and extract only the sections relevant to the feature being reviewed:
 
 1. `.claude/docs/molthub-vision.md` — Does this feature align with the product vision?
-2. `.claude/docs/moltbot-reference.md` — Does it correctly use the Moltbot config model, Gateway protocol, channels, health checks, or security model?
+2. `.claude/docs/openclaw-reference.md` — Does it correctly use the OpenClaw config model, Gateway protocol, channels, health checks, or security model?
 3. `.claude/docs/molthub-transformation-spec.md` — Is it in the right work package? Does it meet acceptance criteria?
 4. `.claude/docs/current-codebase-analysis.md` — Does it fit the existing architecture?
 
@@ -28,7 +28,7 @@ Now review all changed/added files. For each file, evaluate:
 3. **API design** — Are the interfaces, endpoints, and data shapes clean and consistent with the rest of the project?
 4. **Simplicity** — Is this the simplest solution that works? Could it be done with less code, fewer abstractions, or fewer files?
 5. **Security** — Are there any OWASP top-10 risks? Input validation gaps? Auth bypasses? Exposed secrets?
-6. **Moltbot-native** — Is this solution Moltbot-native (not generic/cloud-agnostic when it should be Moltbot-specific)?
+6. **OpenClaw-native** — Is this solution OpenClaw-native (not generic/cloud-agnostic when it should be OpenClaw-specific)?
 7. **Edge cases** — What happens when inputs are empty, null, malformed, or at scale?
 8. **Naming** — Are names clear, consistent with the codebase, and self-documenting?
 
@@ -43,7 +43,7 @@ Output your review in this format:
 
 **Doc Alignment:**
 - Vision: [aligned / misaligned — why]
-- Moltbot Reference: [aligned / misaligned — why]
+- OpenClaw Reference: [aligned / misaligned — why]
 - Transformation Spec: [aligned / misaligned — why]
 - Codebase Patterns: [aligned / misaligned — why]
 

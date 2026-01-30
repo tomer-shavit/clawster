@@ -104,7 +104,7 @@ export default async function DashboardPage() {
             </div>
           </div>
           <p className="text-muted-foreground mt-1">
-            Real-time overview of your Moltbot fleet
+            Real-time overview of your OpenClaw fleet
           </p>
         </div>
         <div className="flex items-center gap-2">

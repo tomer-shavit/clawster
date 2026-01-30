@@ -8,7 +8,7 @@ import { AppModule } from '../src/app.module';
 
 const validManifest = {
   apiVersion: 'molthub/v1',
-  kind: 'MoltbotInstance',
+  kind: 'OpenClawInstance',
   metadata: {
     name: 'test-bot',
     workspace: 'default',

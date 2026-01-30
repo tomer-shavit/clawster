@@ -138,7 +138,7 @@ export function AlertsList({
             <AlertTriangle className="w-12 h-12 mx-auto mb-4 opacity-50" />
             <p className="text-lg font-medium">No alerts found</p>
             <p className="text-sm mt-1">
-              Your Moltbot fleet is running smoothly.
+              Your OpenClaw fleet is running smoothly.
             </p>
           </div>
         ) : (

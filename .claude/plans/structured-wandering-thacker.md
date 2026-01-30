@@ -15,9 +15,9 @@ Before starting any work on this plan, read these docs **in order**. They provid
 - OpenClaw-native language — Gateway health, not container status; Channels, not integrations
 - No fake data — empty states are honest, not filled with zeros
 
-### 2. Moltbot Technical Reference
-**File**: `.claude/docs/moltbot-reference.md`
-**Why**: Defines Gateway WebSocket protocol (port 18789, methods: `health`, `status`, `config.get`, `config.apply`, `config.patch`, `agent`, `send`), config model (JSON5 with 15+ sections), channel types (WhatsApp/Telegram/Discord/Slack + more), security model (3-layer access control), and health/diagnostics. Every backend service must use these real surfaces — no abstractions that don't map to Moltbot's actual protocol.
+### 2. OpenClaw Technical Reference
+**File**: `.claude/docs/openclaw-reference.md`
+**Why**: Defines Gateway WebSocket protocol (port 18789, methods: `health`, `status`, `config.get`, `config.apply`, `config.patch`, `agent`, `send`), config model (JSON5 with 15+ sections), channel types (WhatsApp/Telegram/Discord/Slack + more), security model (3-layer access control), and health/diagnostics. Every backend service must use these real surfaces — no abstractions that don't map to OpenClaw's actual protocol.
 
 **Key concepts to internalize**:
 - Gateway WS methods and their request/response shapes
@@ -41,7 +41,7 @@ Before starting any work on this plan, read these docs **in order**. They provid
 
 ### 5. This Plan
 **File**: This document (`.claude/plans/structured-wandering-thacker.md`)
-**Why**: The implementation roadmap. Phase 1 is complete (8 WPs, PRs #5-#12). Phase 2 is in progress — 4/8 WPs complete: WP2.5+WP2.6 (PR #13), WP2.8 (PR #14), WP2.3 (PR #15). Remaining 4 WPs: WP2.1, WP2.2, WP2.7, WP2.4. Phase 3 is 5 WPs for polish.
+**Why**: The implementation roadmap. Phase 1 is complete (8 WPs, PRs #5-#12). Phase 2 is COMPLETE — 8/8 WPs done: WP2.5+WP2.6 (PR #13), WP2.8 (PR #14), WP2.3 (PR #15), WP2.7 (PR #16), WP2.1 (PR #17), WP2.2+WP2.4 (PR #18). Phase 3 is 5 WPs for polish.
 
 ### 6. Workflow Rules
 **File**: `.claude/CLAUDE.md`
@@ -51,7 +51,7 @@ Before starting any work on this plan, read these docs **in order**. They provid
 
 **Phase 1 — COMPLETE** (PRs #5–#12): WebSocket integration, Gateway interceptors, debug endpoints, provisioning UX, unit tests, channel auth.
 
-**Phase 2 — IN PROGRESS** (PRs #13, #14, #15):
+**Phase 2 — IN PROGRESS** (PRs #13, #14, #15, #16):
 
 **WP2.5 (Progressive Disclosure Shell)** — COMPLETE (PR #13):
 - Backend: `GET /user-context` endpoint in `apps/api/src/user-context/` (controller + service + module). Computes user stage from agent count + fleet count. Stage thresholds: 0 → `"empty"`, 1-3 → `"getting-started"`, 4+ or multiple fleets → `"fleet"`. Threshold constant: `FLEET_STAGE_THRESHOLD = 4`.
@@ -66,7 +66,7 @@ Before starting any work on this plan, read these docs **in order**. They provid
 - Bot name validation: regex `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`, maxLength 63, enforced at input level and in `canProceed()`.
 - `StepDeploying` uses `useProvisioningEvents` hook directly (single polling source). Shows error/timeout state with retry button via `onRetryDeploy` callback.
 - Deleted: `apps/web/src/app/setup/setup-wizard.tsx` (replaced by unified wizard).
-- Terminology: "OpenClaw" is the agent brand (not Moltbot). This is correct throughout.
+- Terminology: "OpenClaw" is the agent brand (not OpenClaw). This is correct throughout.
 
 **WP2.8 (Next-Step Guidance & Empty States)** — COMPLETE (PR #14):
 - Created reusable `EmptyState` component (`apps/web/src/components/ui/empty-state.tsx`) with icon, title, description, CTA buttons.
@@ -91,13 +91,76 @@ Before starting any work on this plan, read these docs **in order**. They provid
 - Error handling on all mutation paths (create, update, delete) with visible error messages.
 - `workspaceId` passed as prop to `ProfileForm` (not hardcoded).
 
-**Remaining Phase 2 WPs** (not yet started):
-- WP2.1: AI Gateway Abstraction Layer
-- WP2.2: Device Pairing Management UI
-- WP2.7: Bidirectional Awareness & Agent Evolution
-- WP2.4: Integration Tests for All Targets
+**WP2.7 (Bidirectional Awareness & Agent Evolution)** — COMPLETE (PR #16):
+- Core diff logic in `packages/core/src/agent-evolution.ts` — pure functions: `computeEvolutionDiff()`, `extractSkills()`, `extractMcpServers()`, `extractEnabledChannels()`, `extractToolProfile()`, `diffArrays()`, `summarizeEvolution()`. Types: `EvolutionChange`, `AgentEvolutionDiff`, `EvolutionSummary`, `ToolProfileState`. Exported from `packages/core/src/index.ts`. 21 unit tests in `packages/core/src/__tests__/agent-evolution.test.ts`.
+- Database: `AgentStateSnapshot` model added to `packages/database/prisma/schema.prisma` with fields: `liveConfig` (Json), `liveConfigHash`, `liveSkills` (Json), `liveMcpServers` (Json), `liveChannels` (Json), `liveToolProfile` (Json?), `diffFromDeployed` (Json?), `hasEvolved` (Boolean), `totalChanges` (Int), `gatewayReachable` (Boolean), `capturedAt` (DateTime). Indexes on `[instanceId]` and `[instanceId, capturedAt]`. Relation added to `BotInstance`.
+- Backend NestJS module in `apps/api/src/agent-evolution/`:
+  - `agent-evolution.service.ts` — `captureState()` fetches live config from Gateway via `GatewayManager`, extracts skills/MCPs/channels/tools, computes diff vs `desiredManifest`, stores snapshot. `getLatestSnapshot()`, `getEvolutionHistory()`, `getLiveState()` (real-time with fallback to last snapshot), `cleanupOldSnapshots()`.
+  - `agent-evolution.scheduler.ts` — `@Cron('0 */2 * * * *')` syncs all RUNNING bots with CONNECTED gateways (90s dedup). `@Cron('0 0 * * * *')` prunes old snapshots.
+  - `agent-evolution.controller.ts` — `GET :id/live-state`, `GET :id/evolution`, `GET :id/evolution/history` (with validated limit param), `POST :id/evolution/sync`.
+  - `agent-evolution.module.ts` — registered in `apps/api/src/app.module.ts`.
+  - 6 service unit tests in `__tests__/agent-evolution.service.spec.ts`.
+- Frontend API client (`apps/web/src/lib/api.ts`): Types `EvolutionChange`, `AgentEvolutionDiff`, `EvolutionSummary`, `AgentLiveState`, `AgentEvolutionSnapshot`. Methods: `getLiveState()`, `getEvolution()`, `getEvolutionHistory()`, `syncEvolution()`.
+- Frontend components:
+  - `apps/web/src/components/openclaw/evolution-banner.tsx` — "This agent has evolved since deployment" banner with expandable change details, sync button, gateway reachability indicator.
+  - `apps/web/src/components/openclaw/live-skills.tsx` — Two-column deployed vs live skills comparison. Green (both), blue (added at runtime), red strikethrough (removed). Also shows MCP servers.
+  - `apps/web/src/components/openclaw/evolution-diff.tsx` — Side-by-side config diff grouped by category with expandable sections.
+  - `apps/web/src/components/openclaw/evolution-indicator.tsx` — Dashboard badge with GitBranch icon showing "N evolved".
+- Frontend integration:
+  - `apps/web/src/app/bots/[id]/bot-detail-client.tsx` — New "Evolution" tab with EvolutionDiff. EvolutionBanner on Overview tab. LiveSkills on Skills tab when evolution data available. Sync handler with loading state.
+  - `apps/web/src/app/bots/[id]/page.tsx` — Fetches evolution data server-side via `api.getEvolution(id).catch(() => null)` in parallel `Promise.all`.
+  - `apps/web/src/components/dashboard/single-bot-dashboard.tsx` — EvolutionIndicator badge next to bot status/health. useEffect with cleanup flag for safe unmount.
+- Shared utility: `formatTimeAgo()` extracted to `apps/web/src/lib/utils.ts` (used by both banner and indicator).
 
-**Known pre-existing issues** (not introduced by WP2.5/2.6):
+**WP2.1 (AI Gateway Abstraction Layer)** — COMPLETE (PR #17):
+- Core schemas in `packages/core/src/ai-gateway/config.ts` — Zod schemas: `ModelApiSchema` (6 API protocols: openai-completions, openai-responses, anthropic-messages, google-generative-ai, github-copilot, bedrock-converse-stream), `ModelProviderConfigSchema` (matching OpenClaw's shape: baseUrl, apiKey, auth, api, headers, models[]), `ModelsConfigSchema` (top-level config section), `AiGatewaySettingsSchema` (stored on BotInstance DB).
+- Pure functions in `packages/core/src/ai-gateway/provider-builder.ts`:
+  - `buildGatewayProvider(settings)` → builds `ModelProviderConfig` from `AiGatewaySettings`, throws if `gatewayUrl` missing
+  - `rewriteModelRef(originalRef, gatewayProviderName)` → prepends gateway name (e.g., `vercel-ai-gateway/anthropic/claude-sonnet-4-20250514`)
+  - `buildFallbackChain(originalRef, existingFallbacks?)` → creates deduplicated fallback array with original ref first
+  - `injectGatewayIntoConfig(config, settings)` → immutably injects gateway provider into `models.providers`, rewrites `agents.defaults.model.primary`, sets fallbacks. Returns config unchanged when disabled or missing URL.
+- Barrel exports in `packages/core/src/ai-gateway/index.ts`. Added `export * from "./ai-gateway"` to `packages/core/src/index.ts`.
+- Added `models: ModelsConfigSchema.optional()` to `OpenClawConfigSchema` in `packages/core/src/openclaw-config.ts` — prerequisite for gateway provider injection.
+- Database: 4 fields added to `BotInstance` in `packages/database/prisma/schema.prisma`: `aiGatewayEnabled Boolean @default(false)`, `aiGatewayUrl String?`, `aiGatewayApiKey String?`, `aiGatewayProvider String @default("vercel-ai-gateway")`.
+- Config generator (`apps/api/src/reconciler/config-generator.service.ts`): Accepts optional `aiGatewaySettings` param. When enabled, calls `injectGatewayIntoConfig()` before `enforceSecureDefaults()`.
+- API endpoint: `PATCH /bot-instances/:id/ai-gateway` in controller. `UpdateAiGatewaySettingsDto` with `@IsBoolean() enabled`, `@IsUrl() @IsOptional() gatewayUrl`, `@IsString() @MaxLength(500) @IsOptional() gatewayApiKey`, `@IsString() @MaxLength(100) @IsOptional() providerName`.
+- Service method `updateAiGatewaySettings()` with server-side validation (enabled requires URL → `BadRequestException`), API key redacted from response (`aiGatewayApiKey: null`).
+- Frontend API client (`apps/web/src/lib/api.ts`): `AiGatewaySettings` interface, `updateAiGatewaySettings()` method, AI Gateway fields on `BotInstance` interface.
+- UI component `apps/web/src/components/openclaw/ai-gateway-toggle.tsx`: Card with enable/disable toggle, provider selector dropdown (Vercel/Cloudflare/Custom), gateway URL input, API key password input with show/hide (`aria-label`), save button with loading/error/success states.
+- Integrated into Config tab of `apps/web/src/app/bots/[id]/bot-detail-client.tsx` above ConfigEditor.
+- 15 unit tests in `packages/core/src/ai-gateway/__tests__/provider-builder.test.ts` covering all functions + edge cases.
+- Security: API key never returned in responses (redacted to null), `@IsUrl()` validation on gateway URL, server-side enabled+URL consistency check.
+
+**WP2.2 (Device Pairing Management UI)** — COMPLETE (PR #18):
+- Database: `DevicePairing` model added to `packages/database/prisma/schema.prisma` with fields: `instanceId`, `channelType` (OpenClawChannelType), `senderId`, `senderName`, `platform`, `state` (PairingState: PENDING/APPROVED/REJECTED/REVOKED/EXPIRED), `approvedAt`, `revokedAt`, `lastSeenAt`, `ipAddress`, `deviceInfo`. Composite unique constraint `@@unique([instanceId, channelType, senderId])`. Indexes on `instanceId`, `state`, `channelType`. Relation added to `BotInstance`.
+- Backend NestJS module in `apps/api/src/pairing/`:
+  - `pairing.service.ts` — `verifyInstanceExists()` (NotFoundException if missing), `listPairings()` (optional state filter), `getPendingPairings()`, `approvePairing()` (upsert), `rejectPairing()`, `batchApproveAll()`, `revokePairing()`, `syncPairingsFromGateway()` (placeholder — TODO: GatewayManager integration). Uses `OpenClawChannelType` throughout (no `as any` casts).
+  - `pairing.controller.ts` — 7 REST endpoints at `bot-instances/:id/pairings`. Uses `PairingActionDto` and `ListPairingsQueryDto` for input validation. Calls `verifyInstanceExists()` on every endpoint.
+  - `pairing.dto.ts` — class-validator DTOs: `PairingActionDto` (`@IsEnum(PairingChannelType)` + `@IsString @IsNotEmpty senderId`), `ListPairingsQueryDto` (`@IsOptional @IsEnum(PairingStateFilter) state`).
+  - `pairing.module.ts` — registered in `apps/api/src/app.module.ts`.
+  - 15 unit tests in `__tests__/pairing.service.spec.ts` covering all service methods including `verifyInstanceExists`.
+- Frontend API client (`apps/web/src/lib/api.ts`): `DevicePairing` interface. Methods: `getPairings()`, `getPendingPairings()`, `approvePairing()`, `rejectPairing()`, `approveAllPairings()`, `revokePairing()`, `syncPairings()`.
+- Frontend components:
+  - `apps/web/src/components/pairing/pairing-utils.ts` — shared `maskSenderId()` and `channelBadgeColor()` functions.
+  - `apps/web/src/components/pairing/pending-list.tsx` — Card grid of pending pairing requests with approve/reject buttons per card, batch "Approve All" button when 2+ pending.
+  - `apps/web/src/components/pairing/active-devices.tsx` — Table of active paired devices with sender, channel badge, status, paired since, last seen, and revoke button with confirmation.
+  - `apps/web/src/components/pairing/pairing-tab.tsx` — Orchestrator component with 10-second polling, "Sync from Gateway" button, loading/error states, collapsible revoked/rejected/expired section.
+- Frontend integration:
+  - `apps/web/src/app/bots/[id]/bot-detail-client.tsx` — New "Pairing" tab with Smartphone icon after Channels tab.
+
+**WP2.4 (Integration Tests for All Deployment Targets)** — COMPLETE (PR #18):
+- Created `packages/cloud-providers/jest.integration.config.js` — separate Jest config with `*.integration.test.ts` regex, 180s timeout, cleared `testPathIgnorePatterns`.
+- Modified `packages/cloud-providers/jest.config.js` — added `testPathIgnorePatterns: ["/__integration__/"]` to exclude integration tests from unit runs.
+- Added `"test:integration": "jest --config jest.integration.config.js --no-cache --runInBand"` to `packages/cloud-providers/package.json`.
+- Shared test utilities in `packages/cloud-providers/src/targets/__integration__/test-utils.ts`: `generateTestProfile()`, `generateTestPort()` (range 19000-19900), `buildTestConfig()`, `waitForHealth()`, `runCommand()`, `cleanupTarget()`, `itIf()`, `describeIf()`.
+- 5 integration test files using `(condition ? describe : describe.skip)` for proper conditional skipping:
+  - `docker.integration.test.ts` — Skips if Docker not available. Full lifecycle: install (pull image), configure, start, status, endpoint, logs, stop, destroy.
+  - `local.integration.test.ts` — Skips if not Linux/macOS or no `openclaw` CLI. Full lifecycle: install, configure, start, status, endpoint, stop, destroy.
+  - `kubernetes.integration.test.ts` — Skips if no kubectl/cluster. Creates test namespace, full lifecycle, cleans up namespace.
+  - `ecs-fargate.integration.test.ts` — Skips if missing AWS creds (5 env vars). Full lifecycle with 30s startup wait.
+  - `cloudflare-workers.integration.test.ts` — Skips if missing wrangler CLI or CF creds. Full lifecycle: install (generate config), configure, start (deploy), status, endpoint, destroy.
+
+**Known pre-existing issues** (not introduced by Phase 2):
 - 5 test suites fail on clean master: onboarding.service.spec, connectors.service.spec, fleets.service.spec, bot-instances.service.spec, instances.spec. These are pre-existing failures.
 
 ---
@@ -125,7 +188,7 @@ Take Molthub from current state to production-grade quality by applying every le
 | WP1.7 | Unit Test Coverage for Critical Paths | #8 |
 | WP1.8 | Real Channel Auth Integration | #11 |
 
-### Phase 2: IN PROGRESS (4/8 WPs complete)
+### Phase 2: COMPLETE ✅ (8/8 WPs, PRs #13–#18)
 
 | WP | Title | Status | PR |
 |----|-------|--------|----|
@@ -133,10 +196,10 @@ Take Molthub from current state to production-grade quality by applying every le
 | WP2.6 | Universal Deploy Wizard | ✅ Complete | #13 |
 | WP2.8 | Next-Step Guidance & Empty States | ✅ Complete | #14 |
 | WP2.3 | Templates & Profiles Web Pages | ✅ Complete | #15 |
-| WP2.1 | AI Gateway Abstraction Layer | ⬜ Not started | — |
-| WP2.2 | Device Pairing Management UI | ⬜ Not started | — |
-| WP2.7 | Bidirectional Awareness & Agent Evolution | ⬜ Not started | — |
-| WP2.4 | Integration Tests for All Targets | ⬜ Not started | — |
+| WP2.7 | Bidirectional Awareness & Agent Evolution | ✅ Complete | #16 |
+| WP2.1 | AI Gateway Abstraction Layer | ✅ Complete | #17 |
+| WP2.2 | Device Pairing Management UI | ✅ Complete | #18 |
+| WP2.4 | Integration Tests for All Targets | ✅ Complete | #18 |
 
 ---
 
@@ -171,16 +234,16 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 
 ### WP1.1: Cloudflare Workers Deployment Target
 
-**Goal**: Enable Moltbot deployment to Cloudflare Workers with Sandbox containers and R2 state persistence — mirroring what moltworker does as a standalone app, but managed by Molthub.
+**Goal**: Enable OpenClaw deployment to Cloudflare Workers with Sandbox containers and R2 state persistence — mirroring what moltworker does as a standalone app, but managed by Molthub.
 
 **Moltworker lessons**: R2 state sync, config generation from env vars, idempotent process lifecycle, Durable Objects for singleton, cold-start handling.
 
 **Scope**:
 - `CloudflareWorkersTarget` implementing `DeploymentTarget` interface
 - R2 state sync service (backup every 5min, timestamp-based restore, file validation before overwrite)
-- Wrangler config generation (`wrangler.jsonc` + Dockerfile + `start-moltbot.sh`)
-- Environment variable mapping (Worker secrets → container env → `moltbot.json`)
-- AI Gateway URL rewriting when CF AI Gateway is configured
+- Wrangler config generation (`wrangler.jsonc` + Dockerfile + `start-openclaw.sh`)
+- Environment variable mapping (Worker secrets → container env → `openclaw.json`)
+- AI Gateway provider injection when Vercel/CF AI Gateway is configured (gateway-as-provider pattern, not URL rewriting)
 - Cold-start handling (container boot takes 1-2min)
 - `CLOUDFLARE_WORKERS` added to `DeploymentTargetType` enum
 
@@ -198,10 +261,10 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 **Acceptance criteria**:
 - `DeploymentTargetFactory.create('cloudflare-workers', config)` returns a working target
 - `install()` generates wrangler.jsonc + Dockerfile + start script
-- `configure(config)` maps env vars and generates moltbot.json
+- `configure(config)` maps env vars and generates openclaw.json
 - `start()` deploys via `wrangler deploy` and waits for health
 - R2 sync runs every 5min, validates timestamps before overwriting
-- AI Gateway URLs rewritten when `aiGateway.enabled = true`
+- AI Gateway provider injected into `models.providers` when `aiGatewayEnabled = true`, model ref rewritten to gateway-provider format with direct fallback
 - Unit tests cover env mapping, config generation, R2 sync logic
 
 ---
@@ -272,9 +335,9 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 - Create: `apps/web/src/hooks/use-log-stream.ts` — log streaming hook
 - Create: `apps/web/src/hooks/use-health-stream.ts` — real-time health updates
 - Create: `apps/web/src/components/ui/connection-status.tsx` — WS connection indicator
-- Modify: `apps/web/src/components/moltbot/log-viewer.tsx` — use WS instead of polling
-- Modify: `apps/web/src/components/moltbot/health-snapshot.tsx` — use WS for live updates
-- Modify: `apps/web/src/components/moltbot/gateway-status.tsx` — use WS for connection status
+- Modify: `apps/web/src/components/openclaw/log-viewer.tsx` — use WS instead of polling
+- Modify: `apps/web/src/components/openclaw/health-snapshot.tsx` — use WS for live updates
+- Modify: `apps/web/src/components/openclaw/gateway-status.tsx` — use WS for connection status
 - Modify: `apps/web/src/app/bots/[id]/page.tsx` — wrap with WebSocketProvider
 - Modify: `apps/web/src/app/layout.tsx` — add global WebSocketProvider
 
@@ -335,7 +398,7 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 **Scope**:
 - `GET /instances/:id/debug/processes` — list running processes in container/VM
 - `GET /instances/:id/debug/gateway-probe` — test Gateway WS connection, execute health/status
-- `GET /instances/:id/debug/config` — show resolved moltbot.json (secrets redacted)
+- `GET /instances/:id/debug/config` — show resolved openclaw.json (secrets redacted)
 - `GET /instances/:id/debug/env` — show environment variable status (set/unset, no values)
 - `GET /instances/:id/debug/state-files` — list files in state directory with sizes
 - `GET /instances/:id/debug/connectivity` — test network connectivity (DNS, ports, endpoints)
@@ -375,7 +438,7 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 - Provisioning event system (lifecycle-manager emits events as it progresses)
 - NestJS WebSocket gateway for provisioning events (real-time push to frontend)
 - Loading screen component with step-by-step progress
-- Steps: "Validating config" → "Running security audit" → "Provisioning infrastructure" → "Installing Moltbot" → "Writing config" → "Starting gateway" → "Waiting for health check" → "Ready"
+- Steps: "Validating config" → "Running security audit" → "Provisioning infrastructure" → "Installing OpenClaw" → "Writing config" → "Starting gateway" → "Waiting for health check" → "Ready"
 - Error state with actionable message and retry button
 - Timeout handling (configurable, default 5min)
 - Works for all deployment types (different steps per target)
@@ -406,7 +469,7 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 **Moltworker lessons**: Colocated test files (`*.test.ts`), mock-based testing for external deps, edge case coverage.
 
 **Scope**:
-- `packages/core/` — config schemas, policy evaluation, moltbot-policies, profile validation, state-sync
+- `packages/core/` — config schemas, policy evaluation, openclaw-policies, profile validation, state-sync
 - `packages/gateway-client/` — protocol parsing, client lifecycle, interceptors, manager pool
 - `apps/api/` — reconciler service, drift detection, config generator, health service, security audit, alerting
 - Mock utilities for Prisma, WebSocket, deployment targets
@@ -414,10 +477,10 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 - CI integration (fail build if coverage drops below 70%)
 
 **Files**:
-- Create: `packages/core/src/__tests__/moltbot-config.test.ts` — schema validation tests
-- Create: `packages/core/src/__tests__/moltbot-policies.test.ts` — all 14 rule evaluations
-- Create: `packages/core/src/__tests__/moltbot-profile.test.ts` — port spacing, service names
-- Create: `packages/core/src/__tests__/moltbot-manifest.test.ts` — v2 manifest validation
+- Create: `packages/core/src/__tests__/openclaw-config.test.ts` — schema validation tests
+- Create: `packages/core/src/__tests__/openclaw-policies.test.ts` — all 14 rule evaluations
+- Create: `packages/core/src/__tests__/openclaw-profile.test.ts` — port spacing, service names
+- Create: `packages/core/src/__tests__/openclaw-manifest.test.ts` — v2 manifest validation
 - Create: `packages/core/src/__tests__/policy-pack.test.ts` — policy pack evaluation
 - Create: `packages/gateway-client/src/__tests__/client.test.ts` — connect, health, config.apply
 - Create: `packages/gateway-client/src/__tests__/manager.test.ts` — pool lifecycle
@@ -425,7 +488,7 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 - Create: `apps/api/src/reconciler/__tests__/reconciler.service.test.ts`
 - Create: `apps/api/src/reconciler/__tests__/drift-detection.test.ts`
 - Create: `apps/api/src/reconciler/__tests__/config-generator.test.ts`
-- Create: `apps/api/src/health/__tests__/moltbot-health.test.ts`
+- Create: `apps/api/src/health/__tests__/openclaw-health.test.ts`
 - Create: `apps/api/src/health/__tests__/alerting.test.ts`
 - Create: `apps/api/src/security/__tests__/security-audit.test.ts`
 - Create: `apps/api/src/channels/__tests__/channel-auth.test.ts`
@@ -449,7 +512,7 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 **Moltworker lessons**: Device pairing flow (list pending → approve → poll status), QR code streaming from container.
 
 **Scope**:
-- WhatsApp: Execute `moltbot channels login` on instance via deployment target, stream QR code back
+- WhatsApp: Execute `openclaw channels login` on instance via deployment target, stream QR code back
 - Telegram: Validate bot token via Telegram Bot API (`getMe` call)
 - Discord: Validate token + fetch guild list via Discord API
 - Slack: Validate bot token + app token, test Socket Mode connection
@@ -466,13 +529,13 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 - Create: `apps/api/src/channels/auth/auth-factory.ts` — factory for channel-specific auth
 - Modify: `apps/api/src/channels/channel-auth.service.ts` — delegate to platform-specific services
 - Modify: `apps/api/src/channels/channels.controller.ts` — add QR streaming endpoint
-- Modify: `apps/web/src/components/moltbot/qr-pairing.tsx` — display real QR with auto-refresh
+- Modify: `apps/web/src/components/openclaw/qr-pairing.tsx` — display real QR with auto-refresh
 - Create: `apps/web/src/components/channels/telegram-setup.tsx` — token validation UI
 - Create: `apps/web/src/components/channels/discord-setup.tsx` — token + guild selector UI
 - Create: `apps/web/src/components/channels/slack-setup.tsx` — Socket Mode setup UI
 
 **Acceptance criteria**:
-- WhatsApp QR code generated by real Moltbot instance (via Gateway `agent` command)
+- WhatsApp QR code generated by real OpenClaw instance (via Gateway `agent` command)
 - QR refreshes automatically every 20 seconds
 - Pairing success detected within 5 seconds
 - Telegram token validated via `https://api.telegram.org/bot<token>/getMe`
@@ -588,7 +651,7 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 **Scope**:
 - **Templates page**: Grid of all templates (7 built-in + custom). Each card shows: name, category icon, description, channel presets as badges, "Use Template" action (links to deploy wizard with template pre-selected).
 - **Template detail page**: Read-only view for built-in templates (show config, channels, required inputs, recommended policies). Editable for custom templates (JSON editor + structured form).
-- **Template preview**: POST `/templates/:id/preview` — shows full `moltbot.json` output without side effects.
+- **Template preview**: POST `/templates/:id/preview` — shows full `openclaw.json` output without side effects.
 - **Profiles page**: List all profiles with priority badges, fleet scope, merge strategy summary. Create/edit/delete.
 - **Profile detail page**: Structured defaults editor, per-field merge strategy dropdowns (override/merge/prepend/append), locked fields checkboxes, fleet assignment.
 - **"Use Template" flow**: Clicking "Use Template" on any template card opens the deploy wizard with that template pre-selected. This connects templates to the deploy flow naturally.
@@ -626,33 +689,64 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 
 **Dependencies**: WP1.1 (Cloudflare Workers target) — COMPLETE
 
-**Goal**: Abstract LLM API routing through Cloudflare AI Gateway (or any proxy) for caching, rate limiting, analytics, and cost reduction.
+**Goal**: Route LLM API traffic through an AI Gateway proxy (Vercel AI Gateway, Cloudflare AI Gateway, or any OpenAI-compatible proxy) for caching, rate limiting, analytics, and cost reduction.
 
-**Moltworker lessons**: AI Gateway URL rewriting in config generation — `AI_GATEWAY_BASE_URL` maps to `models.providers.anthropic.baseUrl`.
+**OpenClaw integration analysis** (Jan 2026):
+OpenClaw's model system was reviewed in detail. Key findings that shaped this WP:
 
-**Scope**:
-- `AiGatewayConfig` Zod schema (enabled, baseUrl, provider mappings)
-- URL rewriter in config generator (direct API → AI Gateway → direct API fallback)
-- Per-instance toggle (some instances use gateway, others direct)
-- Provider auto-detection from gateway URL suffix
-- Config UI toggle on bot detail page (simple on/off + URL input)
+1. **Gateway-as-provider, NOT URL rewriting**: OpenClaw treats Vercel AI Gateway as a first-class provider (`vercel-ai-gateway`) in `models.providers`, not as a URL rewrite layer. Model references use `vercel-ai-gateway/anthropic/claude-opus-4.5` — the model ID embeds the underlying provider path. The gateway knows which backend to route to from the model ID.
 
-**Files**:
-- Create: `packages/core/src/ai-gateway/config.ts` — `AiGatewayConfigSchema`
-- Create: `packages/core/src/ai-gateway/rewriter.ts` — URL rewriting logic
-- Create: `packages/core/src/ai-gateway/index.ts`
-- Modify: `apps/api/src/reconciler/config-generator.service.ts` — apply AI Gateway rewriting
-- Modify: `packages/core/src/moltbot-config.ts` — add `aiGateway` section
-- Modify: `packages/database/prisma/schema.prisma` — add `aiGatewayEnabled`, `aiGatewayUrl` to BotInstance
-- Create: `apps/web/src/components/moltbot/ai-gateway-toggle.tsx`
-- Create: `packages/core/src/ai-gateway/__tests__/rewriter.test.ts`
+2. **Multi-provider architecture**: OpenClaw supports 6 API protocols (`openai-completions`, `openai-responses`, `anthropic-messages`, `google-generative-ai`, `github-copilot`, `bedrock-converse-stream`). Each provider has `baseUrl`, `apiKey`, `auth` mode, `api` type, `headers`, and `models[]`. The rewriter must preserve this structure.
 
-**Acceptance criteria**:
-- Config generator rewrites `models.providers.anthropic.baseUrl` when AI Gateway enabled
-- Auto-detects provider from gateway URL suffix
-- Fallback to direct API when gateway unreachable (503)
-- UI toggle enables/disables per instance
-- Unit tests for URL rewriting with all provider types
+3. **Missing prerequisite — `models.providers`**: Molthub's `OpenClawConfigSchema` currently has NO `models` section (only `agents.defaults.model` for model selection). A `ModelsConfig` with `providers` record must be added to the config schema BEFORE the gateway provider can be configured. This is the most important prerequisite.
+
+4. **Auth profile system**: OpenClaw stores API keys in `auth-profiles.json` with multiple profiles per provider (api_key, oauth, token modes), profile ordering, and cooldown tracking. Molthub should store the gateway API key in the BotInstance or a dedicated secret store, not just as an env var.
+
+5. **Model fallback chain**: OpenClaw's `model-fallback.ts` tries multiple providers in order. When gateway fails, it falls back to the direct provider. The config generator should set `agents.defaults.model.fallbacks` to include the direct provider as fallback.
+
+6. **Vercel AI Gateway is the primary**: The provider name is `vercel-ai-gateway`, env var is `AI_GATEWAY_API_KEY`, API is `anthropic-messages` compatible. Onboarding: `openclaw onboard --auth-choice ai-gateway-api-key`.
+
+**Scope** (revised):
+1. Add `ModelsConfig` section to `OpenClawConfigSchema` — `models.providers` record matching OpenClaw's `ModelProviderConfig` shape (`baseUrl`, `apiKey`, `auth`, `api`, `headers`, `models[]`)
+2. Add `ModelApiSchema` enum: `openai-completions | openai-responses | anthropic-messages | google-generative-ai | github-copilot | bedrock-converse-stream`
+3. Gateway provider injection in config generator — when AI Gateway is enabled for an instance, inject a `vercel-ai-gateway` (or custom) provider entry into `models.providers` and set `agents.defaults.model.primary` to route through it, with the original direct provider as `fallbacks[0]`
+4. Per-instance toggle (DB fields on BotInstance: `aiGatewayEnabled`, `aiGatewayUrl`, `aiGatewayApiKey`)
+5. Config UI: toggle + URL input + API key input on bot detail page
+6. Pure functions for gateway provider construction + model ref rewriting
+
+**How it works end-to-end**:
+1. User enables AI Gateway for a bot via toggle in Molthub UI
+2. User provides gateway URL (e.g., `https://gateway.vercel.ai/v1/...`) and API key
+3. Config generator runs on deploy/update:
+   - Reads `aiGatewayEnabled`, `aiGatewayUrl`, `aiGatewayApiKey` from BotInstance
+   - If enabled: injects a gateway provider entry into `models.providers` with the gateway's baseUrl and apiKey
+   - Sets `agents.defaults.model.primary` to `<gateway-provider>/<original-provider>/<model-id>`
+   - Sets `agents.defaults.model.fallbacks` to include the original direct model ref
+4. Config is applied to the running bot via Gateway WS `config.apply`
+5. Bot uses gateway for API calls; if gateway fails, fallback chain tries direct provider
+6. Toggle off → config generator omits the gateway provider, reverts model ref to direct
+
+**Files** (revised):
+- Create: `packages/core/src/ai-gateway/config.ts` — `AiGatewayConfigSchema`, `ModelProviderConfigSchema`, `ModelsConfigSchema`, `ModelApiSchema`
+- Create: `packages/core/src/ai-gateway/provider-builder.ts` — `buildGatewayProvider()`, `rewriteModelRef()`, `injectGatewayIntoConfig()`
+- Create: `packages/core/src/ai-gateway/index.ts` — barrel exports
+- Create: `packages/core/src/ai-gateway/__tests__/provider-builder.test.ts` — unit tests
+- Modify: `packages/core/src/openclaw-config.ts` — add `models: ModelsConfigSchema.optional()` to `OpenClawConfigSchema`
+- Modify: `apps/api/src/reconciler/config-generator.service.ts` — call `injectGatewayIntoConfig()` when `aiGatewayEnabled`
+- Modify: `packages/database/prisma/schema.prisma` — add `aiGatewayEnabled Boolean?`, `aiGatewayUrl String?`, `aiGatewayApiKey String?` to BotInstance
+- Create: `apps/web/src/components/openclaw/ai-gateway-toggle.tsx` — toggle + URL + API key inputs
+- Modify: `apps/web/src/lib/api.ts` — add update endpoint for gateway settings
+- Modify: `apps/web/src/app/bots/[id]/bot-detail-client.tsx` — add gateway toggle to Settings tab
+
+**Acceptance criteria** (revised):
+- `OpenClawConfigSchema` includes `models.providers` record with full `ModelProviderConfig` shape
+- Config generator injects gateway provider when `aiGatewayEnabled=true` and sets model ref + fallbacks
+- Config generator omits gateway when disabled — direct model ref only
+- Model ref format: `<gateway-provider>/<underlying-provider>/<model-id>` matches OpenClaw convention
+- Fallback chain: gateway → direct provider (via `agents.defaults.model.fallbacks`)
+- UI toggle persists `aiGatewayEnabled`, `aiGatewayUrl`, `aiGatewayApiKey` to BotInstance
+- Unit tests: gateway injection, model ref rewriting, fallback construction, disabled state
+- API key stored securely (not in config JSON — passed via BotInstance DB fields)
 
 ---
 
@@ -660,7 +754,7 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 
 **Dependencies**: WP1.8 (Real channel auth) — COMPLETE
 
-**Goal**: Admin UI for managing Moltbot device pairings — approve pending, list active, revoke. This is the OpenClaw-native way to manage DM access (Principle #10).
+**Goal**: Admin UI for managing OpenClaw device pairings — approve pending, list active, revoke. This is the OpenClaw-native way to manage DM access (Principle #10).
 
 **Moltworker lessons**: Device pairing admin page (list pending → approve/reject → poll), batch approve-all.
 
@@ -716,9 +810,9 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 - Create: `apps/api/src/agent-evolution/agent-evolution.module.ts`
 - Create: `apps/api/src/agent-evolution/agent-evolution.scheduler.ts` — periodic sync (every 2min)
 - Modify: `packages/database/prisma/schema.prisma` — add `AgentStateSnapshot` model (liveConfig JSON, liveSkills, liveMcpServers, capturedAt, diffFromDeployed JSON)
-- Create: `apps/web/src/components/moltbot/evolution-banner.tsx` — "Agent has evolved" banner
-- Create: `apps/web/src/components/moltbot/live-skills.tsx` — live skills display (Gateway-sourced)
-- Create: `apps/web/src/components/moltbot/evolution-diff.tsx` — side-by-side deployed vs current
+- Create: `apps/web/src/components/openclaw/evolution-banner.tsx` — "Agent has evolved" banner
+- Create: `apps/web/src/components/openclaw/live-skills.tsx` — live skills display (Gateway-sourced)
+- Create: `apps/web/src/components/openclaw/evolution-diff.tsx` — side-by-side deployed vs current
 - Modify: `apps/web/src/app/bots/[id]/bot-detail-client.tsx` — add evolution banner + live state
 - Modify: `apps/web/src/components/dashboard/single-bot-dashboard.tsx` — show evolution indicator
 - Modify: `apps/api/src/app.module.ts` — register AgentEvolutionModule
@@ -739,11 +833,11 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 
 **Dependencies**: WP1.1 (CF Workers), WP1.2 (State sync) — COMPLETE
 
-**Goal**: Verify all deployment targets work end-to-end — provision real Moltbot, check health, tear down.
+**Goal**: Verify all deployment targets work end-to-end — provision real OpenClaw, check health, tear down.
 
 **Scope**:
 - Docker target: start container, wait for Gateway, check health, destroy
-- Local target: install via `moltbot gateway install`, start, check health, stop
+- Local target: install via `openclaw gateway install`, start, check health, stop
 - Kubernetes target: apply manifests to kind cluster, wait for pod, check health, delete
 - ECS Fargate target: task definition + service, wait, check health, delete (requires AWS)
 - Cloudflare Workers target: `wrangler deploy`, wait, check health, `wrangler delete` (requires CF)
@@ -760,7 +854,7 @@ Phase 3 (start when Phase 2 deps ready):                ▼
 - Create: `packages/cloud-providers/jest.integration.config.ts`
 
 **Acceptance criteria**:
-- Each test provisions real Moltbot instance
+- Each test provisions real OpenClaw instance
 - Waits for Gateway health check (up to 3min)
 - Verifies `config.get` returns expected config
 - Tears down cleanly (no orphaned resources)
@@ -859,7 +953,7 @@ After all WPs complete:
 
 **Dependencies**: WP1.3 (Real WebSocket), WP2.1 (AI Gateway)
 
-**Goal**: Enable Moltbots to communicate with each other through Molthub — rule-governed, auditable, hierarchical.
+**Goal**: Enable OpenClaws to communicate with each other through Molthub — rule-governed, auditable, hierarchical.
 
 **Scope**:
 - `InterBotMessage` model (sender, recipient, content, status, parentMessageId)
@@ -957,7 +1051,7 @@ After all WPs complete:
 - Create: `apps/api/src/queue/queue.module.ts`
 - Create: `apps/api/src/queue/provisioning.processor.ts`
 - Create: `apps/api/src/queue/state-sync.processor.ts`
-- Modify: `apps/api/src/health/moltbot-health.service.ts` — cache health snapshots
+- Modify: `apps/api/src/health/openclaw-health.service.ts` — cache health snapshots
 - Modify: `apps/api/src/bot-instances/bot-instances.service.ts` — pagination + cache
 - Modify: `apps/api/src/audit/audit.service.ts` — cursor-based pagination
 - Modify: `packages/database/prisma/schema.prisma` — add indexes for common queries
@@ -1055,7 +1149,7 @@ After all WPs complete:
 | R2/S3 state sync with timestamp validation | Universal state persistence for all targets | WP1.2 |
 | Cloudflare Workers deployment | New deployment target type | WP1.1 |
 | Config generation from env vars | CF Workers config generator | WP1.1 |
-| AI Gateway URL rewriting | AI Gateway abstraction layer | WP2.1 |
+| AI Gateway provider injection | AI Gateway abstraction layer | WP2.1 |
 | WebSocket message interception | Gateway client interceptors | WP1.4 |
 | Loading page during cold start | Provisioning progress UX | WP1.6 |
 | Device pairing admin UI | Device pairing management | WP2.2 |
@@ -1097,7 +1191,7 @@ After all WPs complete:
 2. `pnpm test` — all unit tests pass (80%+ coverage)
 3. `pnpm test:e2e` — all Playwright E2E tests pass
 4. `pnpm test:integration` — deployment target integration tests pass (Docker at minimum)
-5. Create bot via wizard → template generates valid moltbot.json
+5. Create bot via wizard → template generates valid openclaw.json
 6. Deploy to Docker target → Gateway health check passes
 7. Channel auth (simulated) → QR pairing flow completes
 8. Health dashboard shows real Gateway data

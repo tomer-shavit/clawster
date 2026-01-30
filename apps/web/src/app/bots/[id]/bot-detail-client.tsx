@@ -17,22 +17,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { GatewayStatus, type GatewayStatusData } from "@/components/moltbot/gateway-status";
-import { HealthSnapshot, type HealthSnapshotData } from "@/components/moltbot/health-snapshot";
-import { ChannelStatusList, type ChannelStatusData } from "@/components/moltbot/channel-status";
-import { ConfigEditor } from "@/components/moltbot/config-editor";
-import { LogViewer, type LogEntry } from "@/components/moltbot/log-viewer";
-import { QrPairing, type PairingState } from "@/components/moltbot/qr-pairing";
-import { SkillSelector, type SkillItem } from "@/components/moltbot/skill-selector";
-import { SandboxConfig as SandboxConfigComponent, type SandboxConfigData } from "@/components/moltbot/sandbox-config";
+import { GatewayStatus, type GatewayStatusData } from "@/components/openclaw/gateway-status";
+import { HealthSnapshot, type HealthSnapshotData } from "@/components/openclaw/health-snapshot";
+import { ChannelStatusList, type ChannelStatusData } from "@/components/openclaw/channel-status";
+import { ConfigEditor } from "@/components/openclaw/config-editor";
+import { LogViewer, type LogEntry } from "@/components/openclaw/log-viewer";
+import { QrPairing, type PairingState } from "@/components/openclaw/qr-pairing";
+import { SkillSelector, type SkillItem } from "@/components/openclaw/skill-selector";
+import { SandboxConfig as SandboxConfigComponent, type SandboxConfigData } from "@/components/openclaw/sandbox-config";
 import { cn } from "@/lib/utils";
 import { ContextualSuggestions } from "@/components/bots/contextual-suggestions";
 import { JustDeployedBanner } from "@/components/dashboard/just-deployed-banner";
-import { EvolutionBanner, type EvolutionBannerData } from "@/components/moltbot/evolution-banner";
-import { LiveSkills } from "@/components/moltbot/live-skills";
-import { EvolutionDiff } from "@/components/moltbot/evolution-diff";
+import { EvolutionBanner, type EvolutionBannerData } from "@/components/openclaw/evolution-banner";
+import { LiveSkills } from "@/components/openclaw/live-skills";
+import { EvolutionDiff } from "@/components/openclaw/evolution-diff";
 import { api, type BotInstance, type Trace, type TraceStats, type ChangeSet, type DeploymentEvent, type AgentEvolutionSnapshot } from "@/lib/api";
-import { AiGatewayToggle } from "@/components/moltbot/ai-gateway-toggle";
+import { AiGatewayToggle } from "@/components/openclaw/ai-gateway-toggle";
 import { PairingTab } from "@/components/pairing/pairing-tab";
 import Link from "next/link";
 import {
@@ -135,8 +135,8 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
   // Build channel status from desiredManifest
   const manifest = bot.desiredManifest;
   const spec = (manifest?.spec as Record<string, unknown>) || manifest;
-  const moltbotConfig = (spec?.moltbotConfig as Record<string, unknown>) || spec;
-  const channelsConfig = (moltbotConfig?.channels as Record<string, unknown>) || {};
+  const openclawConfig = (spec?.openclawConfig as Record<string, unknown>) || spec;
+  const channelsConfig = (openclawConfig?.channels as Record<string, unknown>) || {};
 
   const channels: ChannelStatusData[] = Object.entries(channelsConfig).map(([type, config]) => {
     const channelConf = config as Record<string, unknown>;
@@ -151,7 +151,7 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
   });
 
   // Build skills list
-  const skillsConfig = (moltbotConfig?.skills as Record<string, unknown>) || {};
+  const skillsConfig = (openclawConfig?.skills as Record<string, unknown>) || {};
   const skillEntries = (skillsConfig?.entries as Record<string, Record<string, unknown>>) || {};
   const bundledSkills = (skillsConfig?.allowBundled as string[]) || [];
 
@@ -172,7 +172,7 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
   ];
 
   // Build sandbox config
-  const sandboxConf = (moltbotConfig?.sandbox as Record<string, unknown>) || {};
+  const sandboxConf = (openclawConfig?.sandbox as Record<string, unknown>) || {};
   const sandboxData: SandboxConfigData = {
     mode: (sandboxConf?.mode as SandboxConfigData["mode"]) || "off",
     scope: (sandboxConf?.scope as SandboxConfigData["scope"]) || undefined,
@@ -267,8 +267,8 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
               <StatusBadge status={bot.status} />
             </div>
             <p className="text-muted-foreground mt-1">
-              Moltbot instance
-              {bot.moltbotVersion && <> &middot; v{bot.moltbotVersion}</>}
+              OpenClaw instance
+              {bot.openclawVersion && <> &middot; v{bot.openclawVersion}</>}
               {bot.profileName && <> &middot; {bot.profileName}</>}
               {bot.deploymentType && <> &middot; {bot.deploymentType}</>}
               {" "}&middot; {bot.id.slice(0, 8)}
@@ -432,7 +432,7 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Version</span>
-                    <span className="font-mono text-xs">{bot.moltbotVersion || "unknown"}</span>
+                    <span className="font-mono text-xs">{bot.openclawVersion || "unknown"}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Profile</span>
@@ -706,8 +706,8 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
         {/* Evolution Tab */}
         <TabsContent active={activeTab === "evolution"} className="mt-6">
           <EvolutionDiff
-            deployedConfig={moltbotConfig as Record<string, unknown>}
-            liveConfig={evolution?.diff?.changes ? moltbotConfig as Record<string, unknown> : {}}
+            deployedConfig={openclawConfig as Record<string, unknown>}
+            liveConfig={evolution?.diff?.changes ? openclawConfig as Record<string, unknown> : {}}
             changes={(evolution?.diff?.changes || []) as Array<{ category: string; field: string; changeType: "added" | "removed" | "modified"; deployedValue?: unknown; liveValue?: unknown }>}
           />
         </TabsContent>

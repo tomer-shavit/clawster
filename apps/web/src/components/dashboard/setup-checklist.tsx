@@ -36,7 +36,7 @@ export function SetupChecklist() {
         const anyChannels = bots.some((bot) => {
           const manifest = bot.desiredManifest as Record<string, unknown> | null;
           const spec = (manifest?.spec as Record<string, unknown>) || manifest;
-          const config = (spec?.moltbotConfig as Record<string, unknown>) || spec;
+          const config = (spec?.openclawConfig as Record<string, unknown>) || spec;
           const channels = (config?.channels as Record<string, unknown>) || {};
           return Object.keys(channels).length > 0;
         });

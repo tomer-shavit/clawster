@@ -73,7 +73,7 @@ export default async function CreateInstancePage() {
           ← Back to instances
         </Link>
         <h1 className="text-3xl font-bold">Create Instance</h1>
-        <p className="text-gray-600 mt-2">Configure your new Moltbot instance</p>
+        <p className="text-gray-600 mt-2">Configure your new OpenClaw instance</p>
       </header>
 
       <form action={createInstance} className="space-y-6">

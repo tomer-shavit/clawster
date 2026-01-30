@@ -6,7 +6,7 @@ import {
   BotHealth,
   GatewayConnectionStatus,
 } from "@molthub/database";
-import type { MoltbotManifest } from "@molthub/core";
+import type { OpenClawManifest } from "@molthub/core";
 import { GatewayManager } from "@molthub/gateway-client";
 import type { GatewayConnectionOptions } from "@molthub/gateway-client";
 import { ConfigGeneratorService } from "./config-generator.service";
@@ -37,7 +37,7 @@ export interface DriftCheckResult {
 
 /**
  * DriftDetectionService (v2) — detects configuration drift and health
- * issues by communicating with the Moltbot Gateway over WebSocket rather
+ * issues by communicating with the OpenClaw Gateway over WebSocket rather
  * than inspecting ECS task counts.
  *
  * Drift sources:
@@ -62,12 +62,12 @@ export class DriftDetectionService {
 
   async checkDrift(
     instance: BotInstance,
-    manifest: MoltbotManifest,
+    manifest: OpenClawManifest,
   ): Promise<DriftCheckResult> {
     const findings: DriftFinding[] = [];
 
     // Generate desired config hash
-    const desiredConfig = this.configGenerator.generateMoltbotConfig(manifest);
+    const desiredConfig = this.configGenerator.generateOpenClawConfig(manifest);
     const desiredHash = this.configGenerator.generateConfigHash(desiredConfig);
 
     // Check: stored hash already mismatches
@@ -187,9 +187,9 @@ export class DriftDetectionService {
 
     for (const instance of instances) {
       // Parse the desired manifest from the JSON field
-      let manifest: MoltbotManifest;
+      let manifest: OpenClawManifest;
       try {
-        manifest = instance.desiredManifest as unknown as MoltbotManifest;
+        manifest = instance.desiredManifest as unknown as OpenClawManifest;
         if (!manifest?.apiVersion) {
           this.logger.debug(`Skipping ${instance.id}: no valid v2 manifest`);
           continue;

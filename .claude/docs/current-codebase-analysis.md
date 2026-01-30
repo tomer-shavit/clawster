@@ -86,7 +86,7 @@ CORS → ValidationPipe → JwtAuthGuard (if protected) → Controller → Servi
 
 ## Core Package — Zod Schemas + PolicyEngine
 
-- `InstanceManifestSchema`: apiVersion "molthub/v1", kind "MoltbotInstance", metadata + spec (runtime with CPU/memory/replicas, secrets, channels, skills, network, observability, policies)
+- `InstanceManifestSchema`: apiVersion "molthub/v1", kind "OpenClawInstance", metadata + spec (runtime with CPU/memory/replicas, secrets, channels, skills, network, observability, policies)
 - `PolicyEngine` (legacy): Hardcoded checks — forbid public admin, require Secrets Manager, block :latest tags
 - `PolicyPack` (new): 20+ rule types, 2 built-in packs (security-baseline, production-guardrails)
 - Template/Profile/Overlay: deepMerge with per-field strategies
@@ -132,13 +132,13 @@ Commands: init/bootstrap, status, doctor, auth (create-user/login/list/delete), 
 
 ## What Conflicts With Vision (needs replacing)
 
-1. **Manifest schema** — Models CPU/memory/ECS, not Moltbot config
+1. **Manifest schema** — Models CPU/memory/ECS, not OpenClaw config
 2. **Reconciler** — ECS-level only, no Gateway WS integration
-3. **Health checks** — ECS task counts, not Moltbot health/status/doctor
-4. **Templates** — Generic container specs, not Moltbot configs
-5. **Channels** — Generic channel store, no Moltbot channel config generation or auth flows
-6. **Policy rules** — Cloud/infra rules, not Moltbot security model
+3. **Health checks** — ECS task counts, not OpenClaw health/status/doctor
+4. **Templates** — Generic container specs, not OpenClaw configs
+5. **Channels** — Generic channel store, no OpenClaw channel config generation or auth flows
+6. **Policy rules** — Cloud/infra rules, not OpenClaw security model
 7. **RBAC** — Roles defined but not enforced at endpoint level
-8. **No Gateway integration** — No WebSocket client for Moltbot control
+8. **No Gateway integration** — No WebSocket client for OpenClaw control
 9. **No deployment targets** — No local/VM/systemd/launchd support
-10. **No Moltbot diagnostics** — No doctor/status/health wrapping
+10. **No OpenClaw diagnostics** — No doctor/status/health wrapping

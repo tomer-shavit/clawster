@@ -19,15 +19,15 @@ jest.mock("@molthub/gateway-client", () => ({
   })),
 }));
 
-function createManifest(moltbotConfig: Record<string, unknown> = {}) {
+function createManifest(openclawConfig: Record<string, unknown> = {}) {
   return {
     apiVersion: "molthub/v2",
     metadata: { name: "test-bot", environment: "dev" },
     spec: {
-      moltbotConfig: {
+      openclawConfig: {
         gateway: { port: 18789, host: "127.0.0.1", auth: { token: "fixed-token-for-test" } },
         logging: { level: "debug", redactSensitive: "tools" },
-        ...moltbotConfig,
+        ...openclawConfig,
       },
     },
   } as any;
@@ -54,7 +54,7 @@ describe("DriftDetectionService", () => {
   describe("no drift scenario", () => {
     it("returns hasDrift=false when everything matches", async () => {
       const manifest = createManifest();
-      const desiredConfig = configGenerator.generateMoltbotConfig(manifest);
+      const desiredConfig = configGenerator.generateOpenClawConfig(manifest);
       const desiredHash = configGenerator.generateConfigHash(desiredConfig);
 
       mockGatewayClient.configGet.mockResolvedValue({ hash: desiredHash });
@@ -71,7 +71,7 @@ describe("DriftDetectionService", () => {
   describe("config hash mismatch", () => {
     it("detects stored configHash mismatch", async () => {
       const manifest = createManifest();
-      const desiredConfig = configGenerator.generateMoltbotConfig(manifest);
+      const desiredConfig = configGenerator.generateOpenClawConfig(manifest);
       const desiredHash = configGenerator.generateConfigHash(desiredConfig);
 
       mockGatewayClient.configGet.mockResolvedValue({ hash: desiredHash });
@@ -112,7 +112,7 @@ describe("DriftDetectionService", () => {
   describe("gateway unhealthy", () => {
     it("adds CRITICAL finding when health.ok is false", async () => {
       const manifest = createManifest();
-      const desiredConfig = configGenerator.generateMoltbotConfig(manifest);
+      const desiredConfig = configGenerator.generateOpenClawConfig(manifest);
       const desiredHash = configGenerator.generateConfigHash(desiredConfig);
 
       mockGatewayClient.configGet.mockResolvedValue({ hash: desiredHash });
@@ -128,7 +128,7 @@ describe("DriftDetectionService", () => {
   describe("status mismatch", () => {
     it("adds CRITICAL finding when state is not running", async () => {
       const manifest = createManifest();
-      const desiredConfig = configGenerator.generateMoltbotConfig(manifest);
+      const desiredConfig = configGenerator.generateOpenClawConfig(manifest);
       const desiredHash = configGenerator.generateConfigHash(desiredConfig);
 
       mockGatewayClient.configGet.mockResolvedValue({ hash: desiredHash });
@@ -145,7 +145,7 @@ describe("DriftDetectionService", () => {
   describe("result shape", () => {
     it("always returns expected properties", async () => {
       const manifest = createManifest();
-      const desiredConfig = configGenerator.generateMoltbotConfig(manifest);
+      const desiredConfig = configGenerator.generateOpenClawConfig(manifest);
       const desiredHash = configGenerator.generateConfigHash(desiredConfig);
 
       mockGatewayClient.configGet.mockResolvedValue({ hash: desiredHash });

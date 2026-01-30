@@ -14,8 +14,8 @@ import {
 import { Type } from "class-transformer";
 import { ChannelType, ChannelStatus } from "@molthub/database";
 import {
-  MOLTBOT_CHANNEL_TYPES,
-  MoltbotChannelType,
+  OPENCLAW_CHANNEL_TYPES,
+  OpenClawChannelType,
   DM_POLICIES,
   GROUP_POLICIES,
   DmPolicy,
@@ -69,8 +69,8 @@ export class CreateChannelDto {
   @MaxLength(255)
   workspaceId: string;
 
-  @IsIn([...MOLTBOT_CHANNEL_TYPES])
-  moltbotType: MoltbotChannelType;
+  @IsIn([...OPENCLAW_CHANNEL_TYPES])
+  openclawType: OpenClawChannelType;
 
   @IsEnum(ChannelType)
   @IsOptional()
@@ -149,9 +149,9 @@ export class ListChannelsQueryDto {
   @IsString()
   workspaceId: string;
 
-  @IsIn([...MOLTBOT_CHANNEL_TYPES])
+  @IsIn([...OPENCLAW_CHANNEL_TYPES])
   @IsOptional()
-  moltbotType?: MoltbotChannelType;
+  openclawType?: OpenClawChannelType;
 
   @IsEnum(ChannelType)
   @IsOptional()
@@ -184,7 +184,7 @@ export class ValidateTokenDto {
 export class AuthStatusResponseDto {
   state: string;
   channelId: string;
-  moltbotType: string;
+  openclawType: string;
   qrCode?: string;
   qrExpiresAt?: string;
   pairingUrl?: string;

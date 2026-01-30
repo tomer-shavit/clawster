@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// GatewayClient — WebSocket client for the Moltbot Gateway protocol
+// GatewayClient — WebSocket client for the OpenClaw Gateway protocol
 // ---------------------------------------------------------------------------
 
 import { EventEmitter } from "events";

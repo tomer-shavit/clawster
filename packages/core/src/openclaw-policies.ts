@@ -3,8 +3,8 @@ import {
   PolicyViolation,
 } from "./policy-pack";
 
-// ── Moltbot config shape (used for evaluation) ─────────────────────────
-export interface MoltbotConfig {
+// ── OpenClaw config shape (used for evaluation) ─────────────────────────
+export interface OpenClawConfig {
   gateway?: {
     port?: number;
     host?: string;
@@ -67,7 +67,7 @@ export interface MoltbotConfig {
 }
 
 // ── Evaluation context ──────────────────────────────────────────────────
-export interface MoltbotEvaluationContext {
+export interface OpenClawEvaluationContext {
   environment: "dev" | "staging" | "prod";
   /** Other instances used for cross-instance checks */
   otherInstances?: Array<{
@@ -78,22 +78,22 @@ export interface MoltbotEvaluationContext {
 }
 
 // ── Rule evaluation result ──────────────────────────────────────────────
-export interface MoltbotRuleResult {
+export interface OpenClawRuleResult {
   passed: boolean;
   violation?: PolicyViolation;
 }
 
-// ── Built-in Moltbot Policy Packs ───────────────────────────────────────
+// ── Built-in OpenClaw Policy Packs ───────────────────────────────────────
 
-export const MOLTBOT_SECURITY_BASELINE: PolicyPack = {
-  id: "builtin-moltbot-security-baseline",
-  name: "Moltbot Security Baseline",
-  description: "Essential security policies for all Moltbot instances",
+export const OPENCLAW_SECURITY_BASELINE: PolicyPack = {
+  id: "builtin-openclaw-security-baseline",
+  name: "OpenClaw Security Baseline",
+  description: "Essential security policies for all OpenClaw instances",
   isBuiltin: true,
   autoApply: true,
   rules: [
     {
-      id: "moltbot-require-gateway-auth",
+      id: "openclaw-require-gateway-auth",
       name: "Require Gateway Authentication",
       description: "Gateway must have token or password authentication configured",
       type: "require_gateway_auth",
@@ -107,7 +107,7 @@ export const MOLTBOT_SECURITY_BASELINE: PolicyPack = {
       },
     },
     {
-      id: "moltbot-require-dm-policy",
+      id: "openclaw-require-dm-policy",
       name: "Require DM Policy",
       description: "DM policy must not be 'open' for security",
       type: "require_dm_policy",
@@ -121,7 +121,7 @@ export const MOLTBOT_SECURITY_BASELINE: PolicyPack = {
       },
     },
     {
-      id: "moltbot-forbid-elevated-tools",
+      id: "openclaw-forbid-elevated-tools",
       name: "Restrict Elevated Tools",
       description: "Elevated tools must have allowFrom restrictions",
       type: "forbid_elevated_tools",
@@ -135,7 +135,7 @@ export const MOLTBOT_SECURITY_BASELINE: PolicyPack = {
       },
     },
     {
-      id: "moltbot-require-workspace-isolation",
+      id: "openclaw-require-workspace-isolation",
       name: "Require Workspace Isolation",
       description: "Each instance must have a unique workspace directory",
       type: "require_workspace_isolation",
@@ -149,7 +149,7 @@ export const MOLTBOT_SECURITY_BASELINE: PolicyPack = {
       },
     },
     {
-      id: "moltbot-forbid-dangerous-tools",
+      id: "openclaw-forbid-dangerous-tools",
       name: "Forbid Dangerous Tools",
       description: "Password managers and credential stores must not be explicitly allowed",
       type: "forbid_dangerous_tools",
@@ -163,7 +163,7 @@ export const MOLTBOT_SECURITY_BASELINE: PolicyPack = {
       },
     },
     {
-      id: "moltbot-require-gateway-host-binding",
+      id: "openclaw-require-gateway-host-binding",
       name: "Require Gateway Host Binding",
       description: "Gateway must not bind to 0.0.0.0",
       type: "require_gateway_host_binding",
@@ -177,7 +177,7 @@ export const MOLTBOT_SECURITY_BASELINE: PolicyPack = {
       },
     },
     {
-      id: "moltbot-require-sandbox-security-options",
+      id: "openclaw-require-sandbox-security-options",
       name: "Require Sandbox Security Options",
       description: "Docker sandbox must have hardened security options when enabled",
       type: "require_sandbox_security_options",
@@ -191,7 +191,7 @@ export const MOLTBOT_SECURITY_BASELINE: PolicyPack = {
       },
     },
     {
-      id: "moltbot-require-channel-allowlist",
+      id: "openclaw-require-channel-allowlist",
       name: "Require Channel Allowlist",
       description: "All channels must use allowlist or pairing-based access control",
       type: "require_channel_allowlist",
@@ -211,16 +211,16 @@ export const MOLTBOT_SECURITY_BASELINE: PolicyPack = {
   createdBy: "system",
 };
 
-export const MOLTBOT_PRODUCTION_HARDENING: PolicyPack = {
-  id: "builtin-moltbot-production-hardening",
-  name: "Moltbot Production Hardening",
-  description: "Production-specific security hardening for Moltbot instances",
+export const OPENCLAW_PRODUCTION_HARDENING: PolicyPack = {
+  id: "builtin-openclaw-production-hardening",
+  name: "OpenClaw Production Hardening",
+  description: "Production-specific security hardening for OpenClaw instances",
   isBuiltin: true,
   autoApply: true,
   targetEnvironments: ["prod"],
   rules: [
     {
-      id: "moltbot-require-sandbox",
+      id: "openclaw-require-sandbox",
       name: "Require Docker Sandbox",
       description: "Docker sandbox must be enabled in production",
       type: "require_sandbox",
@@ -236,7 +236,7 @@ export const MOLTBOT_PRODUCTION_HARDENING: PolicyPack = {
       },
     },
     {
-      id: "moltbot-limit-tool-profile",
+      id: "openclaw-limit-tool-profile",
       name: "Limit Tool Profile",
       description: "'full' tool profile is not allowed in production",
       type: "limit_tool_profile",
@@ -251,7 +251,7 @@ export const MOLTBOT_PRODUCTION_HARDENING: PolicyPack = {
       },
     },
     {
-      id: "moltbot-require-model-guardrails",
+      id: "openclaw-require-model-guardrails",
       name: "Require Model Guardrails",
       description: "Model configuration must meet production standards",
       type: "require_model_guardrails",
@@ -269,7 +269,7 @@ export const MOLTBOT_PRODUCTION_HARDENING: PolicyPack = {
       },
     },
     {
-      id: "moltbot-forbid-open-group-policy",
+      id: "openclaw-forbid-open-group-policy",
       name: "Forbid Open Group Policy",
       description: "Group policy must not be 'open' in production",
       type: "forbid_open_group_policy",
@@ -284,7 +284,7 @@ export const MOLTBOT_PRODUCTION_HARDENING: PolicyPack = {
       },
     },
     {
-      id: "moltbot-require-skill-verification",
+      id: "openclaw-require-skill-verification",
       name: "Require Skill Verification",
       description: "Non-bundled skills must have integrity hashes in production",
       type: "require_skill_verification",
@@ -299,7 +299,7 @@ export const MOLTBOT_PRODUCTION_HARDENING: PolicyPack = {
       },
     },
     {
-      id: "moltbot-require-token-rotation",
+      id: "openclaw-require-token-rotation",
       name: "Require Token Rotation Policy",
       description: "Token rotation must be configured in production",
       type: "require_token_rotation",
@@ -320,15 +320,15 @@ export const MOLTBOT_PRODUCTION_HARDENING: PolicyPack = {
   createdBy: "system",
 };
 
-export const MOLTBOT_CHANNEL_SAFETY: PolicyPack = {
-  id: "builtin-moltbot-channel-safety",
-  name: "Moltbot Channel Safety",
-  description: "Channel-level safety policies for Moltbot instances",
+export const OPENCLAW_CHANNEL_SAFETY: PolicyPack = {
+  id: "builtin-openclaw-channel-safety",
+  name: "OpenClaw Channel Safety",
+  description: "Channel-level safety policies for OpenClaw instances",
   isBuiltin: true,
   autoApply: true,
   rules: [
     {
-      id: "moltbot-channel-dm-policy",
+      id: "openclaw-channel-dm-policy",
       name: "Channel DM Policy",
       description: "DM policy in production must be 'pairing' or 'allowlist'",
       type: "require_dm_policy",
@@ -343,7 +343,7 @@ export const MOLTBOT_CHANNEL_SAFETY: PolicyPack = {
       },
     },
     {
-      id: "moltbot-require-port-spacing",
+      id: "openclaw-require-port-spacing",
       name: "Require Port Spacing",
       description: "Gateway ports must have at least 20 port gap between instances",
       type: "require_port_spacing",
@@ -366,18 +366,18 @@ export const MOLTBOT_CHANNEL_SAFETY: PolicyPack = {
   createdBy: "system",
 };
 
-export const BUILTIN_MOLTBOT_POLICY_PACKS: PolicyPack[] = [
-  MOLTBOT_SECURITY_BASELINE,
-  MOLTBOT_PRODUCTION_HARDENING,
-  MOLTBOT_CHANNEL_SAFETY,
+export const BUILTIN_OPENCLAW_POLICY_PACKS: PolicyPack[] = [
+  OPENCLAW_SECURITY_BASELINE,
+  OPENCLAW_PRODUCTION_HARDENING,
+  OPENCLAW_CHANNEL_SAFETY,
 ];
 
 // ── Evaluation functions ────────────────────────────────────────────────
 
 export function evaluateRequireGatewayAuth(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { enabled?: boolean; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   if (ruleConfig.enabled === false) {
     return { passed: true };
   }
@@ -403,9 +403,9 @@ export function evaluateRequireGatewayAuth(
 }
 
 export function evaluateRequireDmPolicy(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { forbiddenValues?: string[]; allowedValues?: string[]; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   const forbidden = ruleConfig.forbiddenValues || ["open"];
   const allowed = ruleConfig.allowedValues;
   const channels = config.channels || [];
@@ -449,9 +449,9 @@ export function evaluateRequireDmPolicy(
 }
 
 export function evaluateRequireConfigPermissions(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { configFileMode?: string; stateDirMode?: string; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   const expectedConfigMode = ruleConfig.configFileMode || "600";
   const expectedStateDirMode = ruleConfig.stateDirMode || "700";
 
@@ -492,9 +492,9 @@ export function evaluateRequireConfigPermissions(
 }
 
 export function evaluateForbidDangerousTools(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { enabled?: boolean; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   if (ruleConfig.enabled === false) {
     return { passed: true };
   }
@@ -534,9 +534,9 @@ export function evaluateForbidDangerousTools(
 }
 
 export function evaluateForbidElevatedTools(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { enabled?: boolean; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   if (ruleConfig.enabled === false) {
     return { passed: true };
   }
@@ -560,9 +560,9 @@ export function evaluateForbidElevatedTools(
 }
 
 export function evaluateRequireSandbox(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { enabled?: boolean; allowedModes?: string[]; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   if (ruleConfig.enabled === false) {
     return { passed: true };
   }
@@ -604,9 +604,9 @@ export function evaluateRequireSandbox(
 }
 
 export function evaluateLimitToolProfile(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { forbiddenProfiles?: string[]; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   const forbidden = ruleConfig.forbiddenProfiles || ["full"];
   const profile = config.tools?.profile;
 
@@ -629,7 +629,7 @@ export function evaluateLimitToolProfile(
 }
 
 export function evaluateRequireModelGuardrails(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: {
     enabled?: boolean;
     requireMaxTokens?: boolean;
@@ -637,7 +637,7 @@ export function evaluateRequireModelGuardrails(
     maxTemperature?: number;
     message?: string;
   },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   if (ruleConfig.enabled === false) {
     return { passed: true };
   }
@@ -678,10 +678,10 @@ export function evaluateRequireModelGuardrails(
 }
 
 export function evaluateRequireWorkspaceIsolation(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { enabled?: boolean; message?: string },
-  context?: MoltbotEvaluationContext,
-): MoltbotRuleResult {
+  context?: OpenClawEvaluationContext,
+): OpenClawRuleResult {
   if (ruleConfig.enabled === false) {
     return { passed: true };
   }
@@ -723,10 +723,10 @@ export function evaluateRequireWorkspaceIsolation(
 }
 
 export function evaluateRequirePortSpacing(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { minimumGap?: number; message?: string },
-  context?: MoltbotEvaluationContext,
-): MoltbotRuleResult {
+  context?: OpenClawEvaluationContext,
+): OpenClawRuleResult {
   const minimumGap = ruleConfig.minimumGap ?? 20;
   const port = config.gateway?.port;
 
@@ -756,9 +756,9 @@ export function evaluateRequirePortSpacing(
 }
 
 export function evaluateForbidOpenGroupPolicy(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { forbiddenValues?: string[]; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   const forbidden = ruleConfig.forbiddenValues || ["open"];
   const channels = config.channels || [];
 
@@ -786,9 +786,9 @@ export function evaluateForbidOpenGroupPolicy(
 }
 
 export function evaluateRequireChannelAllowlist(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { enabled?: boolean; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   if (ruleConfig.enabled === false) {
     return { passed: true };
   }
@@ -833,9 +833,9 @@ export function evaluateRequireChannelAllowlist(
 }
 
 export function evaluateRequireTokenRotation(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { enabled?: boolean; maxAgeDays?: number; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   if (ruleConfig.enabled === false) {
     return { passed: true };
   }
@@ -862,9 +862,9 @@ export function evaluateRequireTokenRotation(
 }
 
 export function evaluateRequireSkillVerification(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { enabled?: boolean; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   if (ruleConfig.enabled === false) {
     return { passed: true };
   }
@@ -902,9 +902,9 @@ export function evaluateRequireSkillVerification(
 }
 
 export function evaluateRequireGatewayHostBinding(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { enabled?: boolean; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   if (ruleConfig.enabled === false) {
     return { passed: true };
   }
@@ -928,9 +928,9 @@ export function evaluateRequireGatewayHostBinding(
 }
 
 export function evaluateRequireSandboxSecurityOptions(
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: { enabled?: boolean; message?: string },
-): MoltbotRuleResult {
+): OpenClawRuleResult {
   if (ruleConfig.enabled === false) {
     return { passed: true };
   }
@@ -972,12 +972,12 @@ export function evaluateRequireSandboxSecurityOptions(
 
 // ── Main evaluation dispatcher ──────────────────────────────────────────
 
-export function evaluateMoltbotRule(
+export function evaluateOpenClawRule(
   ruleType: string,
-  config: MoltbotConfig,
+  config: OpenClawConfig,
   ruleConfig: Record<string, unknown>,
-  context?: MoltbotEvaluationContext,
-): MoltbotRuleResult {
+  context?: OpenClawEvaluationContext,
+): OpenClawRuleResult {
   const rc = ruleConfig as Record<string, unknown>;
   switch (ruleType) {
     case "require_gateway_auth":
@@ -1019,7 +1019,7 @@ export function evaluateMoltbotRule(
 
 // ── Full pack evaluation ────────────────────────────────────────────────
 
-export interface MoltbotPolicyEvaluationResult {
+export interface OpenClawPolicyEvaluationResult {
   packId: string;
   packName: string;
   instanceId: string;
@@ -1029,12 +1029,12 @@ export interface MoltbotPolicyEvaluationResult {
   evaluatedAt: Date;
 }
 
-export function evaluateMoltbotPolicyPack(
+export function evaluateOpenClawPolicyPack(
   pack: PolicyPack,
   instanceId: string,
-  config: MoltbotConfig,
-  context?: MoltbotEvaluationContext,
-): MoltbotPolicyEvaluationResult {
+  config: OpenClawConfig,
+  context?: OpenClawEvaluationContext,
+): OpenClawPolicyEvaluationResult {
   const violations: PolicyViolation[] = [];
   const warnings: PolicyViolation[] = [];
 
@@ -1048,7 +1048,7 @@ export function evaluateMoltbotPolicyPack(
       }
     }
 
-    const result = evaluateMoltbotRule(rule.type, config, rule.config as Record<string, unknown>, context);
+    const result = evaluateOpenClawRule(rule.type, config, rule.config as Record<string, unknown>, context);
 
     if (!result.passed && result.violation) {
       const violation: PolicyViolation = {

@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Param, Body } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
 import {
-  MoltbotSecurityAuditService,
+  OpenClawSecurityAuditService,
   SecurityAuditResult,
   SecurityFix,
   ApplyFixResult,
@@ -10,10 +10,10 @@ import {
 @ApiTags("security")
 @Controller("security")
 export class SecurityAuditController {
-  constructor(private readonly securityAuditService: MoltbotSecurityAuditService) {}
+  constructor(private readonly securityAuditService: OpenClawSecurityAuditService) {}
 
   @Post("audit/:instanceId")
-  @ApiOperation({ summary: "Run a security audit on a Moltbot instance" })
+  @ApiOperation({ summary: "Run a security audit on an OpenClaw instance" })
   @ApiResponse({ status: 200, description: "Audit completed successfully" })
   @ApiResponse({ status: 404, description: "Instance not found" })
   async runAudit(@Param("instanceId") id: string): Promise<SecurityAuditResult> {

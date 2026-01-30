@@ -3,7 +3,7 @@ import {
   DeploymentTargetType,
   InstallOptions,
   InstallResult,
-  MoltbotConfigPayload,
+  OpenClawConfigPayload,
   ConfigureResult,
   TargetStatus,
   DeploymentLogOptions,
@@ -44,7 +44,7 @@ function sshCommand(command: string, args: string[]): SSHCommand {
 }
 
 /**
- * RemoteVMTarget manages a Moltbot gateway on a remote machine via SSH.
+ * RemoteVMTarget manages an OpenClaw gateway on a remote machine via SSH.
  *
  * This implementation constructs the correct command strings for all
  * operations. The actual SSH transport is stubbed — commands are built
@@ -102,7 +102,7 @@ export class RemoteVMTarget implements DeploymentTarget {
    *  3. Configure UFW firewall (deny all incoming, allow SSH + gateway)
    *  4. Install & configure fail2ban
    *  5. Enable unattended security upgrades
-   *  6. Create a dedicated `moltbot` system user
+   *  6. Create a dedicated `openclaw` system user
    *  7. Restart sshd to apply changes
    */
   private async hardenHost(config: {
@@ -160,10 +160,10 @@ export class RemoteVMTarget implements DeploymentTarget {
     commands.push("apt-get install -y unattended-upgrades");
     commands.push("dpkg-reconfigure -plow unattended-upgrades");
 
-    // 6. Create dedicated moltbot system user
-    console.log("[RemoteVMTarget] Hardening: creating dedicated moltbot user");
+    // 6. Create dedicated openclaw system user
+    console.log("[RemoteVMTarget] Hardening: creating dedicated openclaw user");
     commands.push(
-      "useradd --system --create-home --shell /usr/sbin/nologin moltbot || true"
+      "useradd --system --create-home --shell /usr/sbin/nologin openclaw || true"
     );
 
     // 7. Restart sshd
@@ -201,7 +201,7 @@ export class RemoteVMTarget implements DeploymentTarget {
    * Remote VMs are assumed to be Linux.
    */
   private getSystemdUnitName(profile: string): string {
-    return `moltbot-gateway-${profile}.service`;
+    return `openclaw-gateway-${profile}.service`;
   }
 
   /**
@@ -233,12 +233,12 @@ export class RemoteVMTarget implements DeploymentTarget {
       options.port.toString(),
     ];
 
-    if (options.moltbotVersion) {
-      args.push("--version", options.moltbotVersion);
+    if (options.openclawVersion) {
+      args.push("--version", options.openclawVersion);
     }
 
     try {
-      const output = await this.executeRemote("moltbot", args);
+      const output = await this.executeRemote("openclaw", args);
 
       // Enable linger on the remote host
       await this.executeRemote("loginctl", [
@@ -261,7 +261,7 @@ export class RemoteVMTarget implements DeploymentTarget {
       return {
         success: true,
         instanceId: `${this.sshConfig.host}:${serviceName}`,
-        message: `Installed Moltbot gateway on remote VM ${this.sshConfig.host}. ${output}`,
+        message: `Installed OpenClaw gateway on remote VM ${this.sshConfig.host}. ${output}`,
         serviceName,
       };
     } catch (error) {
@@ -274,7 +274,7 @@ export class RemoteVMTarget implements DeploymentTarget {
     }
   }
 
-  async configure(config: MoltbotConfigPayload): Promise<ConfigureResult> {
+  async configure(config: OpenClawConfigPayload): Promise<ConfigureResult> {
     this.profileName = config.profileName;
     this.port = config.gatewayPort;
 
@@ -294,7 +294,7 @@ export class RemoteVMTarget implements DeploymentTarget {
     }
 
     try {
-      await this.executeRemote("moltbot", args);
+      await this.executeRemote("openclaw", args);
       return {
         success: true,
         message: `Configuration applied to profile "${config.profileName}" on ${this.sshConfig.host}`,
@@ -396,7 +396,7 @@ export class RemoteVMTarget implements DeploymentTarget {
     }
 
     try {
-      await this.executeRemote("moltbot", [
+      await this.executeRemote("openclaw", [
         "gateway",
         "uninstall",
         "--profile",

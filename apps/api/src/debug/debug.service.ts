@@ -24,7 +24,7 @@ import type {
 /** Connection timeout for debug operations (ms). */
 const DEBUG_TIMEOUT_MS = 15_000;
 
-/** Keys in moltbot.json that should be redacted. */
+/** Keys in openclaw.json that should be redacted. */
 const SECRET_KEYS = new Set([
   "token",
   "password",
@@ -40,7 +40,7 @@ const SECRET_KEYS = new Set([
   "credentials",
 ]);
 
-/** Known environment variable categories for Moltbot. */
+/** Known environment variable categories for OpenClaw. */
 const ENV_VAR_CATALOG: Array<{ name: string; category: EnvVarStatus["category"] }> = [
   { name: "CLAWDBOT_CONFIG_PATH", category: "required" },
   { name: "CLAWDBOT_STATE_DIR", category: "required" },
@@ -79,7 +79,7 @@ export class DebugService {
 
         processes.push({
           pid: 1,
-          command: `moltbot gateway --port ${connection.port}${instance.profileName ? ` --profile ${instance.profileName}` : ""}`,
+          command: `openclaw gateway --port ${connection.port}${instance.profileName ? ` --profile ${instance.profileName}` : ""}`,
           cpuPercent: 0,
           memoryMb: 0,
           uptime: `${Math.floor(health.uptime / 3600)}h ${Math.floor((health.uptime % 3600) / 60)}m`,
@@ -211,7 +211,7 @@ export class DebugService {
   async getEnvStatus(instanceId: string): Promise<EnvVarStatus[]> {
     const instance = await this.loadInstanceOrThrow(instanceId);
 
-    const profile = await prisma.moltbotProfile.findUnique({
+    const profile = await prisma.openClawProfile.findUnique({
       where: { instanceId },
     });
 
@@ -221,8 +221,8 @@ export class DebugService {
 
     const manifest = instance.desiredManifest as Record<string, unknown> | null;
     const spec = (manifest?.spec as Record<string, unknown>) ?? manifest ?? {};
-    const moltbotConfig = (spec?.moltbotConfig as Record<string, unknown>) ?? spec;
-    const channels = (moltbotConfig?.channels as Record<string, unknown>) ?? {};
+    const openclawConfig = (spec?.openclawConfig as Record<string, unknown>) ?? spec;
+    const channels = (openclawConfig?.channels as Record<string, unknown>) ?? {};
 
     return ENV_VAR_CATALOG.map((envVar) => {
       let isSet = false;
@@ -256,7 +256,7 @@ export class DebugService {
         case "ANTHROPIC_API_KEY":
         case "OPENAI_API_KEY":
         case "GOOGLE_API_KEY":
-          isSet = this.inferAiKeyPresence(moltbotConfig, envVar.name);
+          isSet = this.inferAiKeyPresence(openclawConfig, envVar.name);
           break;
         default:
           isSet = false;
@@ -270,7 +270,7 @@ export class DebugService {
   async getStateFiles(instanceId: string): Promise<FileInfo[]> {
     await this.loadInstanceOrThrow(instanceId);
 
-    const profile = await prisma.moltbotProfile.findUnique({
+    const profile = await prisma.openClawProfile.findUnique({
       where: { instanceId },
     });
 
@@ -288,7 +288,7 @@ export class DebugService {
       }
     } else {
       files.push(
-        { path: "~/.clawdbot/moltbot.json", size: 0, lastModified: new Date(), isDirectory: false },
+        { path: "~/.clawdbot/openclaw.json", size: 0, lastModified: new Date(), isDirectory: false },
         { path: "~/.clawdbot/state/", size: 0, lastModified: new Date(), isDirectory: true },
         { path: "~/clawd/", size: 0, lastModified: new Date(), isDirectory: true },
       );

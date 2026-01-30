@@ -1,5 +1,5 @@
 ---
-description: "Product vision for Molthub — the open-source control plane for autonomous Moltbot agents"
+description: "Product vision for Molthub — the open-source control plane for autonomous OpenClaw agents"
 globs: []
 alwaysApply: false
 ---
@@ -8,7 +8,7 @@ alwaysApply: false
 
 ## One-Liner
 
-Molthub is an open-source control plane that lets anyone — a solo founder, a small team, or an enterprise — deploy, configure, and orchestrate fleets of autonomous Moltbot agents across any infrastructure, with security, observability, and inter-bot collaboration built in.
+Molthub is an open-source control plane that lets anyone — a solo founder, a small team, or an enterprise — deploy, configure, and orchestrate fleets of autonomous OpenClaw agents across any infrastructure, with security, observability, and inter-bot collaboration built in.
 
 ---
 
@@ -25,7 +25,7 @@ We believe the future is autonomous agent teams that can run a company's operati
 ## Who It's For
 
 ### Solo Operators
-A single person who wants to run a one-person corporation. Deploy a Moltbot that handles customer support, another that manages code reviews, another that monitors infrastructure — all coordinated, all secure, all monitored. Molthub makes "one-person company" real.
+A single person who wants to run a one-person corporation. Deploy an OpenClaw that handles customer support, another that manages code reviews, another that monitors infrastructure — all coordinated, all secure, all monitored. Molthub makes "one-person company" real.
 
 ### Small Teams
 A team of 3-10 people that wants agent leverage. Set up specialized bots for different functions, give them personalities and goals, let them collaborate. Molthub handles the infrastructure and orchestration so the team focuses on what the bots should do, not how to keep them running.
@@ -38,16 +38,16 @@ Organizations that need hundreds of agents across departments, with governance, 
 ## Core Principles
 
 ### 1. Deploy Anywhere
-Moltbots should run wherever the user wants. Local machines, Docker, Kubernetes, AWS ECS, Azure, GCP — Molthub abstracts the infrastructure through deployment targets. Users bring their own stack. Molthub handles the lifecycle.
+OpenClaws should run wherever the user wants. Local machines, Docker, Kubernetes, AWS ECS, Azure, GCP — Molthub abstracts the infrastructure through deployment targets. Users bring their own stack. Molthub handles the lifecycle.
 
 ### 2. Secure by Default
-Every Moltbot deployed through Molthub starts secure: gateway auth tokens generated and stored properly, no plaintext secrets, policy packs enforcing guardrails, audit logs for every change. Security isn't an add-on — it's the baseline.
+Every OpenClaw deployed through Molthub starts secure: gateway auth tokens generated and stored properly, no plaintext secrets, policy packs enforcing guardrails, audit logs for every change. Security isn't an add-on — it's the baseline.
 
 ### 3. Autonomous Agents with Personality and Purpose
-Each Moltbot gets a personality, a system prompt, high-level goals, and specialized skills. They're not generic chatbots — they're autonomous agents with defined roles: "You are the DevOps lead. Your goal is zero-downtime deployments. You own the CI/CD pipeline."
+Each OpenClaw gets a personality, a system prompt, high-level goals, and specialized skills. They're not generic chatbots — they're autonomous agents with defined roles: "You are the DevOps lead. Your goal is zero-downtime deployments. You own the CI/CD pipeline."
 
 ### 4. Teams of Agents with Hierarchy
-Moltbots can be organized into teams with a lead and members. The lead delegates tasks, members execute, results flow back. Teams have roadmaps, goals, and shared context. Molthub orchestrates all inter-bot communication — bots never talk directly, everything is auditable and rule-governed.
+OpenClaws can be organized into teams with a lead and members. The lead delegates tasks, members execute, results flow back. Teams have roadmaps, goals, and shared context. Molthub orchestrates all inter-bot communication — bots never talk directly, everything is auditable and rule-governed.
 
 ### 5. Observable and Controllable
 Health, communications, skills, tools, costs — everything is visible. Alerts fire when something degrades. Users can pause, restart, reconfigure, or destroy any bot at any time. Full control, full visibility.
@@ -62,9 +62,9 @@ For users who don't want to manage infrastructure, a future hosted SaaS offering
 
 ## What Molthub Does
 
-### Deploy and Manage Moltbots
+### Deploy and Manage OpenClaws
 
-- **One-click setup**: Pick a template, choose your infrastructure (Docker, ECS, K8s, Azure, GCP), configure channels, deploy. A non-technical user can get a production Moltbot running through a guided wizard.
+- **One-click setup**: Pick a template, choose your infrastructure (Docker, ECS, K8s, Azure, GCP), configure channels, deploy. A non-technical user can get a production OpenClaw running through a guided wizard.
 - **Lifecycle management**: Start, stop, restart, redeploy, destroy. All through the UI, API, or CLI.
 - **Multi-cloud**: Deploy targets are pluggable. AWS today, Kubernetes tomorrow, Azure next week. Users choose their stack.
 - **Bulk operations**: Restart 50 bots. Roll out a config change to a fleet. Pin versions across environments.
@@ -125,14 +125,14 @@ That's a one-person corporate. That's what Molthub enables.
 
 ---
 
-## Technical Foundation: Built on Moltbot's Real Surfaces
+## Technical Foundation: Built on OpenClaw's Real Surfaces
 
-Molthub is not a generic orchestrator. It integrates tightly with Moltbot's actual control surfaces:
+Molthub is not a generic orchestrator. It integrates tightly with OpenClaw's actual control surfaces:
 
 - **Gateway WebSocket protocol**: The canonical integration surface for control and telemetry. All bot communication flows through Gateway.
-- **Config model**: Molthub generates and manages Moltbot's JSON5 config, respecting its semantics (config.apply, restart requirements, validation).
-- **Health and diagnostics**: `moltbot status`, `moltbot health --json`, `moltbot doctor` — Molthub wraps these for monitoring and automated repair.
-- **Onboarding and daemon model**: Molthub replicates Moltbot's onboarding outcomes (gateway auth, daemon installation, profile isolation) in a reproducible, cloud-native way.
+- **Config model**: Molthub generates and manages OpenClaw's JSON5 config, respecting its semantics (config.apply, restart requirements, validation).
+- **Health and diagnostics**: `openclaw status`, `openclaw health --json`, `openclaw doctor` — Molthub wraps these for monitoring and automated repair.
+- **Onboarding and daemon model**: Molthub replicates OpenClaw's onboarding outcomes (gateway auth, daemon installation, profile isolation) in a reproducible, cloud-native way.
 - **Runtime constraints**: WhatsApp and Telegram require Node. Molthub enforces this in templates and validation.
 - **Profile isolation**: Each bot instance gets isolated state via `CLAWDBOT_PROFILE`, `CLAWDBOT_STATE_DIR`, and `CLAWDBOT_CONFIG_PATH`.
 
@@ -152,7 +152,7 @@ Both paths use the same codebase. No feature gates. No artificial limitations on
 
 ## Success Metrics
 
-- A non-technical user can deploy their first production Moltbot in under 5 minutes
+- A non-technical user can deploy their first production OpenClaw in under 5 minutes
 - A solo operator can run a team of 5+ specialized bots with full monitoring
 - An enterprise can manage 500+ bots across multiple clouds with governance and compliance
 - All inter-bot communication is auditable and rule-governed

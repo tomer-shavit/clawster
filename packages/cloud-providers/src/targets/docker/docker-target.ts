@@ -4,7 +4,7 @@ import {
   DeploymentTargetType,
   InstallOptions,
   InstallResult,
-  MoltbotConfigPayload,
+  OpenClawConfigPayload,
   ConfigureResult,
   TargetStatus,
   DeploymentLogOptions,
@@ -30,7 +30,7 @@ function runCommand(cmd: string, args: string[]): Promise<string> {
 }
 
 /**
- * DockerContainerTarget manages a Moltbot gateway instance running
+ * DockerContainerTarget manages an OpenClaw gateway instance running
  * inside a Docker container.
  *
  * Configuration is mounted as a volume, the gateway port is exposed,
@@ -48,11 +48,11 @@ export class DockerContainerTarget implements DeploymentTarget {
   }
 
   /**
-   * Pull the Docker image for the Moltbot gateway.
+   * Pull the Docker image for the OpenClaw gateway.
    */
   async install(options: InstallOptions): Promise<InstallResult> {
-    const image = options.moltbotVersion
-      ? this.imageName.replace(/:.*$/, `:${options.moltbotVersion}`)
+    const image = options.openclawVersion
+      ? this.imageName.replace(/:.*$/, `:${options.openclawVersion}`)
       : this.imageName;
 
     try {
@@ -75,10 +75,10 @@ export class DockerContainerTarget implements DeploymentTarget {
   }
 
   /**
-   * Write the Moltbot configuration to the config path on the host,
+   * Write the OpenClaw configuration to the config path on the host,
    * which will be mounted into the container.
    */
-  async configure(config: MoltbotConfigPayload): Promise<ConfigureResult> {
+  async configure(config: OpenClawConfigPayload): Promise<ConfigureResult> {
     const fs = await import("fs");
     const path = await import("path");
 

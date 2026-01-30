@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useWebSocketContext, type ConnectionState } from '@/lib/websocket-context';
-import type { HealthSnapshotData } from '@/components/moltbot/health-snapshot';
+import type { HealthSnapshotData } from '@/components/openclaw/health-snapshot';
 import { api } from '@/lib/api';
 
 interface UseHealthStreamResult {

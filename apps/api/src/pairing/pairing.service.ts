@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { prisma } from "@molthub/database";
-import type { PairingState, MoltbotChannelType } from "@molthub/database";
+import type { PairingState, OpenClawChannelType } from "@molthub/database";
 
 @Injectable()
 export class PairingService {
@@ -49,7 +49,7 @@ export class PairingService {
    */
   async approvePairing(
     instanceId: string,
-    channelType: MoltbotChannelType,
+    channelType: OpenClawChannelType,
     senderId: string,
   ) {
     const now = new Date();
@@ -87,7 +87,7 @@ export class PairingService {
    */
   async rejectPairing(
     instanceId: string,
-    channelType: MoltbotChannelType,
+    channelType: OpenClawChannelType,
     senderId: string,
   ) {
     const existing = await prisma.devicePairing.findUnique({
@@ -147,7 +147,7 @@ export class PairingService {
    */
   async revokePairing(
     instanceId: string,
-    channelType: MoltbotChannelType,
+    channelType: OpenClawChannelType,
     senderId: string,
   ) {
     const existing = await prisma.devicePairing.findUnique({

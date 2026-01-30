@@ -2,7 +2,7 @@ import { IsString, IsNotEmpty, IsOptional, IsEnum } from "class-validator";
 
 /**
  * Valid channel types for pairing operations.
- * Mirrors MoltbotChannelType from Prisma schema.
+ * Mirrors OpenClawChannelType from Prisma schema.
  */
 enum PairingChannelType {
   WHATSAPP = "WHATSAPP",

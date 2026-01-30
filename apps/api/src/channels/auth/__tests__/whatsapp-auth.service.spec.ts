@@ -23,7 +23,7 @@ describe("WhatsAppAuthService", () => {
 
       expect(result.state).toBe("pairing");
       expect(result.qrCode).toBeDefined();
-      expect(result.qrCode).toContain("moltbot-wa-qr://channel-1/");
+      expect(result.qrCode).toContain("openclaw-wa-qr://channel-1/");
       expect(result.qrExpiresAt).toBeDefined();
       expect(result.qrExpiresAt!.getTime()).toBeGreaterThan(Date.now());
     });
