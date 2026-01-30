@@ -44,7 +44,7 @@ export function SetupWizard({ templates }: SetupWizardProps) {
   const [deploymentTarget, setDeploymentTarget] = useState<
     "docker" | "ecs-fargate" | null
   >(null);
-  const [targetConfig, setTargetConfig] = useState<Record<string, any>>({});
+  const [targetConfig, setTargetConfig] = useState<Record<string, unknown>>({});
   const [channels, setChannels] = useState<ChannelConfig[]>([]);
   const [botName, setBotName] = useState("");
   const [deployInstanceId, setDeployInstanceId] = useState<string | null>(null);
@@ -93,7 +93,7 @@ export function SetupWizard({ templates }: SetupWizardProps) {
 
     setDeploying(true);
     try {
-      const deployTarget: { type: string; [key: string]: any } = {
+      const deployTarget: { type: string; [key: string]: unknown } = {
         type: deploymentTarget,
         ...targetConfig,
       };

@@ -92,9 +92,10 @@ export function SingleBotDashboard({ bot }: SingleBotDashboardProps) {
   const health = healthConfig[bot.health] || healthConfig.UNKNOWN;
 
   const manifest = bot.desiredManifest || {};
-  const gatewayConfig = (manifest as any)?.gateway || {};
+  const manifestObj = manifest as Record<string, unknown>;
+  const gatewayConfig = (manifestObj?.gateway as Record<string, unknown>) || {};
   const channelsConfig: Array<{ type: string; enabled?: boolean; status?: string }> =
-    (manifest as any)?.channels || [];
+    (manifestObj?.channels as Array<{ type: string; enabled?: boolean; status?: string }>) || [];
 
   const isGatewayConnected = bot.status === "RUNNING" && bot.health !== "UNHEALTHY";
 
