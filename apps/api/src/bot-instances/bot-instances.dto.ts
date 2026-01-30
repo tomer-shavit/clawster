@@ -102,7 +102,7 @@ export class UpdateAiGatewaySettingsDto {
   @IsOptional()
   providerName?: string;
 
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   @IsOptional()
   gatewayUrl?: string;
 

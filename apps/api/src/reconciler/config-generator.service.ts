@@ -49,6 +49,12 @@ export class ConfigGeneratorService {
       this.logger.log(
         `AI Gateway injected for ${manifest.metadata.name} (provider=${aiGatewaySettings.providerName})`,
       );
+
+      if (!config.agents?.defaults?.model?.primary?.startsWith(aiGatewaySettings.providerName ?? "vercel-ai-gateway")) {
+        this.logger.warn(
+          `AI Gateway enabled for ${manifest.metadata.name} but no model primary is set — gateway provider added but not routing traffic`,
+        );
+      }
     }
 
     this.logger.debug(

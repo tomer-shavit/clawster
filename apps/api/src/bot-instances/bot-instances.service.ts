@@ -70,7 +70,7 @@ export class BotInstancesService {
   }
 
   async findAll(query: ListBotInstancesQueryDto): Promise<BotInstance[]> {
-    return prisma.botInstance.findMany({
+    const instances = await prisma.botInstance.findMany({
       where: {
         workspaceId: query.workspaceId,
         ...(query.fleetId && { fleetId: query.fleetId }),
@@ -92,6 +92,7 @@ export class BotInstancesService {
       },
       orderBy: { createdAt: "desc" },
     });
+    return instances.map((i) => this.redactSensitiveFields(i));
   }
 
   async findOne(id: string): Promise<BotInstance & { resolvedConfig?: Record<string, unknown> }> {
@@ -118,7 +119,7 @@ export class BotInstancesService {
       throw new NotFoundException(`Bot instance ${id} not found`);
     }
 
-    return instance;
+    return this.redactSensitiveFields(instance);
   }
 
   async update(id: string, dto: UpdateBotInstanceDto): Promise<BotInstance> {
@@ -385,7 +386,10 @@ export class BotInstancesService {
       },
     });
 
-    // Redact API key before returning to prevent leaking secrets
-    return { ...updated, aiGatewayApiKey: null } as BotInstance;
+    return this.redactSensitiveFields(updated);
+  }
+
+  private redactSensitiveFields<T extends BotInstance>(instance: T): T {
+    return { ...instance, aiGatewayApiKey: null };
   }
 }
