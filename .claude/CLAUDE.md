@@ -15,9 +15,8 @@ This document defines the **mandatory workflow** that Claude Code must follow fo
 Before writing ANY code, you MUST read all documentation files in `.claude/docs/`:
 
 1. `.claude/docs/molthub-vision.md` — Product vision and platform goals
-2. `.claude/docs/molthub-transformation-spec.md` — 10 work-package transformation spec
-3. `.claude/docs/current-codebase-analysis.md` — Current architecture and module inventory
-4. `.claude/docs/openclaw-reference.md` — OpenClaw Gateway, config model, channels, health, security
+2. `.claude/docs/current-codebase-analysis.md` — Current architecture and module inventory
+3. `.claude/docs/openclaw-reference.md` — OpenClaw Gateway, config model, channels, health, security
 
 **Do not skip any doc.** Every feature and bug fix must be informed by these references.
 
@@ -40,7 +39,7 @@ For every feature or bug fix:
 1. Enter plan mode (`EnterPlanMode`) to design the implementation
 2. Base the plan on:
    - The feature requirements provided by the user
-   - The docs in `.claude/docs/` (especially `openclaw-reference.md` and `molthub-transformation-spec.md`)
+   - The docs in `.claude/docs/` (especially `openclaw-reference.md`)
    - The existing codebase patterns discovered in Step 1
 3. Break the plan into concrete, actionable steps using `TodoWrite`
 4. Present the plan to the user for approval before writing any code

@@ -14,8 +14,7 @@ Read the following project docs and extract only the sections relevant to the fe
 
 1. `.claude/docs/molthub-vision.md` — Does this feature align with the product vision?
 2. `.claude/docs/openclaw-reference.md` — Does it correctly use the OpenClaw config model, Gateway protocol, channels, health checks, or security model?
-3. `.claude/docs/molthub-transformation-spec.md` — Is it in the right work package? Does it meet acceptance criteria?
-4. `.claude/docs/current-codebase-analysis.md` — Does it fit the existing architecture?
+3. `.claude/docs/current-codebase-analysis.md` — Does it fit the existing architecture?
 
 Summarize the relevant context from each doc in 1-2 sentences.
 

@@ -104,5 +104,3 @@ Transformation from cloud-generic container orchestrator to OpenClaw-native oper
 - WP-08: Templates & Config Generator — valid `openclaw.json` generation (depends: WP-01, 04)
 - WP-09: Web UI OpenClaw Pages — Gateway status, health, config editor, channel auth (depends: WP-01, 06)
 - WP-10: Health & Observability Dashboard — real OpenClaw health polling + diagnostics (depends: WP-02, 06)
-
-See `.claude/docs/molthub-transformation-spec.md` for full work package details.
