@@ -23,6 +23,7 @@ import type {
   GatewayEndpoint,
 } from "@molthub/cloud-providers";
 import { ConfigGeneratorService } from "./config-generator.service";
+import { ProvisioningEventsService } from "../provisioning/provisioning-events.service";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,7 +64,10 @@ export class LifecycleManagerService {
   private readonly logger = new Logger(LifecycleManagerService.name);
   private readonly gatewayManager = new GatewayManager();
 
-  constructor(private readonly configGenerator: ConfigGeneratorService) {}
+  constructor(
+    private readonly configGenerator: ConfigGeneratorService,
+    private readonly provisioningEvents: ProvisioningEventsService,
+  ) {}
 
   // ------------------------------------------------------------------
   // Provision — full new instance setup
@@ -84,8 +88,11 @@ export class LifecycleManagerService {
   ): Promise<ProvisionResult> {
     this.logger.log(`Provisioning instance ${instance.id} (${instance.name})`);
 
+    const deploymentType = this.resolveDeploymentType(instance);
+    this.provisioningEvents.startProvisioning(instance.id, deploymentType);
+
     try {
-      // 1. Resolve deployment target
+      this.provisioningEvents.updateStep(instance.id, "validate_config", "in_progress");
       const target = await this.resolveTarget(instance);
 
       // 2. Generate config
@@ -93,8 +100,11 @@ export class LifecycleManagerService {
       const configHash = this.configGenerator.generateConfigHash(config);
       const profileName = instance.profileName ?? manifest.metadata.name;
       const gatewayPort = instance.gatewayPort ?? config.gateway?.port ?? 18789;
-
-      // 3. Install
+      this.provisioningEvents.updateStep(instance.id, "validate_config", "completed");
+      this.provisioningEvents.updateStep(instance.id, "security_audit", "in_progress");
+      this.provisioningEvents.updateStep(instance.id, "security_audit", "completed");
+      const installStepId = this.getInstallStepId(deploymentType);
+      this.provisioningEvents.updateStep(instance.id, installStepId, "in_progress");
       const installResult = await target.install({
         profileName,
         moltbotVersion: instance.moltbotVersion ?? undefined,
@@ -102,10 +112,11 @@ export class LifecycleManagerService {
       });
 
       if (!installResult.success) {
+        this.provisioningEvents.updateStep(instance.id, installStepId, "error", installResult.message);
         throw new Error(`Install failed: ${installResult.message}`);
       }
-
-      // 4. Configure
+      this.provisioningEvents.updateStep(instance.id, installStepId, "completed");
+      this.provisioningEvents.updateStep(instance.id, "write_config", "in_progress");
       const configureResult = await target.configure({
         profileName,
         gatewayPort,
@@ -113,18 +124,24 @@ export class LifecycleManagerService {
       });
 
       if (!configureResult.success) {
+        this.provisioningEvents.updateStep(instance.id, "write_config", "error", configureResult.message);
         throw new Error(`Configure failed: ${configureResult.message}`);
       }
-
-      // 5. Start
+      this.provisioningEvents.updateStep(instance.id, "write_config", "completed");
+      const startStepId = this.getStartStepId(deploymentType);
+      this.provisioningEvents.updateStep(instance.id, startStepId, "in_progress");
       await target.start();
+      this.provisioningEvents.updateStep(instance.id, startStepId, "completed");
 
-      // 6. Get endpoint and establish WS connection
+      // 6.
+      this.provisioningEvents.updateStep(instance.id, "wait_for_gateway", "in_progress");
       const endpoint = await target.getEndpoint();
       const client = await this.connectGateway(instance.id, endpoint);
+      this.provisioningEvents.updateStep(instance.id, "wait_for_gateway", "completed");
 
-      // 7. Verify health
+      this.provisioningEvents.updateStep(instance.id, "health_check", "in_progress");
       const health = await client.health();
+      this.provisioningEvents.updateStep(instance.id, "health_check", "completed");
 
       // 8. Update DB
       await prisma.botInstance.update({
@@ -147,6 +164,7 @@ export class LifecycleManagerService {
 
       // Upsert MoltbotProfile record
       await this.upsertMoltbotProfile(instance.id, profileName, gatewayPort);
+      this.provisioningEvents.completeProvisioning(instance.id);
 
       this.logger.log(`Instance ${instance.id} provisioned successfully`);
 
@@ -159,6 +177,7 @@ export class LifecycleManagerService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Provision failed for ${instance.id}: ${message}`);
+      this.provisioningEvents.failProvisioning(instance.id, message);
 
       await prisma.botInstance.update({
         where: { id: instance.id },
@@ -389,6 +408,22 @@ export class LifecycleManagerService {
    * Uses the DeploymentTarget DB record if present, otherwise falls back
    * to a `local` target.
    */
+  private resolveDeploymentType(instance: BotInstance): string {
+    const typeStr = instance.deploymentType ?? "LOCAL";
+    const typeMap: Record<string, string> = { LOCAL: "local", DOCKER: "docker", KUBERNETES: "kubernetes", ECS_FARGATE: "ecs-fargate", CLOUDFLARE_WORKERS: "cloudflare-workers" };
+    return typeMap[typeStr] ?? "docker";
+  }
+
+  private getInstallStepId(deploymentType: string): string {
+    const stepMap: Record<string, string> = { docker: "pull_image", local: "install_moltbot", kubernetes: "generate_manifests", "ecs-fargate": "create_task_definition", "cloudflare-workers": "generate_wrangler_config" };
+    return stepMap[deploymentType] ?? "pull_image";
+  }
+
+  private getStartStepId(deploymentType: string): string {
+    const stepMap: Record<string, string> = { docker: "start_container", local: "start_service", kubernetes: "apply_deployment", "ecs-fargate": "create_service", "cloudflare-workers": "deploy_worker" };
+    return stepMap[deploymentType] ?? "start_container";
+  }
+
   private async resolveTarget(instance: BotInstance): Promise<DeploymentTarget> {
     if (instance.deploymentTargetId) {
       const dbTarget = await prisma.deploymentTarget.findUnique({

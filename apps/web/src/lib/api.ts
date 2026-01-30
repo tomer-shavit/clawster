@@ -794,6 +794,17 @@ class ApiClient {
     return this.fetch(`/onboarding/deploy/${instanceId}/status`);
   }
 
+  async getProvisioningStatus(instanceId: string): Promise<{
+    instanceId: string;
+    status: string;
+    steps: Array<{id: string; name: string; status: string; startedAt?: string; completedAt?: string; error?: string; message?: string}>;
+    startedAt?: string;
+    completedAt?: string;
+    error?: string;
+  }> {
+    return this.fetch(`/instances/${instanceId}/provisioning/status`);
+  }
+
   // Multi-Bot UX
   async compareBots(ids: string[]): Promise<BotInstance[]> {
     return this.fetch('/bot-instances/compare', {
