@@ -4,6 +4,8 @@ import {
   IsEnum,
   IsObject,
   IsArray,
+  IsBoolean,
+  IsUrl,
   MaxLength
 } from "class-validator";
 import { BotStatus, BotHealth, Environment } from "@molthub/database";
@@ -89,6 +91,25 @@ export class UpdateBotStatusDto {
 export class UpdateBotHealthDto {
   @IsEnum(BotHealth)
   health: BotHealth;
+}
+
+export class UpdateAiGatewaySettingsDto {
+  @IsBoolean()
+  enabled: boolean;
+
+  @IsString()
+  @MaxLength(100)
+  @IsOptional()
+  providerName?: string;
+
+  @IsUrl()
+  @IsOptional()
+  gatewayUrl?: string;
+
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  gatewayApiKey?: string;
 }
 
 export class ListBotInstancesQueryDto {

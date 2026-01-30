@@ -32,6 +32,7 @@ import { EvolutionBanner, type EvolutionBannerData } from "@/components/moltbot/
 import { LiveSkills } from "@/components/moltbot/live-skills";
 import { EvolutionDiff } from "@/components/moltbot/evolution-diff";
 import { api, type BotInstance, type Trace, type TraceStats, type ChangeSet, type DeploymentEvent, type AgentEvolutionSnapshot } from "@/lib/api";
+import { AiGatewayToggle } from "@/components/moltbot/ai-gateway-toggle";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -650,11 +651,20 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
 
         {/* Config Tab */}
         <TabsContent active={activeTab === "config"} className="mt-6">
-          <ConfigEditor
-            currentConfig={currentConfigStr}
-            onApply={handleApplyConfig}
-            isApplying={isApplyingConfig}
-          />
+          <div className="space-y-6">
+            <AiGatewayToggle
+              botId={bot.id}
+              initialEnabled={bot.aiGatewayEnabled}
+              initialUrl={bot.aiGatewayUrl}
+              initialApiKey={bot.aiGatewayApiKey}
+              initialProvider={bot.aiGatewayProvider}
+            />
+            <ConfigEditor
+              currentConfig={currentConfigStr}
+              onApply={handleApplyConfig}
+              isApplying={isApplyingConfig}
+            />
+          </div>
         </TabsContent>
 
         {/* Logs Tab */}

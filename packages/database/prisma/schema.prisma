@@ -168,6 +168,12 @@ model BotInstance {
   moltbotVersion     String?
   configHash         String?
 
+  // AI Gateway settings
+  aiGatewayEnabled  Boolean @default(false)
+  aiGatewayUrl      String?
+  aiGatewayApiKey   String?
+  aiGatewayProvider String  @default("vercel-ai-gateway")
+
   // Relations
   connectorBindings   BotConnectorBinding[]
   changeSets          ChangeSet[]

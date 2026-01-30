@@ -45,9 +45,21 @@ export interface BotInstance {
   profileName?: string;
   moltbotVersion?: string;
   configHash?: string;
+  // AI Gateway settings
+  aiGatewayEnabled: boolean;
+  aiGatewayUrl?: string;
+  aiGatewayApiKey?: string;
+  aiGatewayProvider: string;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
+}
+
+export interface AiGatewaySettings {
+  enabled: boolean;
+  providerName?: string;
+  gatewayUrl?: string;
+  gatewayApiKey?: string;
 }
 
 export interface InstanceHealth {
@@ -1161,6 +1173,14 @@ class ApiClient {
 
   async syncEvolution(instanceId: string): Promise<AgentEvolutionSnapshot> {
     return this.fetch(`/bot-instances/${instanceId}/evolution/sync`, { method: 'POST' });
+  }
+
+  // AI Gateway
+  async updateAiGatewaySettings(instanceId: string, settings: AiGatewaySettings): Promise<BotInstance> {
+    return this.fetch(`/bot-instances/${instanceId}/ai-gateway`, {
+      method: 'PATCH',
+      body: JSON.stringify(settings),
+    });
   }
 }
 

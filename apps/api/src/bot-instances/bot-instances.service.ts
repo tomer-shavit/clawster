@@ -9,7 +9,7 @@ import {
 import { 
   PolicyEngine
 } from "@molthub/core";
-import { CreateBotInstanceDto, UpdateBotInstanceDto, ListBotInstancesQueryDto } from "./bot-instances.dto";
+import { CreateBotInstanceDto, UpdateBotInstanceDto, UpdateAiGatewaySettingsDto, ListBotInstancesQueryDto } from "./bot-instances.dto";
 import { BulkActionType, BulkActionResultItem } from "./bot-compare.dto";
 
 @Injectable()
@@ -360,5 +360,32 @@ export class BotInstancesService {
         count: fd._count.fleetId,
       })),
     };
+  }
+
+  async updateAiGatewaySettings(
+    id: string,
+    dto: UpdateAiGatewaySettingsDto,
+  ): Promise<BotInstance> {
+    await this.findOne(id);
+
+    // Validate: when enabled, gatewayUrl is required
+    if (dto.enabled && !dto.gatewayUrl) {
+      throw new BadRequestException(
+        "Gateway URL is required when AI Gateway is enabled",
+      );
+    }
+
+    const updated = await prisma.botInstance.update({
+      where: { id },
+      data: {
+        aiGatewayEnabled: dto.enabled,
+        aiGatewayUrl: dto.gatewayUrl ?? null,
+        aiGatewayApiKey: dto.gatewayApiKey ?? null,
+        aiGatewayProvider: dto.providerName ?? "vercel-ai-gateway",
+      },
+    });
+
+    // Redact API key before returning to prevent leaking secrets
+    return { ...updated, aiGatewayApiKey: null } as BotInstance;
   }
 }

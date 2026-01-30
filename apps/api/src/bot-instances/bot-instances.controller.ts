@@ -17,6 +17,7 @@ import {
   UpdateBotInstanceDto,
   UpdateBotStatusDto,
   UpdateBotHealthDto,
+  UpdateAiGatewaySettingsDto,
   ListBotInstancesQueryDto
 } from "./bot-instances.dto";
 import { CompareBotsDto, BulkActionDto, BulkActionResultItem } from "./bot-compare.dto";
@@ -92,6 +93,14 @@ export class BotInstancesController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async stop(@Param("id") id: string): Promise<void> {
     await this.botInstancesService.stop(id);
+  }
+
+  @Patch(":id/ai-gateway")
+  updateAiGateway(
+    @Param("id") id: string,
+    @Body() dto: UpdateAiGatewaySettingsDto,
+  ): Promise<BotInstance> {
+    return this.botInstancesService.updateAiGatewaySettings(id, dto);
   }
 
   @Delete(":id")
