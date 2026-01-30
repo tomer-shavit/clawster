@@ -29,6 +29,7 @@ import { OnboardingModule } from "./onboarding/onboarding.module";
 import { SlosModule } from "./slos/slos.module";
 import { CostsModule } from "./costs/costs.module";
 import { AlertsModule } from "./alerts/alerts.module";
+import { ProvisioningModule } from "./provisioning/provisioning.module";
 import { DebugModule } from "./debug/debug.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 
@@ -72,6 +73,7 @@ import { JwtAuthGuard } from "./auth/jwt-auth.guard";
     SlosModule,
     CostsModule,
     AlertsModule,
+    ProvisioningModule,
     DebugModule,
   ],
   providers: [

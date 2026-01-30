@@ -6,9 +6,10 @@ import { LifecycleManagerService } from "./lifecycle-manager.service";
 import { DriftDetectionService } from "./drift-detection.service";
 import { ReconcilerScheduler } from "./reconciler.scheduler";
 import { SecurityAuditModule } from "../security/security-audit.module";
+import { ProvisioningModule } from "../provisioning/provisioning.module";
 
 @Module({
-  imports: [SecurityAuditModule],
+  imports: [SecurityAuditModule, ProvisioningModule],
   controllers: [ReconcilerController],
   providers: [
     ConfigGeneratorService,
