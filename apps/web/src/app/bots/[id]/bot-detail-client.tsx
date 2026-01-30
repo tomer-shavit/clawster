@@ -32,6 +32,8 @@ import { EvolutionBanner, type EvolutionBannerData } from "@/components/moltbot/
 import { LiveSkills } from "@/components/moltbot/live-skills";
 import { EvolutionDiff } from "@/components/moltbot/evolution-diff";
 import { api, type BotInstance, type Trace, type TraceStats, type ChangeSet, type DeploymentEvent, type AgentEvolutionSnapshot } from "@/lib/api";
+import { AiGatewayToggle } from "@/components/moltbot/ai-gateway-toggle";
+import { PairingTab } from "@/components/pairing/pairing-tab";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -56,6 +58,7 @@ import {
   Stethoscope,
   BarChart3,
   GitCompare,
+  Smartphone,
 } from "lucide-react";
 
 interface BotDetailClientProps {
@@ -331,6 +334,10 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
           <TabsTrigger active={activeTab === "channels"} onClick={() => setActiveTab("channels")}>
             <MessageSquare className="w-4 h-4 mr-1.5" />
             Channels
+          </TabsTrigger>
+          <TabsTrigger active={activeTab === "pairing"} onClick={() => setActiveTab("pairing")}>
+            <Smartphone className="w-4 h-4 mr-1.5" />
+            Pairing
           </TabsTrigger>
           <TabsTrigger active={activeTab === "config"} onClick={() => setActiveTab("config")}>
             <Settings className="w-4 h-4 mr-1.5" />
@@ -648,13 +655,27 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
           )}
         </TabsContent>
 
+        {/* Pairing Tab */}
+        <TabsContent active={activeTab === "pairing"} className="mt-6">
+          <PairingTab botId={bot.id} />
+        </TabsContent>
+
         {/* Config Tab */}
         <TabsContent active={activeTab === "config"} className="mt-6">
-          <ConfigEditor
-            currentConfig={currentConfigStr}
-            onApply={handleApplyConfig}
-            isApplying={isApplyingConfig}
-          />
+          <div className="space-y-6">
+            <AiGatewayToggle
+              botId={bot.id}
+              initialEnabled={bot.aiGatewayEnabled}
+              initialUrl={bot.aiGatewayUrl}
+              initialApiKey={bot.aiGatewayApiKey}
+              initialProvider={bot.aiGatewayProvider}
+            />
+            <ConfigEditor
+              currentConfig={currentConfigStr}
+              onApply={handleApplyConfig}
+              isApplying={isApplyingConfig}
+            />
+          </div>
         </TabsContent>
 
         {/* Logs Tab */}

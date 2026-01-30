@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { createHash, randomBytes } from "crypto";
-import type { MoltbotManifest, MoltbotFullConfig, SecurityOverrides } from "@molthub/core";
+import type { MoltbotManifest, MoltbotFullConfig, SecurityOverrides, AiGatewaySettings } from "@molthub/core";
+import { injectGatewayIntoConfig } from "@molthub/core";
 
 /**
  * ConfigGeneratorService — transforms a v2 MoltbotManifest into a
@@ -20,11 +21,14 @@ export class ConfigGeneratorService {
    * to set context-sensitive defaults (e.g. log level, gateway host) when
    * the spec does not explicitly set them.
    */
-  generateMoltbotConfig(manifest: MoltbotManifest): MoltbotFullConfig {
+  generateMoltbotConfig(
+    manifest: MoltbotManifest,
+    aiGatewaySettings?: AiGatewaySettings,
+  ): MoltbotFullConfig {
     const base = manifest.spec.moltbotConfig;
 
     // Apply environment-aware defaults that are not already set in the spec.
-    const config: MoltbotFullConfig = {
+    let config: MoltbotFullConfig = {
       ...base,
       // Ensure gateway section exists with sensible defaults for deployment
       gateway: {
@@ -38,6 +42,20 @@ export class ConfigGeneratorService {
         ...base.logging,
       },
     };
+
+    // Inject AI Gateway provider if enabled
+    if (aiGatewaySettings?.enabled) {
+      config = injectGatewayIntoConfig(config, aiGatewaySettings);
+      this.logger.log(
+        `AI Gateway injected for ${manifest.metadata.name} (provider=${aiGatewaySettings.providerName})`,
+      );
+
+      if (!config.agents?.defaults?.model?.primary?.startsWith(aiGatewaySettings.providerName ?? "vercel-ai-gateway")) {
+        this.logger.warn(
+          `AI Gateway enabled for ${manifest.metadata.name} but no model primary is set — gateway provider added but not routing traffic`,
+        );
+      }
+    }
 
     this.logger.debug(
       `Generated config for ${manifest.metadata.name} (env=${manifest.metadata.environment})`,

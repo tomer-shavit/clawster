@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ChannelsConfigSchema, ChannelTypeSchema } from "./moltbot-channels";
+import { ModelsConfigSchema } from "./ai-gateway/config";
 
 // =============================================================================
 // Shared Primitives
@@ -451,6 +452,7 @@ export const MoltbotConfigSchema = z.object({
   gateway: GatewayConfigSchema.optional(),
   logging: LoggingConfigSchema.optional(),
   bindings: z.array(BindingEntrySchema).optional(),
+  models: ModelsConfigSchema.optional(),
 });
 /**
  * Full validated Moltbot config type inferred from the Zod schema.
