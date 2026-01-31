@@ -349,10 +349,19 @@ export const GatewayAuthSchema = z.object({
 });
 export type GatewayAuth = z.infer<typeof GatewayAuthSchema>;
 
+export const GatewayControlUiSchema = z.object({
+  enabled: z.boolean().optional(),
+  basePath: z.string().optional(),
+  allowInsecureAuth: z.boolean().optional(),
+  dangerouslyDisableDeviceAuth: z.boolean().optional(),
+});
+export type GatewayControlUi = z.infer<typeof GatewayControlUiSchema>;
+
 export const GatewayConfigSchema = z.object({
   port: z.number().int().min(1).max(65535).default(18789),
   auth: GatewayAuthSchema.optional(),
   host: z.string().default("127.0.0.1"),
+  controlUi: GatewayControlUiSchema.optional(),
 });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
 

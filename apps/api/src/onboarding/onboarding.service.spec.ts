@@ -172,7 +172,7 @@ describe('OnboardingService', () => {
 
       expect(ids).toContain('builtin-whatsapp-personal');
       expect(ids).toContain('builtin-telegram-bot');
-      expect(ids).toContain('builtin-minimal-gateway');
+      expect(ids).toContain('builtin-whatsapp-personal');
     });
   });
 
@@ -182,7 +182,7 @@ describe('OnboardingService', () => {
   describe('preview', () => {
     it('should return generated config for a valid template', async () => {
       const result = await service.preview({
-        templateId: 'builtin-minimal-gateway',
+        templateId: 'builtin-whatsapp-personal',
       });
 
       expect(result).toHaveProperty('config');
@@ -215,7 +215,7 @@ describe('OnboardingService', () => {
 
     it('should apply configOverrides to the preview', async () => {
       const result = await service.preview({
-        templateId: 'builtin-minimal-gateway',
+        templateId: 'builtin-whatsapp-personal',
         configOverrides: { customKey: 'customValue' },
       });
 
@@ -251,7 +251,7 @@ describe('OnboardingService', () => {
     };
 
     const baseDeployDto = {
-      templateId: 'builtin-minimal-gateway',
+      templateId: 'builtin-whatsapp-personal',
       botName: 'test-bot',
       deploymentTarget: { type: 'docker' as const },
     };
@@ -356,7 +356,7 @@ describe('OnboardingService', () => {
             status: 'CREATING',
             health: 'UNKNOWN',
             deploymentTargetId: mockDeploymentTarget.id,
-            templateId: 'builtin-minimal-gateway',
+            templateId: 'builtin-whatsapp-personal',
             createdBy: 'user-1',
           }),
         }),
@@ -685,7 +685,7 @@ describe('OnboardingService', () => {
     const mockDeploymentTarget = { id: 'dt-1' };
 
     const baseDeployDto = {
-      templateId: 'builtin-minimal-gateway',
+      templateId: 'builtin-whatsapp-personal',
       botName: 'port-test-bot',
       deploymentTarget: { type: 'docker' as const },
     };

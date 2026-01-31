@@ -5,8 +5,8 @@
 /** Default Gateway port. */
 export const DEFAULT_GATEWAY_PORT = 18789;
 
-/** Current protocol version. */
-export const PROTOCOL_VERSION = 1;
+/** Current protocol version (must match OpenClaw gateway). */
+export const PROTOCOL_VERSION = 3;
 
 // ---- Error Codes ----------------------------------------------------------
 
@@ -65,26 +65,46 @@ export interface GatewayResponseError {
 export type GatewayResponse = GatewayResponseSuccess | GatewayResponseError;
 
 // ---- Connect Frame --------------------------------------------------------
+// OpenClaw gateway uses { type: "req", id, method: "connect", params: {...} }
+
+export interface ConnectParams {
+  minProtocol: number;
+  maxProtocol: number;
+  client: {
+    id: string;
+    version: string;
+    platform: string;
+    mode: string;
+    displayName?: string;
+  };
+  auth?: { token?: string; password?: string };
+  caps?: string[];
+  role?: string;
+}
 
 export interface ConnectFrame {
-  type: "connect";
-  protocolVersion: { min: number; max: number };
-  auth: GatewayAuth;
-  clientMetadata?: { name: string; version: string };
-  capabilities?: string[];
+  type: "req";
+  id: string;
+  method: "connect";
+  params: ConnectParams;
 }
 
 export interface ConnectResultSuccess {
-  type: "connected";
-  presence: PresenceSnapshot;
-  health: GatewayHealthSnapshot;
-  stateVersion: number;
+  type: "res";
+  id: string;
+  ok: true;
+  payload: {
+    presence?: PresenceSnapshot;
+    health?: GatewayHealthSnapshot;
+    stateVersion?: number;
+  };
 }
 
 export interface ConnectResultError {
-  type: "error";
-  code: GatewayErrorCode;
-  message: string;
+  type: "res";
+  id: string;
+  ok: false;
+  error: { code: string; message: string; retryable?: boolean };
 }
 
 export type ConnectResult = ConnectResultSuccess | ConnectResultError;

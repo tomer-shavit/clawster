@@ -2,38 +2,47 @@
 // Auth Helpers — build connect-frame auth payloads
 // ---------------------------------------------------------------------------
 
+import { v4 as uuidv4 } from "uuid";
 import type { GatewayAuth, ConnectFrame, GatewayConnectionOptions } from "./protocol";
 import { PROTOCOL_VERSION } from "./protocol";
 
 /**
- * Build the auth section for the connect frame based on connection options.
+ * Build the auth section for the connect frame params.
+ * OpenClaw expects { token?: string; password?: string } — no "mode" field.
  */
-export function buildAuth(auth: GatewayAuth): GatewayAuth {
+export function buildAuth(auth: GatewayAuth): { token?: string; password?: string } {
   if (auth.mode === "token") {
-    return { mode: "token", token: auth.token };
+    return { token: auth.token };
   }
-  return { mode: "password", password: auth.password };
+  return { password: auth.password };
 }
 
 /**
  * Build the full connect frame sent as the first message after the WebSocket
  * connection opens.
+ *
+ * OpenClaw expects: { type: "req", id: UUID, method: "connect", params: { ... } }
  */
 export function buildConnectFrame(options: GatewayConnectionOptions): ConnectFrame {
-  const frame: ConnectFrame = {
-    type: "connect",
-    protocolVersion: options.protocolVersion ?? {
-      min: PROTOCOL_VERSION,
-      max: PROTOCOL_VERSION,
+  const params: ConnectFrame["params"] = {
+    minProtocol: options.protocolVersion?.min ?? PROTOCOL_VERSION,
+    maxProtocol: options.protocolVersion?.max ?? PROTOCOL_VERSION,
+    client: {
+      id: options.clientMetadata?.name ?? "gateway-client",
+      version: options.clientMetadata?.version ?? "0.1.0",
+      platform: "node",
+      mode: "backend",
     },
     auth: buildAuth(options.auth),
+    role: "operator",
   };
 
-  if (options.clientMetadata) {
-    frame.clientMetadata = options.clientMetadata;
-  }
-
-  return frame;
+  return {
+    type: "req",
+    id: uuidv4(),
+    method: "connect",
+    params,
+  };
 }
 
 /**

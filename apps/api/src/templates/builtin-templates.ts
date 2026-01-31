@@ -64,7 +64,6 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     defaultConfig: {
       channels: {
         whatsapp: {
-          enabled: true,
           dmPolicy: "pairing",
           groupPolicy: "disabled",
           historyLimit: 50,
@@ -93,6 +92,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
         port: 18789,
         host: "127.0.0.1",
         auth: { token: "${GATEWAY_AUTH_TOKEN}" },
+        controlUi: { enabled: true, allowInsecureAuth: true },
       },
       logging: {
         level: "info",
@@ -140,7 +140,6 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     defaultConfig: {
       channels: {
         telegram: {
-          enabled: true,
           dmPolicy: "allowlist",
           groupPolicy: "allowlist",
           historyLimit: 100,
@@ -179,6 +178,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
         port: 18789,
         host: "127.0.0.1",
         auth: { token: "${GATEWAY_AUTH_TOKEN}" },
+        controlUi: { enabled: true, allowInsecureAuth: true },
       },
       logging: {
         level: "info",
@@ -234,7 +234,6 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     defaultConfig: {
       channels: {
         discord: {
-          enabled: true,
           dmPolicy: "allowlist",
           groupPolicy: "allowlist",
           historyLimit: 100,
@@ -270,6 +269,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
         port: 18789,
         host: "127.0.0.1",
         auth: { token: "${GATEWAY_AUTH_TOKEN}" },
+        controlUi: { enabled: true, allowInsecureAuth: true },
       },
       logging: {
         level: "info",
@@ -325,7 +325,6 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     defaultConfig: {
       channels: {
         slack: {
-          enabled: true,
           dmPolicy: "allowlist",
           groupPolicy: "allowlist",
           historyLimit: 100,
@@ -377,6 +376,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
         port: 18789,
         host: "127.0.0.1",
         auth: { token: "${GATEWAY_AUTH_TOKEN}" },
+        controlUi: { enabled: true, allowInsecureAuth: true },
       },
       logging: {
         level: "info",
@@ -440,7 +440,6 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     defaultConfig: {
       channels: {
         whatsapp: {
-          enabled: true,
           dmPolicy: "pairing",
           groupPolicy: "disabled",
           historyLimit: 50,
@@ -449,7 +448,6 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
           chunkMode: "length",
         },
         telegram: {
-          enabled: true,
           dmPolicy: "allowlist",
           groupPolicy: "allowlist",
           historyLimit: 100,
@@ -459,7 +457,6 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
           streamMode: "off",
         },
         discord: {
-          enabled: true,
           dmPolicy: "allowlist",
           groupPolicy: "allowlist",
           historyLimit: 100,
@@ -495,6 +492,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
         port: 18789,
         host: "127.0.0.1",
         auth: { token: "${GATEWAY_AUTH_TOKEN}" },
+        controlUi: { enabled: true, allowInsecureAuth: true },
       },
       logging: {
         level: "info",
@@ -628,6 +626,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
         port: 18789,
         host: "127.0.0.1",
         auth: { token: "${GATEWAY_AUTH_TOKEN}" },
+        controlUi: { enabled: true, allowInsecureAuth: true },
       },
       logging: {
         level: "debug",
@@ -653,56 +652,6 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     ],
   },
 
-  // -------------------------------------------------------------------------
-  // 7. Minimal Gateway
-  // -------------------------------------------------------------------------
-  {
-    id: "builtin-minimal-gateway",
-    name: "Minimal Gateway",
-    description:
-      "A bare-bones API-only configuration with minimal tools and no channels. Use as a starting point for custom builds.",
-    category: "minimal",
-    defaultConfig: {
-      channels: {},
-      tools: {
-        profile: "minimal",
-      },
-      sandbox: {
-        mode: "non-main",
-        scope: "session",
-        workspaceAccess: "none",
-      },
-      skills: {
-        allowBundled: [],
-        allowUnverified: false,
-      },
-      session: {
-        scope: "per-sender",
-        resetTriggers: ["/new", "/reset"],
-      },
-      gateway: {
-        port: 18789,
-        host: "127.0.0.1",
-        auth: { token: "${GATEWAY_AUTH_TOKEN}" },
-      },
-      logging: {
-        level: "warn",
-        redactSensitive: "tools",
-      },
-    },
-    requiredInputs: [
-      {
-        key: "gatewayAuthToken",
-        label: "Gateway Auth Token",
-        envVar: "GATEWAY_AUTH_TOKEN",
-        configPath: "gateway.auth.token",
-        secret: true,
-        placeholder: "auto-generated-if-empty",
-      },
-    ],
-    channels: [],
-    recommendedPolicies: ["require-secret-manager", "forbid-public-admin"],
-  },
 ];
 
 /**

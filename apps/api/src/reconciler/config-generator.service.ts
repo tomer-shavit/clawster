@@ -57,6 +57,17 @@ export class ConfigGeneratorService {
       }
     }
 
+    // Strip "enabled" from channel configs — OpenClaw doesn't recognize this key.
+    // Channels are enabled by being present in the config.
+    if (config.channels && typeof config.channels === "object") {
+      for (const [key, value] of Object.entries(config.channels)) {
+        if (value && typeof value === "object" && "enabled" in value) {
+          const { enabled: _enabled, ...rest } = value as Record<string, unknown>;
+          (config.channels as Record<string, unknown>)[key] = rest;
+        }
+      }
+    }
+
     this.logger.debug(
       `Generated config for ${manifest.metadata.name} (env=${manifest.metadata.environment})`,
     );

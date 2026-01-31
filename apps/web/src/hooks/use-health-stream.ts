@@ -15,20 +15,20 @@ interface UseHealthStreamResult {
 const POLL_INTERVAL_MS = 30_000;
 
 export function useHealthStream(instanceId: string): UseHealthStreamResult {
-  const ctx = useWebSocketContext();
+  const { subscribe, connectionStatus } = useWebSocketContext();
   const [health, setHealth] = useState<HealthSnapshotData | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const status: ConnectionState = ctx.connectionStatus[instanceId] || 'disconnected';
+  const status: ConnectionState = connectionStatus[instanceId] || 'disconnected';
   const isConnected = status === 'connected';
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!instanceId) return;
-    return ctx.subscribe(instanceId, 'health', (data) => {
+    return subscribe(instanceId, 'health', (data) => {
       const snapshot = data as HealthSnapshotData;
       if (snapshot && snapshot.overall) { setHealth(snapshot); setLastUpdated(new Date()); }
     });
-  }, [instanceId, ctx]);
+  }, [instanceId, subscribe]);
 
   const fetchHealth = useCallback(async () => {
     try {

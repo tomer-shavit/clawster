@@ -50,7 +50,7 @@ export function ChannelSetupStep({
     return (
       channelConfigs.find((c) => c.type === type) || {
         type,
-        config: { enabled: true, dmPolicy: "pairing" },
+        config: { enabled: false, dmPolicy: "pairing" },
       }
     );
   };

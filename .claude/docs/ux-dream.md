@@ -108,7 +108,7 @@ The UI reveals complexity as the user's needs grow. A user with 2 agents should 
 
 ### 2. Deploying the Next Agent Should Be as Easy as the First
 
-The wizard isn't just for onboarding — it's the deployment flow. Whether it's your first OpenClaw agent or your tenth, the path is the same: pick a template, name it, optionally configure channels, deploy. Molthub handles profile isolation, port allocation, auth token generation, and Gateway startup automatically. The product should actively encourage deploying more agents.
+The wizard isn't just for onboarding — it's the deployment flow. Whether it's your first OpenClaw agent or your tenth, the path is the same: select your deployment platform (Local/Docker, AWS, Azure, GCP — cloud options grayed out until ready), pick your channels, name it, deploy. The whole configuration (platform + channels) is one template. Molthub handles profile isolation, port allocation, auth token generation, and Gateway startup automatically. The product should actively encourage deploying more agents.
 
 **In practice:**
 - "Deploy New Bot" is always visible — in the sidebar, on the dashboard, in the header. It's never more than 1 click away.
@@ -136,8 +136,8 @@ At every point in the user's journey, the UI should make the next step obvious. 
 The entire onboarding flow — from opening Molthub for the first time to having a running OpenClaw agent with a live Gateway — must complete in under 5 minutes. This mirrors the CLI experience: `openclaw onboard --install-daemon` gets you running fast. Molthub should be even faster because the UI makes decisions for you.
 
 **In practice:**
-- The wizard has 3 decision points: Pick a template (which defines the agent's role, personality, default skills, and suggested channels), name your bot, deploy. Channels are optional (can add later).
-- Smart defaults everywhere. Docker is the default deployment target. The template provides the agent config (personality, model, tools profile, sandbox settings). Auth tokens are auto-generated. Port allocation is automatic.
+- The wizard has 3 decision points: Pick your deployment platform (Local/Docker is the only active option — AWS, Azure, GCP are visible but grayed out), pick your channels, name your bot and deploy. Channels are optional (can add later). The whole selection (platform + channels) becomes a reusable template.
+- Smart defaults everywhere. Local/Docker is the only enabled platform. Auth tokens are auto-generated. Port allocation is automatic.
 - No required fields that the user can't answer immediately. Don't ask for AWS credentials during onboarding. Don't require a channel before deploying. Don't make them configure skills before seeing the Gateway come up.
 - "Skip" is always available. Every optional step (channels, advanced config) can be skipped with a single click, with a clear message about what they're skipping and how to set it up later.
 
@@ -283,9 +283,9 @@ Every navigation path, every page title, every breadcrumb should reinforce this 
 ### Stage 1: The Wizard (first agent and every agent after)
 
 **Steps:**
-1. **Template + Name** — Pick a role for your agent (support bot, DevOps bot, personal assistant, code reviewer, etc.). Each template shows what it includes: suggested channels, tool profile, agent personality. Name your bot. One screen, two decisions.
-2. **Channels (optional)** — Configure WhatsApp, Telegram, Discord, Slack. Or skip and add later. "Skip, deploy with defaults" is prominent. The template suggests relevant channels (support bot → WhatsApp + Telegram; DevOps bot → Slack + Discord).
-3. **Review** — See what you're about to deploy: agent identity, deployment target, channels, security settings. One-click deploy button.
+1. **Platform** — Pick where your agent runs. Four cards: Local/Docker (active), AWS (grayed out), Azure (grayed out), Google Cloud (grayed out). Cloud options become available as integrations are hardened. Platform-specific config appears below when selected (Local needs nothing extra; cloud providers will show credentials, region, etc.).
+2. **Channels** — Below the platform selection, pick which channels to connect: WhatsApp, Telegram, Discord, Slack, etc. Or skip and add later. "Skip, deploy with defaults" is prominent.
+3. **Bot Name + Deploy** — Name your bot. Review summary of platform + channels. One-click deploy button. The entire selection (platform + channels) becomes a reusable template.
 4. **Deploying** — Live progress indicator showing real steps: provisioning infrastructure, starting Gateway, configuring auth, setting up agent. Then: "Your OpenClaw agent is live!" with Gateway status and clear next steps ("Add a Channel" or "Go to Dashboard").
 
 **Feeling:** "That was fast. My agent is actually running. Let me set up another one."

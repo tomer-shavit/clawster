@@ -11,23 +11,23 @@ interface GatewayWebSocketResult {
 }
 
 export function useGatewayWebSocket(instanceId: string): GatewayWebSocketResult {
-  const ctx = useWebSocketContext();
+  const { subscribe: ctxSubscribe, send: ctxSend, connectionStatus } = useWebSocketContext();
   const [lastEvent, setLastEvent] = useState<unknown>(null);
-  const status: ConnectionState = ctx.connectionStatus[instanceId] || 'disconnected';
+  const status: ConnectionState = connectionStatus[instanceId] || 'disconnected';
 
   useEffect(() => {
     if (!instanceId) return;
-    return ctx.subscribe(instanceId, 'message', (data) => setLastEvent(data));
-  }, [instanceId, ctx]);
+    return ctxSubscribe(instanceId, 'message', (data) => setLastEvent(data));
+  }, [instanceId, ctxSubscribe]);
 
   const subscribe = useCallback(
-    (event: string, callback: (data: unknown) => void) => ctx.subscribe(instanceId, event, callback),
-    [instanceId, ctx],
+    (event: string, callback: (data: unknown) => void) => ctxSubscribe(instanceId, event, callback),
+    [instanceId, ctxSubscribe],
   );
 
   const send = useCallback(
-    (event: string, data: unknown) => ctx.send(instanceId, event, data),
-    [instanceId, ctx],
+    (event: string, data: unknown) => ctxSend(instanceId, event, data),
+    [instanceId, ctxSend],
   );
 
   return { status, lastEvent, subscribe, send };

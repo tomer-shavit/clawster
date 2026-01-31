@@ -2,56 +2,52 @@
 
 import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { TemplateOption } from "@/components/onboarding/template-picker";
 import { ChannelConfig } from "@/components/onboarding/channel-setup-step";
-import { Fleet, api } from "@/lib/api";
-import { StepTemplate } from "./step-template";
+import { api } from "@/lib/api";
+import { StepPlatform, Platform } from "./step-platform";
 import { StepChannels } from "./step-channels";
-import { StepReview } from "./step-review";
+import { StepModel, ModelConfig } from "./step-model";
+import { StepNameDeploy } from "./step-name-deploy";
 import { StepDeploying } from "./step-deploying";
-import { LayoutTemplate, MessageSquare, ClipboardCheck, Rocket } from "lucide-react";
+import { Monitor, MessageSquare, Brain, Rocket, PenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
 interface DeployWizardProps {
   isFirstTime: boolean;
-  templates: TemplateOption[];
-  fleets: Fleet[];
-  initialTemplateId?: string;
 }
 
 const STEPS = [
-  { name: "Template & Name", icon: LayoutTemplate },
+  { name: "Platform", icon: Monitor },
   { name: "Channels", icon: MessageSquare },
-  { name: "Review", icon: ClipboardCheck },
+  { name: "AI Model", icon: Brain },
+  { name: "Name & Deploy", icon: PenLine },
   { name: "Deploying", icon: Rocket },
 ];
 
-export function DeployWizard({ isFirstTime, templates, fleets, initialTemplateId }: DeployWizardProps) {
+export function DeployWizard({ isFirstTime }: DeployWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
 
   // Form state
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(initialTemplateId ?? null);
+  const [selectedPlatform, setSelectedPlatform] = useState<Platform | null>(null);
   const [botName, setBotName] = useState("");
   const [channelConfigs, setChannelConfigs] = useState<ChannelConfig[]>([]);
-  const [selectedFleetId, setSelectedFleetId] = useState(fleets[0]?.id || "");
+  const [modelConfig, setModelConfig] = useState<ModelConfig | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [deployedInstanceId, setDeployedInstanceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
-
   const canProceed = useCallback((): boolean => {
     switch (currentStep) {
-      case 0: return selectedTemplateId !== null && botName.trim().length > 0 && /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(botName.trim());
+      case 0: return selectedPlatform !== null;
       case 1: return true; // channels are optional
-      case 2: return true;
+      case 2: return true; // model is optional
       default: return false;
     }
-  }, [currentStep, selectedTemplateId, botName]);
+  }, [currentStep, selectedPlatform]);
 
   const handleNext = () => {
-    if (currentStep < 3) {
+    if (currentStep < 4) {
       setCurrentStep((s) => s + 1);
     }
   };
@@ -64,25 +60,38 @@ export function DeployWizard({ isFirstTime, templates, fleets, initialTemplateId
 
   const handleSkipChannels = () => {
     setChannelConfigs([]);
-    setCurrentStep(2); // go to review
+    setCurrentStep(2);
+  };
+
+  const handleSkipModel = () => {
+    setModelConfig(null);
+    setCurrentStep(3);
   };
 
   const handleDeploy = async () => {
-    if (!selectedTemplateId || !botName.trim()) return;
+    if (deploying || !selectedPlatform || !botName.trim()) return;
 
     setDeploying(true);
     setError(null);
     try {
       const result = await api.deployOnboarding({
-        templateId: selectedTemplateId,
         botName: botName.trim(),
-        deploymentTarget: { type: "docker" },
-        channels: channelConfigs.length > 0 ? channelConfigs : undefined,
-        ...(selectedFleetId ? { environment: fleets.find(f => f.id === selectedFleetId)?.environment } : {}),
+        deploymentTarget: { type: selectedPlatform },
+        channels: channelConfigs.filter((ch) => ch.config.enabled !== false).length > 0
+          ? channelConfigs
+              .filter((ch) => ch.config.enabled !== false)
+              .map((ch) => {
+                const { enabled, ...rest } = ch.config as Record<string, unknown> & { enabled?: boolean };
+                return { type: ch.type, config: rest };
+              })
+          : undefined,
+        modelConfig: modelConfig && modelConfig.apiKey
+          ? { provider: modelConfig.provider, model: modelConfig.model, apiKey: modelConfig.apiKey }
+          : undefined,
       });
 
       setDeployedInstanceId(result.instanceId);
-      setCurrentStep(3);
+      setCurrentStep(4);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deployment failed. Please try again.");
     } finally {
@@ -103,14 +112,13 @@ export function DeployWizard({ isFirstTime, templates, fleets, initialTemplateId
       )}
 
       {/* Step indicator (hidden during deploying step) */}
-      {currentStep < 3 && (
+      {currentStep < 4 && (
         <nav className="mb-8">
           <ol className="flex items-center justify-center">
-            {STEPS.slice(0, 3).map((step, index) => {
+            {STEPS.slice(0, 4).map((step, index) => {
               const StepIcon = step.icon;
               const isActive = index === currentStep;
               const isCompleted = index < currentStep;
-
               const isClickable = isCompleted;
 
               return (
@@ -118,7 +126,7 @@ export function DeployWizard({ isFirstTime, templates, fleets, initialTemplateId
                   key={step.name}
                   className={cn(
                     "flex items-center",
-                    index < 2 && "flex-1 max-w-[200px]"
+                    index < 3 && "flex-1 max-w-[160px]"
                   )}
                 >
                   <button
@@ -150,7 +158,7 @@ export function DeployWizard({ isFirstTime, templates, fleets, initialTemplateId
                       {step.name}
                     </span>
                   </button>
-                  {index < 2 && (
+                  {index < 3 && (
                     <div
                       className={cn(
                         "flex-1 h-0.5 mx-4",
@@ -165,28 +173,17 @@ export function DeployWizard({ isFirstTime, templates, fleets, initialTemplateId
         </nav>
       )}
 
-      {/* Error message */}
-      {error && (
-        <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg mb-6">
-          {error}
-        </div>
-      )}
-
       {/* Step content */}
       <div className="mb-8">
         {currentStep === 0 && (
-          <StepTemplate
-            templates={templates}
-            selectedTemplateId={selectedTemplateId}
-            onTemplateSelect={setSelectedTemplateId}
-            botName={botName}
-            onBotNameChange={setBotName}
+          <StepPlatform
+            selectedPlatform={selectedPlatform}
+            onPlatformSelect={setSelectedPlatform}
           />
         )}
 
         {currentStep === 1 && (
           <StepChannels
-            templateChannels={selectedTemplate?.channels || []}
             channelConfigs={channelConfigs}
             onChannelChange={setChannelConfigs}
             onSkip={handleSkipChannels}
@@ -194,32 +191,40 @@ export function DeployWizard({ isFirstTime, templates, fleets, initialTemplateId
         )}
 
         {currentStep === 2 && (
-          <StepReview
-            botName={botName}
-            template={selectedTemplate}
-            channels={channelConfigs}
-            fleets={fleets}
-            selectedFleetId={selectedFleetId}
-            onFleetChange={setSelectedFleetId}
-            deploying={deploying}
-            onDeploy={handleDeploy}
+          <StepModel
+            modelConfig={modelConfig}
+            onModelConfigChange={setModelConfig}
+            onSkip={handleSkipModel}
           />
         )}
 
-        {currentStep === 3 && deployedInstanceId && (
+        {currentStep === 3 && selectedPlatform && (
+          <StepNameDeploy
+            botName={botName}
+            onBotNameChange={setBotName}
+            platform={selectedPlatform}
+            channels={channelConfigs}
+            modelConfig={modelConfig}
+            deploying={deploying}
+            onDeploy={handleDeploy}
+            error={error}
+          />
+        )}
+
+        {currentStep === 4 && deployedInstanceId && (
           <StepDeploying
             instanceId={deployedInstanceId}
             botName={botName}
             onRetryDeploy={() => {
               setDeployedInstanceId(null);
-              setCurrentStep(2);
+              setCurrentStep(3);
             }}
           />
         )}
       </div>
 
-      {/* Navigation buttons (steps 0-1 only, step 2 has deploy button in review, step 3 has its own CTAs) */}
-      {currentStep < 2 && (
+      {/* Navigation buttons (steps 0-2 only, channels and model have their own skip) */}
+      {currentStep < 3 && (
         <div className="flex items-center justify-between border-t pt-4">
           <Button
             variant="outline"
@@ -236,8 +241,8 @@ export function DeployWizard({ isFirstTime, templates, fleets, initialTemplateId
         </div>
       )}
 
-      {/* Back button on review step */}
-      {currentStep === 2 && (
+      {/* Back button on name+deploy step */}
+      {currentStep === 3 && (
         <div className="flex items-center border-t pt-4">
           <Button variant="outline" onClick={handleBack}>
             <ArrowLeft className="w-4 h-4 mr-2" />

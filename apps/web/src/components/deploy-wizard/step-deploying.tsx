@@ -13,6 +13,7 @@ import {
   XCircle,
   RefreshCw,
   AlertTriangle,
+  Info,
 } from "lucide-react";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -66,7 +67,7 @@ export function StepDeploying({ instanceId, botName, onRetryDeploy }: StepDeploy
     return () => clearInterval(interval);
   }, [instanceId]);
 
-  const isComplete = progress?.status === "completed" || pollStatus === "RUNNING";
+  const isComplete = progress?.status === "completed";
   const isError = progress?.status === "error" || pollStatus === "ERROR";
   const isTimeout = progress?.status === "timeout";
 
@@ -83,6 +84,13 @@ export function StepDeploying({ instanceId, botName, onRetryDeploy }: StepDeploy
           <p className="text-muted-foreground max-w-md mx-auto">
             <strong>{botName}</strong> is running and ready. Here&apos;s what you can do next.
           </p>
+        </div>
+
+        <div className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg text-sm text-blue-800 max-w-lg mx-auto">
+          <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>
+            If you configured WhatsApp, you&apos;ll need to complete QR pairing from the Dashboard &rarr; Channels tab to start receiving messages.
+          </span>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3 max-w-2xl mx-auto">

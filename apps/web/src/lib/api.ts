@@ -646,6 +646,10 @@ class ApiClient {
     return this.fetch(`/bot-instances/${id}`);
   }
 
+  async deleteBotInstance(id: string): Promise<void> {
+    await this.fetch(`/bot-instances/${id}`, { method: 'DELETE' });
+  }
+
   async getBotInstanceMetrics(id: string, from: Date, to: Date): Promise<TraceStats> {
     return this.fetch(`/traces/stats/${id}?from=${from.toISOString()}&to=${to.toISOString()}`);
   }
@@ -949,11 +953,12 @@ class ApiClient {
   }
 
   async deployOnboarding(data: {
-    templateId: string;
+    templateId?: string;
     botName: string;
     deploymentTarget: { type: string; [key: string]: unknown };
     channels?: Array<{ type: string; config?: Record<string, unknown> }>;
     environment?: string;
+    modelConfig?: { provider: string; model: string; apiKey: string };
   }): Promise<{ instanceId: string; fleetId: string; status: string }> {
     return this.fetch('/onboarding/deploy', {
       method: 'POST',

@@ -22,10 +22,10 @@ let logIdCounter = 0;
 
 export function useLogStream(instanceId: string, options?: UseLogStreamOptions): UseLogStreamResult {
   const { minLevel = 'debug', maxLines = 500 } = options ?? {};
-  const ctx = useWebSocketContext();
+  const { subscribe, connectionStatus } = useWebSocketContext();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const minLevelOrder = LOG_LEVEL_ORDER[minLevel];
-  const status: ConnectionState = ctx.connectionStatus[instanceId] || 'disconnected';
+  const status: ConnectionState = connectionStatus[instanceId] || 'disconnected';
   const isStreaming = status === 'connected';
   const maxLinesRef = useRef(maxLines);
   maxLinesRef.current = maxLines;
@@ -50,10 +50,10 @@ export function useLogStream(instanceId: string, options?: UseLogStreamOptions):
         return next.length > maxLinesRef.current ? next.slice(next.length - maxLinesRef.current) : next;
       });
     };
-    const unsubLog = ctx.subscribe(instanceId, 'log', handleLog);
-    const unsubAgent = ctx.subscribe(instanceId, 'agentOutput', handleLog);
+    const unsubLog = subscribe(instanceId, 'log', handleLog);
+    const unsubAgent = subscribe(instanceId, 'agentOutput', handleLog);
     return () => { unsubLog(); unsubAgent(); };
-  }, [instanceId, ctx]);
+  }, [instanceId, subscribe]);
 
   const clearLogs = useCallback(() => setLogs([]), []);
 

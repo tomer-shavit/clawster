@@ -8,6 +8,7 @@ import {
 } from "../templates/builtin-templates";
 import { OnboardingPreviewDto, OnboardingDeployDto } from "./onboarding.dto";
 import { randomBytes } from "crypto";
+import * as os from "os";
 import * as path from "path";
 
 @Injectable()
@@ -59,7 +60,6 @@ export class OnboardingService {
                 | undefined
             ),
             ...ch.config,
-            enabled: true,
           };
         }
       }
@@ -77,10 +77,11 @@ export class OnboardingService {
   async deploy(dto: OnboardingDeployDto, userId: string) {
     this.logger.log(`Starting onboarding deploy: ${dto.botName}`);
 
-    // 1. Validate template
-    const template = getBuiltinTemplate(dto.templateId);
+    // 1. Resolve template (default to whatsapp-personal if none specified)
+    const resolvedTemplateId = dto.templateId || "builtin-whatsapp-personal";
+    const template = getBuiltinTemplate(resolvedTemplateId);
     if (!template) {
-      throw new BadRequestException(`Template not found: ${dto.templateId}`);
+      throw new BadRequestException(`Template not found: ${resolvedTemplateId}`);
     }
 
     // 2. Get or create workspace
@@ -132,14 +133,14 @@ export class OnboardingService {
     if (dto.channels) {
       if (!config.channels) config.channels = {};
       for (const ch of dto.channels) {
+        const { enabled: _enabled, ...channelConf } = (ch.config || {}) as Record<string, unknown>;
         (config.channels as Record<string, unknown>)[ch.type] = {
           ...(
             (config.channels as Record<string, unknown>)[ch.type] as
               | Record<string, unknown>
               | undefined
           ),
-          ...ch.config,
-          enabled: true,
+          ...channelConf,
         };
       }
     }
@@ -151,6 +152,36 @@ export class OnboardingService {
     const defaults = agents.defaults as Record<string, unknown>;
     if (!defaults.workspace) {
       defaults.workspace = `~/openclaw/${dto.botName}`;
+    }
+
+    // Apply model config from wizard
+    const containerEnv: Record<string, string> = {};
+    if (dto.modelConfig) {
+      const providerEnvMap: Record<string, string> = {
+        anthropic: "ANTHROPIC_API_KEY",
+        openai: "OPENAI_API_KEY",
+        google: "GEMINI_API_KEY",
+        groq: "GROQ_API_KEY",
+        openrouter: "OPENROUTER_API_KEY",
+      };
+
+      // Set agents.defaults.model.primary
+      if (!defaults.model) defaults.model = {};
+      const model = defaults.model as Record<string, unknown>;
+      // OpenRouter models already include the provider prefix
+      model.primary = dto.modelConfig.provider === "openrouter"
+        ? `openrouter/${dto.modelConfig.model}`
+        : `${dto.modelConfig.provider}/${dto.modelConfig.model}`;
+
+      // Store API key as container env var
+      const envVar = providerEnvMap[dto.modelConfig.provider];
+      if (envVar) {
+        containerEnv[envVar] = dto.modelConfig.apiKey;
+      }
+
+      this.logger.log(
+        `Model configured: ${model.primary} (env: ${envVar})`,
+      );
     }
 
     // Apply overrides
@@ -201,9 +232,9 @@ export class OnboardingService {
             containerName:
               dto.deploymentTarget?.containerName || `openclaw-${dto.botName}`,
             imageName: "openclaw:local",
-            dockerfilePath: path.join(__dirname, "../../../../docker/openclaw"),
+            dockerfilePath: path.join(__dirname, "../../../../../docker/openclaw"),
             configPath:
-              dto.deploymentTarget?.configPath || `/var/molthub/gateways/${dto.botName}`,
+              dto.deploymentTarget?.configPath || path.join(os.homedir(), `.molthub/gateways/${dto.botName}`),
             gatewayPort: assignedPort,
           };
 
@@ -227,11 +258,12 @@ export class OnboardingService {
         deploymentType: deploymentType,
         deploymentTargetId: deploymentTarget.id,
         gatewayPort: assignedPort,
-        templateId: dto.templateId,
+        templateId: resolvedTemplateId,
         tags: JSON.stringify({}),
         metadata: JSON.stringify({
           gatewayAuthToken, // stored encrypted in practice
           ...targetConfig,
+          ...(Object.keys(containerEnv).length > 0 ? { containerEnv } : {}),
         }),
         createdBy: userId,
       },
@@ -250,10 +282,22 @@ export class OnboardingService {
       };
       for (const ch of dto.channels) {
         const channelType = channelTypeMap[ch.type.toLowerCase()] || "CUSTOM";
-        await prisma.communicationChannel.create({
-          data: {
+        const channelName = `${dto.botName}-${ch.type}`;
+        await prisma.communicationChannel.upsert({
+          where: {
+            workspaceId_name: {
+              workspaceId: workspace.id,
+              name: channelName,
+            },
+          },
+          update: {
+            type: channelType,
+            config: JSON.stringify(ch.config || {}),
+            status: "PENDING",
+          },
+          create: {
             workspaceId: workspace.id,
-            name: `${dto.botName}-${ch.type}`,
+            name: channelName,
             type: channelType,
             config: JSON.stringify(ch.config || {}),
             status: "PENDING",
@@ -263,11 +307,21 @@ export class OnboardingService {
       }
     }
 
-    // 9. Trigger reconciliation (async - don't await)
-    this.reconciler.reconcile(botInstance.id).catch((err) => {
+    // 9. Trigger reconciliation (async - don't await so frontend gets instanceId for event subscription)
+    this.reconciler.reconcile(botInstance.id).then(async (result) => {
+      if (!result.success) {
+        this.logger.warn(
+          `Reconcile failed for ${botInstance.id}, cleaning up DB records`,
+        );
+        await this.cleanupFailedDeployment(botInstance.id, deploymentTarget.id);
+      }
+    }).catch(async (err) => {
       this.logger.error(
-        `Reconcile failed for ${botInstance.id}: ${err.message}`,
+        `Reconcile crashed for ${botInstance.id}: ${err.message}`,
       );
+      await this.cleanupFailedDeployment(botInstance.id, deploymentTarget.id).catch((cleanupErr) => {
+        this.logger.error(`Cleanup also failed for ${botInstance.id}: ${cleanupErr.message}`);
+      });
     });
 
     return {
@@ -355,6 +409,50 @@ export class OnboardingService {
       error: effectiveError,
       steps,
     };
+  }
+
+  /**
+   * Clean up all DB records created during a failed deployment.
+   * Deletes: GatewayConnection, OpenClawProfile, HealthSnapshot, BotInstance, DeploymentTarget.
+   */
+  private async cleanupFailedDeployment(
+    instanceId: string,
+    deploymentTargetId: string,
+  ): Promise<void> {
+    this.logger.log(`Cleaning up failed deployment for ${instanceId}`);
+
+    try {
+      // Delete related records first (foreign key dependencies)
+      await prisma.gatewayConnection.deleteMany({ where: { instanceId } });
+      await prisma.openClawProfile.deleteMany({ where: { instanceId } });
+      await prisma.healthSnapshot.deleteMany({ where: { instanceId } });
+
+      // Delete communication channels linked to the bot's workspace
+      const instance = await prisma.botInstance.findUnique({
+        where: { id: instanceId },
+        select: { name: true, workspaceId: true },
+      });
+      if (instance) {
+        await prisma.communicationChannel.deleteMany({
+          where: {
+            workspaceId: instance.workspaceId,
+            name: { startsWith: `${instance.name}-` },
+          },
+        });
+      }
+
+      // Delete the bot instance
+      await prisma.botInstance.delete({ where: { id: instanceId } });
+
+      // Delete the deployment target
+      await prisma.deploymentTarget.delete({ where: { id: deploymentTargetId } });
+
+      this.logger.log(`Cleaned up all DB records for failed deployment ${instanceId}`);
+    } catch (err) {
+      this.logger.error(
+        `Failed to clean up deployment ${instanceId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**

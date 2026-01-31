@@ -12,16 +12,16 @@ async function getBotData(id: string) {
 
     const [bot, traces, metrics, changeSets, events, evolution] = await Promise.all([
       api.getBotInstance(id),
-      api.listTraces({ botInstanceId: id, from, to, limit: 100 }),
-      api.getBotInstanceMetrics(id, from, to),
-      api.listChangeSets({ botInstanceId: id }),
-      api.listDeploymentEvents(id),
+      api.listTraces({ botInstanceId: id, from, to, limit: 100 }).catch(() => []),
+      api.getBotInstanceMetrics(id, from, to).catch(() => null),
+      api.listChangeSets({ botInstanceId: id }).catch(() => []),
+      api.listDeploymentEvents(id).catch(() => []),
       api.getEvolution(id).catch(() => null),
     ]);
 
     return { bot, traces, metrics, changeSets, events, evolution };
   } catch (error) {
-    console.error("Failed to fetch bot data:", error);
+    console.error("Failed to fetch bot instance:", error);
     return { bot: null, traces: [], metrics: null, changeSets: [], events: [], evolution: null };
   }
 }

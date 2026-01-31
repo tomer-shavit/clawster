@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,8 @@ import {
   BarChart3,
   GitCompare,
   Smartphone,
+  LayoutDashboard,
+  ExternalLink,
 } from "lucide-react";
 
 interface BotDetailClientProps {
@@ -71,13 +74,27 @@ interface BotDetailClientProps {
 }
 
 export function BotDetailClient({ bot, traces, metrics, changeSets, events, evolution: initialEvolution }: BotDetailClientProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("overview");
   const [isApplyingConfig, setIsApplyingConfig] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [pairingChannel, setPairingChannel] = useState<string | null>(null);
   const [pairingState, setPairingState] = useState<PairingState>("loading");
   const [pairingQr, setPairingQr] = useState<string | undefined>();
   const [evolution, setEvolution] = useState<AgentEvolutionSnapshot | null>(initialEvolution || null);
   const [isSyncingEvolution, setIsSyncingEvolution] = useState(false);
+
+  const handleDelete = useCallback(async () => {
+    if (!confirm(`Are you sure you want to delete "${bot.name}"? This action cannot be undone.`)) return;
+    setIsDeleting(true);
+    try {
+      await api.deleteBotInstance(bot.id);
+      router.push("/bots");
+    } catch (err) {
+      console.error("Failed to delete bot:", err);
+      setIsDeleting(false);
+    }
+  }, [bot.id, bot.name, router]);
 
   const handleSyncEvolution = useCallback(async () => {
     setIsSyncingEvolution(true);
@@ -133,7 +150,8 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
   };
 
   // Build channel status from desiredManifest
-  const manifest = bot.desiredManifest;
+  const rawManifest = bot.desiredManifest;
+  const manifest = (typeof rawManifest === "string" ? JSON.parse(rawManifest) : rawManifest) as Record<string, unknown>;
   const spec = (manifest?.spec as Record<string, unknown>) || manifest;
   const openclawConfig = (spec?.openclawConfig as Record<string, unknown>) || spec;
   const channelsConfig = (openclawConfig?.channels as Record<string, unknown>) || {};
@@ -294,9 +312,9 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
                 Start
               </Button>
             )}
-            <Button variant="destructive" size="sm">
+            <Button variant="destructive" size="sm" onClick={handleDelete} disabled={isDeleting}>
               <Trash2 className="w-4 h-4 mr-2" />
-              Delete
+              {isDeleting ? "Deleting..." : "Delete"}
             </Button>
           </div>
         </div>
@@ -330,6 +348,10 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
           <TabsTrigger active={activeTab === "overview"} onClick={() => setActiveTab("overview")}>
             <Activity className="w-4 h-4 mr-1.5" />
             Overview
+          </TabsTrigger>
+          <TabsTrigger active={activeTab === "dashboard"} onClick={() => setActiveTab("dashboard")}>
+            <LayoutDashboard className="w-4 h-4 mr-1.5" />
+            Dashboard
           </TabsTrigger>
           <TabsTrigger active={activeTab === "channels"} onClick={() => setActiveTab("channels")}>
             <MessageSquare className="w-4 h-4 mr-1.5" />
@@ -635,6 +657,57 @@ export function BotDetailClient({ bot, traces, metrics, changeSets, events, evol
 
           {/* Contextual Suggestions */}
           <ContextualSuggestions bot={bot} />
+        </TabsContent>
+
+        {/* Dashboard Tab */}
+        <TabsContent active={activeTab === "dashboard"} className="mt-6">
+          {bot.status === "RUNNING" ? (() => {
+            const gatewayPort = bot.gatewayPort || 18789;
+            const gatewayConfig = openclawConfig?.gateway as Record<string, unknown> | undefined;
+            const gatewayAuth = gatewayConfig?.auth as Record<string, unknown> | undefined;
+            const gatewayToken = (gatewayAuth?.token as string) || "";
+            const baseUrl = `http://localhost:${gatewayPort}`;
+            const dashboardUrl = gatewayToken ? `${baseUrl}?token=${encodeURIComponent(gatewayToken)}` : baseUrl;
+            return (
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <LayoutDashboard className="w-4 h-4" />
+                      OpenClaw Dashboard
+                    </CardTitle>
+                    <a
+                      href={dashboardUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Button variant="outline" size="sm">
+                        <ExternalLink className="w-4 h-4 mr-2" />
+                        Open in New Tab
+                      </Button>
+                    </a>
+                  </div>
+                  <CardDescription>
+                    Native OpenClaw Control UI for this instance. Use Channels &rarr; Show QR to pair WhatsApp.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <iframe
+                    src={dashboardUrl}
+                    className="w-full border-0 rounded-b-lg"
+                    style={{ minHeight: "700px" }}
+                    title="OpenClaw Dashboard"
+                  />
+                </CardContent>
+              </Card>
+            );
+          })() : (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                Bot must be running to access the OpenClaw Dashboard.
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Channels Tab */}

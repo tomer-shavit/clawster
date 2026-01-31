@@ -85,8 +85,12 @@ export class OpenClawHealthService {
       const snapshot = await client.health();
       const latencyMs = Date.now() - startMs;
 
-      const linkedChannels = snapshot.channels.length;
-      const degradedChannels = snapshot.channels.filter((ch) => !ch.ok).length;
+      // channels may be an array or an object map from OpenClaw
+      const channelsList = Array.isArray(snapshot.channels)
+        ? snapshot.channels
+        : Object.values(snapshot.channels ?? {});
+      const linkedChannels = channelsList.length;
+      const degradedChannels = channelsList.filter((ch: Record<string, unknown>) => !ch.ok).length;
       const isHealthy = snapshot.ok && degradedChannels === 0;
 
       // Persist snapshot
@@ -268,8 +272,8 @@ export class OpenClawHealthService {
           instanceId,
           data: JSON.stringify(snapshot),
           isHealthy: snapshot.ok,
-          channelsLinked: snapshot.channels.length,
-          channelsDegraded: snapshot.channels.filter((ch) => !ch.ok).length,
+          channelsLinked: (Array.isArray(snapshot.channels) ? snapshot.channels : Object.values(snapshot.channels ?? {})).length,
+          channelsDegraded: (Array.isArray(snapshot.channels) ? snapshot.channels : Object.values(snapshot.channels ?? {})).filter((ch: Record<string, unknown>) => !ch.ok).length,
           gatewayLatencyMs: latencyMs,
         },
       });

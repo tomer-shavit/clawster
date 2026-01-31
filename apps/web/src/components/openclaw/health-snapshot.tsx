@@ -52,8 +52,10 @@ const statusDotColors: Record<HealthStatus, string> = {
 export function HealthSnapshot({ data: initialData, instanceId, className }: HealthSnapshotProps) {
   const { health: streamHealth, lastUpdated, isConnected, status: wsStatus } = useHealthStream(instanceId ?? "");
   const data = streamHealth ?? initialData;
-  const { overall, components, lastChecked } = data;
-  const overallConfig = statusConfig[overall];
+  const { overall, components: rawComponents, lastChecked } = data;
+  const components = rawComponents ?? [];
+  const normalizedOverall = (overall?.toLowerCase() ?? "unknown") as HealthStatus;
+  const overallConfig = statusConfig[normalizedOverall] ?? statusConfig.unknown;
 
   // Live "seconds ago" counter
   const [secondsAgo, setSecondsAgo] = useState<number | null>(null);

@@ -4,15 +4,18 @@ import {
   BotInstance,
   Prisma
 } from "@molthub/database";
-import { 
+import {
   PolicyEngine
 } from "@molthub/core";
 import { CreateBotInstanceDto, UpdateBotInstanceDto, UpdateAiGatewaySettingsDto, ListBotInstancesQueryDto } from "./bot-instances.dto";
 import { BulkActionType, BulkActionResultItem } from "./bot-compare.dto";
+import { ReconcilerService } from "../reconciler/reconciler.service";
 
 @Injectable()
 export class BotInstancesService {
   private readonly policyEngine = new PolicyEngine();
+
+  constructor(private readonly reconciler: ReconcilerService) {}
 
   async create(dto: CreateBotInstanceDto): Promise<BotInstance> {
     // Check for duplicate name in workspace
@@ -216,12 +219,11 @@ export class BotInstancesService {
   }
 
   async remove(id: string): Promise<void> {
-    const instance = await this.findOne(id);
-    
-    await prisma.botInstance.update({
-      where: { id },
-      data: { status: "DELETING" },
-    });
+    // Verify the instance exists
+    await this.findOne(id);
+
+    // Destroy infrastructure and delete from DB
+    await this.reconciler.delete(id);
   }
 
   async compareBots(instanceIds: string[]): Promise<BotInstance[]> {

@@ -4,15 +4,20 @@ import { ChannelSetupStep, ChannelConfig, TemplateChannelPreset } from "@/compon
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
 
+const DEFAULT_CHANNEL_PRESETS: TemplateChannelPreset[] = [
+  { type: "whatsapp", enabled: false, defaults: {} },
+  { type: "telegram", enabled: false, defaults: {} },
+  { type: "discord", enabled: false, defaults: {} },
+  { type: "slack", enabled: false, defaults: {} },
+];
+
 interface StepChannelsProps {
-  templateChannels: TemplateChannelPreset[];
   channelConfigs: ChannelConfig[];
   onChannelChange: (configs: ChannelConfig[]) => void;
   onSkip: () => void;
 }
 
 export function StepChannels({
-  templateChannels,
   channelConfigs,
   onChannelChange,
   onSkip,
@@ -33,7 +38,7 @@ export function StepChannels({
       </div>
 
       <ChannelSetupStep
-        templateChannels={templateChannels}
+        templateChannels={DEFAULT_CHANNEL_PRESETS}
         channelConfigs={channelConfigs}
         onChannelChange={onChannelChange}
       />

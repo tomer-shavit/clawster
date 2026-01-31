@@ -64,7 +64,7 @@ For users who don't want to manage infrastructure, a future hosted SaaS offering
 
 ### Deploy and Manage OpenClaws
 
-- **One-click setup**: Pick a template, choose your infrastructure (Docker, ECS, K8s, Azure, GCP), configure channels, deploy. A non-technical user can get a production OpenClaw running through a guided wizard.
+- **One-click setup**: Select your deployment platform (Local/Docker, AWS, Azure, GCP), configure channels, name your bot, deploy. The whole selection becomes a reusable template. A non-technical user can get a production OpenClaw running through a guided wizard.
 - **Lifecycle management**: Start, stop, restart, redeploy, destroy. All through the UI, API, or CLI.
 - **Multi-cloud**: Deploy targets are pluggable. AWS today, Kubernetes tomorrow, Azure next week. Users choose their stack.
 - **Bulk operations**: Restart 50 bots. Roll out a config change to a fleet. Pin versions across environments.

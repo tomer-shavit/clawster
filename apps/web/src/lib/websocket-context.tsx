@@ -105,6 +105,8 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     ws.onclose = () => {
       cleanupTimers(conn);
       conn.ws = null;
+      // Don't update status or reconnect if the connection was already removed (intentional cleanup)
+      if (!connectionsRef.current.has(instanceId)) return;
       updateStatus(instanceId, 'disconnected');
       scheduleReconnect(instanceId);
     };

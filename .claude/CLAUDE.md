@@ -12,7 +12,7 @@ This document defines the **mandatory workflow** that Claude Code must follow fo
 
 ## Step 0: Read the Docs (MANDATORY — Do This First)
 
-Before writing ANY code, you MUST read all documentation files in `.claude/docs/`:
+Before writing ANY code, you MUST read all documentation files in `.claude/docs/`. **Read all three docs in parallel** using concurrent tool calls:
 
 1. `.claude/docs/molthub-vision.md` — Product vision and platform goals
 2. `.claude/docs/current-codebase-analysis.md` — Current architecture and module inventory
@@ -22,17 +22,17 @@ Before writing ANY code, you MUST read all documentation files in `.claude/docs/
 
 ---
 
-## Step 1: Understand the Codebase
+## Step 1 + 1.5: Understand the Codebase AND Research OpenClaw (RUN IN PARALLEL)
 
-After reading docs, explore the relevant parts of the codebase before making changes:
+These two steps are **independent** and MUST be launched **in parallel** using concurrent Task tool calls in a single message:
+
+### Step 1: Understand the Codebase
 
 - Use the Explore agent to understand the files and modules related to the task
 - Read existing code in the affected areas — never propose changes to code you haven't read
 - Identify existing patterns, conventions, and dependencies
 
----
-
-## Step 1.5: Research the OpenClaw Source (MANDATORY)
+### Step 1.5: Research the OpenClaw Source (MANDATORY)
 
 Molthub integrates with **OpenClaw** (`https://github.com/openclaw/openclaw`), an open-source personal AI assistant. Before planning any feature or fix, you MUST check how OpenClaw itself implements the relevant functionality:
 
@@ -67,11 +67,14 @@ For every feature or bug fix:
 
 ---
 
-## Step 3: Implement Using Parallel Agents
+## Step 3: Implement Using Parallel Agents (MAXIMIZE CONCURRENCY)
 
 Once the plan is approved:
 
-- Use the `Task` tool with parallel agents to implement independent parts of the plan concurrently
+- **Always prefer parallel execution.** Identify which plan steps are independent and launch them ALL concurrently using multiple `Task` tool calls in a single message. Only sequence steps that have true data dependencies.
+- For each independent step, spawn a separate agent using the `Task` tool — do NOT implement sequentially when parallel is possible
+- When a step touches both API and Web, launch separate agents for each app concurrently
+- When a step requires changes to a shared package AND consuming apps, implement the package first, then launch app-level agents in parallel
 - Track progress with `TodoWrite`, marking each step as `in_progress` → `completed`
 - Follow existing codebase conventions (NestJS patterns for API, Next.js for web, Zod for schemas, Prisma for DB)
 - Do not over-engineer — only implement what the plan specifies
@@ -152,7 +155,7 @@ Once everything passes verification:
 - **Never skip tests.** E2E tests are required for completion.
 - **Never skip code review.** The review agent runs automatically after tests pass — do not skip it or ask the user first.
 - **Never skip verification.** Re-read docs after implementation.
-- **Use parallel agents** when implementing independent plan steps.
+- **ALWAYS prefer parallel execution.** This is a core principle. When multiple tool calls, agents, file reads, or searches are independent, launch them ALL concurrently in a single message. Never do sequentially what can be done in parallel. This applies to every step: reading docs, exploring code, researching OpenClaw, implementing features, running tests, and spawning review agents.
 - **One PR per feature/fix** pushed to `master` via `gh pr create`.
 - **Track everything** with `TodoWrite` for visibility.
 

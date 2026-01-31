@@ -1,3 +1,4 @@
+import * as path from "path";
 import { Injectable, Logger } from "@nestjs/common";
 import {
   prisma,
@@ -113,11 +114,18 @@ export class LifecycleManagerService {
         throw new Error(`Install failed: ${installResult.message}`);
       }
       this.provisioningEvents.updateStep(instance.id, installStepId, "completed");
+      this.provisioningEvents.updateStep(instance.id, "create_container", "in_progress");
+      this.provisioningEvents.updateStep(instance.id, "create_container", "completed");
       this.provisioningEvents.updateStep(instance.id, "write_config", "in_progress");
+      // Extract container environment variables (e.g., LLM API keys) from instance metadata
+      const instanceMeta = (typeof instance.metadata === "string" ? JSON.parse(instance.metadata) : instance.metadata) as Record<string, unknown> | null;
+      const containerEnv = (instanceMeta?.containerEnv as Record<string, string>) || undefined;
+
       const configureResult = await target.configure({
         profileName,
         gatewayPort,
         config: config as unknown as Record<string, unknown>,
+        environment: containerEnv,
       });
 
       if (!configureResult.success) {
@@ -133,7 +141,8 @@ export class LifecycleManagerService {
       // 6.
       this.provisioningEvents.updateStep(instance.id, "wait_for_gateway", "in_progress");
       const endpoint = await target.getEndpoint();
-      const client = await this.connectGateway(instance.id, endpoint);
+      const authToken = config.gateway?.auth?.token;
+      const client = await this.connectGateway(instance.id, endpoint, authToken);
       this.provisioningEvents.updateStep(instance.id, "wait_for_gateway", "completed");
 
       this.provisioningEvents.updateStep(instance.id, "health_check", "in_progress");
@@ -156,8 +165,8 @@ export class LifecycleManagerService {
         },
       });
 
-      // Upsert GatewayConnection record
-      await this.upsertGatewayConnection(instance.id, endpoint, configHash);
+      // Upsert GatewayConnection record (persist auth token for health poller)
+      await this.upsertGatewayConnection(instance.id, endpoint, configHash, authToken);
 
       // Upsert OpenClawProfile record
       await this.upsertOpenClawProfile(instance.id, profileName, gatewayPort);
@@ -412,8 +421,8 @@ export class LifecycleManagerService {
   }
 
   private getInstallStepId(deploymentType: string): string {
-    const stepMap: Record<string, string> = { docker: "pull_image", local: "install_openclaw", kubernetes: "generate_manifests", "ecs-fargate": "create_task_definition", "cloudflare-workers": "generate_wrangler_config" };
-    return stepMap[deploymentType] ?? "pull_image";
+    const stepMap: Record<string, string> = { docker: "build_image", local: "install_openclaw", kubernetes: "generate_manifests", "ecs-fargate": "create_task_definition", "cloudflare-workers": "generate_wrangler_config" };
+    return stepMap[deploymentType] ?? "build_image";
   }
 
   private getStartStepId(deploymentType: string): string {
@@ -442,6 +451,8 @@ export class LifecycleManagerService {
         type: "docker",
         docker: {
           containerName: `openclaw-${instance.name}`,
+          imageName: "openclaw:local",
+          dockerfilePath: path.join(__dirname, "../../../../../docker/openclaw"),
           configPath: `/var/openclaw/${instance.name}`,
           gatewayPort: instance.gatewayPort ?? 18789,
         },
@@ -498,6 +509,8 @@ export class LifecycleManagerService {
           type: "docker",
           docker: {
             containerName: (cfg.containerName as string) ?? "openclaw",
+            imageName: (cfg.imageName as string) ?? "openclaw:local",
+            dockerfilePath: (cfg.dockerfilePath as string) ?? path.join(__dirname, "../../../../../docker/openclaw"),
             configPath: (cfg.configPath as string) ?? "/var/openclaw",
             gatewayPort: (cfg.gatewayPort as number) ?? 18789,
             networkName: cfg.networkName as string | undefined,
@@ -562,20 +575,47 @@ export class LifecycleManagerService {
   private async connectGateway(
     instanceId: string,
     endpoint: GatewayEndpoint,
+    authToken?: string,
   ): Promise<GatewayClient> {
     const options: GatewayConnectionOptions = {
       host: endpoint.host,
       port: endpoint.port,
-      auth: { mode: "token", token: "molthub" },
+      auth: { mode: "token", token: authToken ?? "" },
     };
 
-    return this.gatewayManager.getClient(instanceId, options);
+    const maxAttempts = 10;
+    const baseDelayMs = 1_000;
+    const maxDelayMs = 10_000;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const client = await this.gatewayManager.getClient(instanceId, options);
+        return client;
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        if (attempt === maxAttempts) {
+          this.logger.error(
+            `Gateway connection failed for ${instanceId} after ${maxAttempts} attempts: ${errMsg}`,
+          );
+          throw error;
+        }
+        const delay = Math.min(baseDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
+        this.logger.debug(
+          `Gateway connection attempt ${attempt}/${maxAttempts} failed for ${instanceId}, retrying in ${delay}ms`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+
+    // Unreachable, but satisfies TypeScript
+    throw new Error("Gateway connection failed");
   }
 
   private async upsertGatewayConnection(
     instanceId: string,
     endpoint: GatewayEndpoint,
     configHash: string,
+    authToken?: string,
   ): Promise<void> {
     await prisma.gatewayConnection.upsert({
       where: { instanceId },
@@ -586,6 +626,7 @@ export class LifecycleManagerService {
         status: "CONNECTED",
         configHash,
         lastHeartbeat: new Date(),
+        ...(authToken ? { authToken } : {}),
       },
       update: {
         host: endpoint.host,
@@ -593,6 +634,7 @@ export class LifecycleManagerService {
         status: "CONNECTED",
         configHash,
         lastHeartbeat: new Date(),
+        ...(authToken ? { authToken } : {}),
       },
     });
   }

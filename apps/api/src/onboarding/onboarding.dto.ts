@@ -4,6 +4,8 @@ import {
   IsArray,
   ValidateNested,
   IsNotEmpty,
+  MaxLength,
+  Matches,
 } from "class-validator";
 import { Type } from "class-transformer";
 
@@ -13,6 +15,17 @@ class ChannelConfigDto {
 
   @IsOptional()
   config?: Record<string, unknown>;
+}
+
+class ModelConfigDto {
+  @IsString()
+  provider: string;
+
+  @IsString()
+  model: string;
+
+  @IsString()
+  apiKey: string;
 }
 
 class DeploymentTargetDto {
@@ -70,11 +83,16 @@ export class OnboardingPreviewDto {
 export class OnboardingDeployDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(63)
+  @Matches(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, {
+    message:
+      "Bot name must start with a letter or number and contain only letters, numbers, hyphens, or underscores",
+  })
   botName: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  templateId: string;
+  templateId?: string;
 
   @IsOptional()
   @IsString()
@@ -88,6 +106,11 @@ export class OnboardingDeployDto {
 
   @IsOptional()
   configOverrides?: Record<string, unknown>;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ModelConfigDto)
+  modelConfig?: ModelConfigDto;
 
   @ValidateNested()
   @Type(() => DeploymentTargetDto)

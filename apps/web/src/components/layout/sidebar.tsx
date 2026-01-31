@@ -76,11 +76,6 @@ export function Sidebar() {
     return allNavItems.filter((item) => gettingStartedLabels.has(item.label));
   }, [stage]);
 
-  // Empty stage: no sidebar at all
-  if (stage === "empty" && !isLoading) {
-    return null;
-  }
-
   const toggleExpand = (label: string) => {
     setExpanded(prev =>
       prev.includes(label)

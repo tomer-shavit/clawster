@@ -42,6 +42,7 @@ export class DockerContainerTarget implements DeploymentTarget {
 
   private config: DockerTargetConfig;
   private imageName: string;
+  private environmentVars: Record<string, string> = {};
 
   constructor(config: DockerTargetConfig) {
     this.config = config;
@@ -109,12 +110,53 @@ export class DockerContainerTarget implements DeploymentTarget {
     const configDir = this.config.configPath;
     const configFile = path.join(configDir, "openclaw.json");
 
-    const configData = {
-      profileName: config.profileName,
-      gatewayPort: config.gatewayPort,
-      environment: config.environment || {},
-      ...config.config,
-    };
+    // Store environment variables for docker run -e flags
+    if (config.environment) {
+      this.environmentVars = { ...this.environmentVars, ...config.environment };
+    }
+
+    // Transform Molthub internal schema to valid OpenClaw config format
+    const raw = { ...config.config } as Record<string, unknown>;
+
+    // gateway.host -> gateway.bind (OpenClaw uses "bind" not "host")
+    // Docker containers MUST bind to 0.0.0.0 — bridge networking cannot reach 127.0.0.1 inside the container
+    if (raw.gateway && typeof raw.gateway === "object") {
+      const gw = { ...(raw.gateway as Record<string, unknown>) };
+      gw.bind = "lan";
+      delete gw.host;
+      delete gw.port;
+      raw.gateway = gw;
+    }
+
+    // skills.allowUnverified is not a valid OpenClaw key
+    if (raw.skills && typeof raw.skills === "object") {
+      const skills = { ...(raw.skills as Record<string, unknown>) };
+      delete skills.allowUnverified;
+      raw.skills = skills;
+    }
+
+    // sandbox at root level -> agents.defaults.sandbox
+    if ("sandbox" in raw) {
+      const agents = (raw.agents as Record<string, unknown>) || {};
+      const defaults = (agents.defaults as Record<string, unknown>) || {};
+      defaults.sandbox = raw.sandbox;
+      agents.defaults = defaults;
+      raw.agents = agents;
+      delete raw.sandbox;
+    }
+
+    // channels.*.enabled is not valid for WhatsApp (and unnecessary for others —
+    // presence in the config means the channel is active)
+    if (raw.channels && typeof raw.channels === "object") {
+      for (const [key, value] of Object.entries(raw.channels as Record<string, unknown>)) {
+        if (value && typeof value === "object" && "enabled" in (value as Record<string, unknown>)) {
+          const { enabled: _enabled, ...rest } = value as Record<string, unknown>;
+          (raw.channels as Record<string, unknown>)[key] = rest;
+        }
+      }
+    }
+
+    const configData = raw;
 
     try {
       // Ensure the config directory exists
@@ -171,10 +213,15 @@ export class DockerContainerTarget implements DeploymentTarget {
       "--name",
       this.config.containerName,
       "-p",
-      `${this.config.gatewayPort}:${this.config.gatewayPort}`,
+      `${this.config.gatewayPort}:18789`,
       "-v",
       `${this.config.configPath}:/home/node/.openclaw`,
     ];
+
+    // Pass environment variables (e.g., LLM API keys)
+    for (const [key, value] of Object.entries(this.environmentVars)) {
+      args.push("-e", `${key}=${value}`);
+    }
 
     if (this.config.networkName) {
       args.push("--network", this.config.networkName);

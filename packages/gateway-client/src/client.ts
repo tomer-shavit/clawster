@@ -134,41 +134,63 @@ export class GatewayClient extends EventEmitter {
         reject(new GatewayTimeoutError("Connect handshake timed out"));
       }, this.timeoutMs);
 
+      // OpenClaw handshake flow:
+      // 1. WebSocket opens
+      // 2. Gateway sends connect.challenge event with nonce
+      // 3. Client sends connect frame (with nonce in device field if needed)
+      // 4. Gateway responds with connect result
       this.ws.once("open", () => {
-        const frame = buildConnectFrame(this.options);
-        this.ws!.send(JSON.stringify(frame));
+        // Don't send anything yet — wait for the challenge
       });
 
-      // The very first message after we send the connect frame is the
-      // connect result from the gateway.
-      this.ws.once("message", (raw: WebSocket.Data) => {
-        clearTimeout(connectTimeout);
-
-        let result: ConnectResult;
+      // First message is the connect.challenge from the gateway
+      this.ws.once("message", (challengeRaw: WebSocket.Data) => {
+        let challengeData: Record<string, unknown>;
         try {
-          result = JSON.parse(raw.toString()) as ConnectResult;
+          challengeData = JSON.parse(challengeRaw.toString()) as Record<string, unknown>;
         } catch {
-          reject(new GatewayConnectionError("Invalid connect response"));
+          reject(new GatewayConnectionError("Invalid challenge message"));
           return;
         }
 
-        if (result.type === "error") {
-          this.cleanup();
-          if (
-            result.code === GatewayErrorCode.UNAVAILABLE ||
-            result.message?.toLowerCase().includes("auth")
-          ) {
-            reject(new GatewayAuthError(result.message, result.code));
-          } else {
-            reject(new GatewayConnectionError(result.message, result.code));
+        // Send connect frame (challenge is acknowledged by responding, no nonce echo needed)
+        const frame = buildConnectFrame(this.options);
+        this.ws!.send(JSON.stringify(frame));
+
+        // Second message is the connect result
+        this.ws!.once("message", (resultRaw: WebSocket.Data) => {
+          clearTimeout(connectTimeout);
+
+          let data: Record<string, unknown>;
+          try {
+            data = JSON.parse(resultRaw.toString()) as Record<string, unknown>;
+          } catch {
+            reject(new GatewayConnectionError("Invalid connect response"));
+            return;
           }
-          return;
-        }
 
-        this.connected = true;
-        this.reconnectAttempt = 0;
-        this.attachListeners();
-        resolve(result);
+          // OpenClaw response format: { type: "res", id, ok, payload/error }
+          if (data.type === "res" && data.ok === false) {
+            this.cleanup();
+            const err = data.error as { code?: string; message?: string } | undefined;
+            const msg = err?.message ?? "Connection rejected";
+            const code = err?.code ?? "";
+            if (code === "UNAVAILABLE" || msg.toLowerCase().includes("auth")) {
+              reject(new GatewayAuthError(msg, code as GatewayErrorCode));
+            } else {
+              reject(new GatewayConnectionError(msg, code as GatewayErrorCode));
+            }
+            return;
+          }
+
+          // Normalize to ConnectResult for callers
+          const result: ConnectResult = data as unknown as ConnectResult;
+
+          this.connected = true;
+          this.reconnectAttempt = 0;
+          this.attachListeners();
+          resolve(result);
+        });
       });
 
       this.ws.once("error", (err: Error) => {
@@ -241,7 +263,7 @@ export class GatewayClient extends EventEmitter {
    */
   async agent(request: AgentRequest): Promise<AgentResult> {
     const id = uuidv4();
-    const msg: GatewayMessage = { id, method: "agent", params: request as unknown as Record<string, unknown> };
+    const msg: Record<string, unknown> = { type: "req", id, method: "agent", params: request as unknown as Record<string, unknown> };
 
     this.ensureConnected();
 
@@ -303,7 +325,8 @@ export class GatewayClient extends EventEmitter {
       return null as unknown as T; // Short-circuited by interceptor
     }
 
-    const msg: GatewayMessage = { id: processed.id, method: processed.method };
+    // OpenClaw expects: { type: "req", id, method, params }
+    const msg: Record<string, unknown> = { type: "req", id: processed.id, method: processed.method };
     if (processed.params !== undefined) {
       msg.params = processed.params;
     }
@@ -339,9 +362,10 @@ export class GatewayClient extends EventEmitter {
         return; // silently drop unparseable frames
       }
 
-      // Response to a pending request
+      // OpenClaw response: { type: "res", id, ok, payload/error }
+      // Legacy response: { id, result/error }
       if (typeof data.id === "string" && this.pending.has(data.id)) {
-        this.handleResponse(data as unknown as GatewayResponse);
+        this.handleResponse(data);
         return;
       }
 
@@ -355,8 +379,19 @@ export class GatewayClient extends EventEmitter {
         return;
       }
 
-      // Event
-      if (typeof data.type === "string") {
+      // OpenClaw event: { type: "event", name: "...", payload: {...} }
+      // Legacy event: { type: "agentOutput" | "presence" | ... }
+      if (data.type === "event" && typeof data.name === "string") {
+        // Normalize OpenClaw event format to legacy format
+        const normalized = {
+          type: data.name as string,
+          ...(data.payload as Record<string, unknown> ?? {}),
+        };
+        this.handleEvent(normalized as unknown as GatewayEvent);
+        return;
+      }
+
+      if (typeof data.type === "string" && data.type !== "res") {
         this.handleEvent(data as unknown as GatewayEvent);
       }
     });
@@ -376,19 +411,26 @@ export class GatewayClient extends EventEmitter {
     });
   }
 
-  private handleResponse(response: GatewayResponse): void {
-    const pending = this.pending.get(response.id);
+  private handleResponse(response: Record<string, unknown>): void {
+    const id = response.id as string;
+    const pending = this.pending.get(id);
     if (!pending) return;
 
     clearTimeout(pending.timer);
-    this.pending.delete(response.id);
+    this.pending.delete(id);
+
+    // OpenClaw uses { type: "res", id, ok, payload/error }
+    // Legacy format uses { id, result/error }
+    const isOk = response.ok !== undefined ? response.ok === true : !response.error;
+    const result = response.payload ?? response.result;
+    const error = response.error as { code?: string; message?: string } | undefined;
 
     // Build inbound message for interceptor chain
-    const inbound: InboundMessage = { id: response.id };
-    if (response.error) {
-      inbound.error = { code: response.error.code, message: response.error.message };
+    const inbound: InboundMessage = { id };
+    if (!isOk && error) {
+      inbound.error = { code: error.code ?? "UNKNOWN", message: error.message ?? "Unknown error" };
     } else {
-      inbound.result = response.result;
+      inbound.result = result;
     }
 
     // Run inbound interceptors, then resolve/reject
