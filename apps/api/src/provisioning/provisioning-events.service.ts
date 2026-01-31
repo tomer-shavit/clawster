@@ -33,6 +33,7 @@ const STEP_NAMES: Record<string, string> = {
   validate_config: "Validate configuration",
   security_audit: "Security audit",
   pull_image: "Pull container image",
+  build_image: "Build container image",
   create_container: "Create container",
   write_config: "Write configuration",
   start_container: "Start container",
@@ -59,7 +60,7 @@ export const PROVISIONING_STEPS: Record<string, string[]> = {
   docker: [
     "validate_config",
     "security_audit",
-    "pull_image",
+    "build_image",
     "create_container",
     "write_config",
     "start_container",

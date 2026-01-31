@@ -2,13 +2,17 @@ version: '3.8'
 
 services:
   gateway:
-    image: ghcr.io/openclaw/openclaw:latest
+    build:
+      context: ./docker/openclaw
+      dockerfile: Dockerfile
+    image: openclaw:local
     ports:
       - "18789:18789"
     environment:
-      - OPENCLAW_CONFIG_PATH=/app/config/config.json
+      - HOME=/home/node
+      - TERM=xterm-256color
     volumes:
-      - gateway-config:/app/config
+      - gateway-config:/home/node/.openclaw
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "node -e \"const http=require('http');const r=http.get('http://localhost:18789',res=>{process.exit(res.statusCode<500?0:1)});r.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),3000)\""]

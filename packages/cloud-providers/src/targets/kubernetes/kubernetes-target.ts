@@ -12,7 +12,12 @@ import {
   KubernetesTargetConfig,
 } from "../../interface/deployment-target";
 
-const DEFAULT_IMAGE = "ghcr.io/openclaw/openclaw:latest";
+/**
+ * Kubernetes requires a registry-hosted image. Users must build and push
+ * the OpenClaw image to their own registry and set the `image` field
+ * in their Kubernetes deployment config.
+ */
+const DEFAULT_IMAGE = "openclaw:local";
 
 /**
  * Executes a command using child_process.execFile and returns stdout.

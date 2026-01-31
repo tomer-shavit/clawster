@@ -8,6 +8,7 @@ import {
 } from "../templates/builtin-templates";
 import { OnboardingPreviewDto, OnboardingDeployDto } from "./onboarding.dto";
 import { randomBytes } from "crypto";
+import * as path from "path";
 
 @Injectable()
 export class OnboardingService {
@@ -199,7 +200,8 @@ export class OnboardingService {
         : {
             containerName:
               dto.deploymentTarget?.containerName || `openclaw-${dto.botName}`,
-            imageName: "ghcr.io/openclaw/openclaw:latest",
+            imageName: "openclaw:local",
+            dockerfilePath: path.join(__dirname, "../../../../docker/openclaw"),
             configPath:
               dto.deploymentTarget?.configPath || `/var/molthub/gateways/${dto.botName}`,
             gatewayPort: assignedPort,

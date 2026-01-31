@@ -128,7 +128,7 @@ export interface DeploymentTarget {
   /**
    * Install the OpenClaw gateway on this target.
    * For local/VM: runs `openclaw gateway install`.
-   * For Docker: pulls the container image.
+   * For Docker: ensures the container image is available (check local, build, or pull).
    * For Kubernetes: generates and applies manifests.
    */
   install(options: InstallOptions): Promise<InstallResult>;
@@ -213,8 +213,10 @@ export interface RemoteVMConfig {
  * Configuration for Docker container targets
  */
 export interface DockerTargetConfig {
-  /** Docker image name (default: "ghcr.io/openclaw/openclaw:latest") */
+  /** Docker image name (default: "openclaw:local") */
   imageName?: string;
+  /** Path to Dockerfile directory for building the image locally */
+  dockerfilePath?: string;
   /** Name for the container */
   containerName: string;
   /** Local path to mount as config volume */
@@ -233,7 +235,7 @@ export interface KubernetesTargetConfig {
   namespace: string;
   /** Name for the Deployment resource */
   deploymentName: string;
-  /** Container image (default: "ghcr.io/openclaw/openclaw:latest") */
+  /** Container image (default: "openclaw:local") */
   image?: string;
   /** Gateway port */
   gatewayPort: number;

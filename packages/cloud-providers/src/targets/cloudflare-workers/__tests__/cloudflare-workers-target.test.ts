@@ -238,7 +238,7 @@ describe("wrangler-generator", () => {
       const vars = {};
       const output = generateWranglerConfig(config, vars);
 
-      expect(output.dockerfile).toContain("FROM ghcr.io/openclaw/openclaw:latest");
+      expect(output.dockerfile).toContain("FROM node:22-slim");
       expect(output.dockerfile).toContain("EXPOSE 18789");
       expect(output.dockerfile).toContain("start-openclaw.sh");
       expect(output.dockerfile).toContain("OPENCLAW_CONFIG_PATH");

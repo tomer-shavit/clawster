@@ -12,7 +12,12 @@ import {
 } from "../../interface/deployment-target";
 import type { EcsFargateConfig } from "./ecs-fargate-config";
 
-const DEFAULT_IMAGE = "ghcr.io/openclaw/openclaw:latest";
+/**
+ * ECS Fargate requires a registry-hosted image. Users must build and push
+ * the OpenClaw image to their own registry (e.g. ECR) and set the `image`
+ * field in their ECS Fargate deployment config.
+ */
+const DEFAULT_IMAGE = "openclaw:local";
 const DEFAULT_CLUSTER = "openclaw-cluster";
 const DEFAULT_CPU = 256;
 const DEFAULT_MEMORY = 512;

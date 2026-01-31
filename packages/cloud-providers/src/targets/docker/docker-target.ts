@@ -1,4 +1,5 @@
 import { execFile } from "child_process";
+import * as path from "path";
 import {
   DeploymentTarget,
   DeploymentTargetType,
@@ -12,7 +13,7 @@ import {
   DockerTargetConfig,
 } from "../../interface/deployment-target";
 
-const DEFAULT_IMAGE = "ghcr.io/openclaw/openclaw:latest";
+const DEFAULT_IMAGE = "openclaw:local";
 
 /**
  * Executes a command using child_process.execFile and returns stdout.
@@ -48,7 +49,7 @@ export class DockerContainerTarget implements DeploymentTarget {
   }
 
   /**
-   * Pull the Docker image for the OpenClaw gateway.
+   * Ensure the Docker image is available locally — check, build, or pull.
    */
   async install(options: InstallOptions): Promise<InstallResult> {
     const image = options.openclawVersion
@@ -56,10 +57,33 @@ export class DockerContainerTarget implements DeploymentTarget {
       : this.imageName;
 
     try {
+      // Check if image already exists locally
+      try {
+        await runCommand("docker", ["image", "inspect", image, "--format", "ok"]);
+        this.imageName = image;
+        return {
+          success: true,
+          instanceId: this.config.containerName,
+          message: `Image ${image} already available locally`,
+        };
+      } catch {
+        // Image not found locally — build or pull
+      }
+
+      if (this.config.dockerfilePath) {
+        const resolved = path.resolve(this.config.dockerfilePath);
+        await runCommand("docker", ["build", "-t", image, resolved]);
+        this.imageName = image;
+        return {
+          success: true,
+          instanceId: this.config.containerName,
+          message: `Built Docker image ${image}`,
+        };
+      }
+
+      // Fallback: try to pull (for users with custom registries)
       await runCommand("docker", ["pull", image]);
-
       this.imageName = image;
-
       return {
         success: true,
         instanceId: this.config.containerName,
@@ -69,7 +93,7 @@ export class DockerContainerTarget implements DeploymentTarget {
       return {
         success: false,
         instanceId: this.config.containerName,
-        message: `Failed to pull image: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to obtain image ${image}: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
   }
@@ -83,7 +107,7 @@ export class DockerContainerTarget implements DeploymentTarget {
     const path = await import("path");
 
     const configDir = this.config.configPath;
-    const configFile = path.join(configDir, "config.json");
+    const configFile = path.join(configDir, "openclaw.json");
 
     const configData = {
       profileName: config.profileName,
@@ -149,9 +173,7 @@ export class DockerContainerTarget implements DeploymentTarget {
       "-p",
       `${this.config.gatewayPort}:${this.config.gatewayPort}`,
       "-v",
-      `${this.config.configPath}:/app/config:ro`,
-      "-e",
-      `OPENCLAW_CONFIG_PATH=/app/config/config.json`,
+      `${this.config.configPath}:/home/node/.openclaw`,
     ];
 
     if (this.config.networkName) {

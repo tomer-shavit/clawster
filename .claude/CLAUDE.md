@@ -32,6 +32,25 @@ After reading docs, explore the relevant parts of the codebase before making cha
 
 ---
 
+## Step 1.5: Research the OpenClaw Source (MANDATORY)
+
+Molthub integrates with **OpenClaw** (`https://github.com/openclaw/openclaw`), an open-source personal AI assistant. Before planning any feature or fix, you MUST check how OpenClaw itself implements the relevant functionality:
+
+1. Use `WebFetch` or `gh api` to browse the OpenClaw repo at `https://github.com/openclaw/openclaw`
+2. Key areas to check depending on the task:
+   - **Gateway/WebSocket protocol**: `src/gateway/` — server implementation, auth, config reload, health, RPC methods
+   - **Config model**: `src/config/` — how `openclaw.json` is structured, validated, and reloaded
+   - **Channels**: `src/channels/`, `extensions/` — how channels (WhatsApp, Telegram, Discord, etc.) are implemented
+   - **CLI commands**: `src/cli/`, `src/commands/` — how `openclaw onboard`, `openclaw gateway`, etc. work
+   - **Docker setup**: `docker-compose.yml`, `Dockerfile` — how OpenClaw runs in containers
+   - **Protocol types**: `src/gateway/protocol/` — the WebSocket message schema
+3. Understand how the real OpenClaw works **before** designing how Molthub should integrate with it
+4. If the task involves Gateway communication, config management, deployment, or health monitoring — this step is especially critical
+
+**Why**: Molthub is a management layer for OpenClaw. Building features without understanding the real OpenClaw implementation leads to wrong assumptions, broken integrations, and wasted effort.
+
+---
+
 ## Step 2: Plan Before Coding
 
 For every feature or bug fix:
@@ -41,6 +60,7 @@ For every feature or bug fix:
    - The feature requirements provided by the user
    - The docs in `.claude/docs/` (especially `openclaw-reference.md`)
    - The existing codebase patterns discovered in Step 1
+   - **The real OpenClaw implementation** discovered in Step 1.5
 3. Break the plan into concrete, actionable steps using `TodoWrite`
 4. Present the plan to the user for approval before writing any code
 5. The plan MUST include an end-to-end testing step — no plan is complete without it
@@ -127,6 +147,7 @@ Once everything passes verification:
 ## Key Rules
 
 - **Never skip the docs.** Every session starts by reading `.claude/docs/`.
+- **Never skip OpenClaw research.** Before planning, check `https://github.com/openclaw/openclaw` for the real implementation of relevant features.
 - **Never skip planning.** Use `EnterPlanMode` for non-trivial work.
 - **Never skip tests.** E2E tests are required for completion.
 - **Never skip code review.** The review agent runs automatically after tests pass — do not skip it or ask the user first.

@@ -10,7 +10,7 @@
 import { CloudflareWorkersConfig } from "../../interface/deployment-target";
 
 /** Default OpenClaw container image */
-const DEFAULT_IMAGE = "ghcr.io/openclaw/openclaw:latest";
+const DEFAULT_IMAGE = "openclaw:local";
 
 /** Default sandbox instance type */
 const DEFAULT_SANDBOX_INSTANCE_TYPE = "standard-4";
@@ -126,10 +126,9 @@ function generateWranglerJsonc(
  */
 function generateDockerfile(config: CloudflareWorkersConfig): string {
   const lines = [
-    `FROM ${DEFAULT_IMAGE}`,
-    "",
-    "# Create directories for config and state",
-    "RUN mkdir -p /app/config /app/state",
+    "FROM node:22-slim",
+    "RUN npm install -g openclaw@latest",
+    "RUN mkdir -p /app/config /app/state /home/node/.openclaw",
     "",
     "# Copy startup script",
     "COPY start-openclaw.sh /app/start-openclaw.sh",

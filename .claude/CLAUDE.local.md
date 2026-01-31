@@ -53,6 +53,31 @@ Configuration layering: Template → Profile → Overlay → manifest (deepMerge
 - **Deployment Target**: Where an OpenClaw runs — local (systemd/launchd), remote VM (SSH), Docker, ECS Fargate, Cloud Run, ACI, Kubernetes
 - **Gateway Connection**: WebSocket link to a running OpenClaw instance (port 18789) for config apply, health, status, and logs
 
+## OpenClaw Source Reference
+
+OpenClaw is a real, open-source project: **https://github.com/openclaw/openclaw** (MIT, TypeScript, 126k+ stars)
+
+- **Install**: `npm install -g openclaw@latest` (requires Node >= 22)
+- **Start gateway**: `openclaw gateway --port 18789 --verbose`
+- **Onboard wizard**: `openclaw onboard --install-daemon` (installs systemd/launchd service)
+- **Docker image**: `openclaw:local` — runs `node dist/index.js gateway`
+- **Docker ports**: 18789 (gateway WS), 18790 (control UI)
+- **Config location**: `~/.openclaw/openclaw.json`
+
+**Key source directories** (for research during planning):
+| Path | What |
+|------|------|
+| `src/gateway/` | Gateway server, WebSocket handlers, auth, config reload, health, RPC methods |
+| `src/gateway/protocol/` | WebSocket message types and schema |
+| `src/config/` | Config loading, validation, migration |
+| `src/channels/` | Channel implementations |
+| `extensions/` | Channel extensions (Matrix, Zalo, Teams, etc.) |
+| `src/cli/`, `src/commands/` | CLI commands (`onboard`, `gateway`, `doctor`, etc.) |
+| `src/daemon/` | Daemon/service management |
+| `docker-compose.yml` | Container setup with gateway + CLI services |
+
+**IMPORTANT**: Always check the OpenClaw source before implementing Molthub features that interact with it. The source of truth is the GitHub repo, not assumptions.
+
 ## OpenClaw Integration Essentials
 
 - **Gateway WebSocket** on default port 18789 is the canonical transport for control and telemetry
