@@ -9,7 +9,10 @@ import {
 } from "@nestjs/websockets";
 import { Logger } from "@nestjs/common";
 import { Server, Socket } from "socket.io";
-import type { ProvisioningProgress } from "./provisioning-events.service";
+import type {
+  ProvisioningProgress,
+  ProvisioningLogEntry,
+} from "./provisioning-events.service";
 
 interface SubscribePayload {
   instanceId: string;
@@ -27,9 +30,18 @@ export class ProvisioningEventsGateway
 
   private readonly logger = new Logger(ProvisioningEventsGateway.name);
   private readonly socketSubscriptions = new Map<string, Set<string>>();
+  private recentLogsProvider:
+    | ((instanceId: string) => ProvisioningLogEntry[])
+    | null = null;
 
   afterInit(): void {
     this.logger.log("Provisioning WebSocket gateway initialized");
+  }
+
+  setRecentLogsProvider(
+    fn: (instanceId: string) => ProvisioningLogEntry[],
+  ): void {
+    this.recentLogsProvider = fn;
   }
 
   handleDisconnect(client: Socket): void {
@@ -65,6 +77,11 @@ export class ProvisioningEventsGateway
     subs.add(instanceId);
     client.join(`provisioning:${instanceId}`);
 
+    const recentLogs = this.recentLogsProvider?.(instanceId) ?? [];
+    if (recentLogs.length > 0) {
+      client.emit("provisioning-logs-buffer", recentLogs);
+    }
+
     return { success: true };
   }
 
@@ -86,5 +103,11 @@ export class ProvisioningEventsGateway
     this.server
       .to(`provisioning:${instanceId}`)
       .emit("progress", progress);
+  }
+
+  emitLog(instanceId: string, entry: ProvisioningLogEntry): void {
+    this.server
+      .to(`provisioning:${instanceId}`)
+      .emit("provisioning-log", entry);
   }
 }

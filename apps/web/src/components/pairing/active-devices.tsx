@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useToast } from "@/components/ui/toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,11 +26,15 @@ interface ActiveDevicesProps {
 
 export function ActiveDevices({ pairings, onRevoke, isLoading }: ActiveDevicesProps) {
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const { confirm: showConfirm } = useToast();
 
   const handleRevoke = async (channelType: string, senderId: string) => {
-    const confirmed = window.confirm(
-      `Are you sure you want to revoke access for sender ${maskSenderId(senderId)} on ${channelType}?`
-    );
+    const confirmed = await showConfirm({
+      message: `Revoke access?`,
+      description: `Sender ${maskSenderId(senderId)} on ${channelType} will lose access.`,
+      confirmLabel: "Revoke",
+      variant: "destructive",
+    });
     if (!confirmed) return;
 
     const key = `${channelType}:${senderId}`;

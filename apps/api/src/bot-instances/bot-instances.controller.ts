@@ -21,10 +21,14 @@ import {
   ListBotInstancesQueryDto
 } from "./bot-instances.dto";
 import { CompareBotsDto, BulkActionDto, BulkActionResultItem } from "./bot-compare.dto";
+import { OpenClawHealthService } from "../health/openclaw-health.service";
 
 @Controller("bot-instances")
 export class BotInstancesController {
-  constructor(private readonly botInstancesService: BotInstancesService) {}
+  constructor(
+    private readonly botInstancesService: BotInstancesService,
+    private readonly openClawHealthService: OpenClawHealthService,
+  ) {}
 
   @Post()
   create(@Body() dto: CreateBotInstanceDto): Promise<BotInstance> {
@@ -113,6 +117,12 @@ export class BotInstancesController {
   @HttpCode(HttpStatus.OK)
   async doctor(@Param("id") id: string): Promise<Record<string, unknown>> {
     return this.botInstancesService.runDoctor(id);
+  }
+
+  @Get(":id/usage")
+  async getUsage(@Param("id") id: string) {
+    const usage = await this.openClawHealthService.getUsage(id);
+    return usage ?? { totals: null, daily: [] };
   }
 
   @Delete(":id")

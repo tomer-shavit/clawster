@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,7 +33,7 @@ import { JustDeployedBanner } from "@/components/dashboard/just-deployed-banner"
 import { EvolutionBanner, type EvolutionBannerData } from "@/components/openclaw/evolution-banner";
 import { LiveSkills } from "@/components/openclaw/live-skills";
 import { EvolutionDiff } from "@/components/openclaw/evolution-diff";
-import { api, type BotInstance, type Trace, type TraceStats, type ChangeSet, type DeploymentEvent, type AgentEvolutionSnapshot } from "@/lib/api";
+import { api, type BotInstance, type Trace, type TraceStats, type ChangeSet, type DeploymentEvent, type AgentEvolutionSnapshot, type TokenUsageSummary } from "@/lib/api";
 import { AiGatewayToggle } from "@/components/openclaw/ai-gateway-toggle";
 import { PairingTab } from "@/components/pairing/pairing-tab";
 import Link from "next/link";
@@ -75,6 +76,7 @@ interface BotDetailClientProps {
 
 export function BotDetailClient({ bot, traces = [], metrics = null, changeSets = [], events = [], evolution: initialEvolution }: BotDetailClientProps) {
   const router = useRouter();
+  const { toast, confirm: showConfirm } = useToast();
   const [activeTab, setActiveTab] = useState("overview");
   const [isApplyingConfig, setIsApplyingConfig] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -84,32 +86,71 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
   const [pairingQr, setPairingQr] = useState<string | undefined>();
   const [evolution, setEvolution] = useState<AgentEvolutionSnapshot | null>(initialEvolution || null);
   const [isSyncingEvolution, setIsSyncingEvolution] = useState(false);
+  const [isReconciling, setIsReconciling] = useState(false);
+  const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [diagResult, setDiagResult] = useState<Record<string, unknown> | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageSummary | null>(null);
+  const [isLoadingUsage, setIsLoadingUsage] = useState(false);
+
+  // Fetch token usage when bot is running/degraded, poll every 15s
+  useEffect(() => {
+    if (bot.status !== "RUNNING" && bot.status !== "DEGRADED") return;
+
+    const fetchUsage = () => {
+      setIsLoadingUsage((prev) => prev); // keep current loading state for polls
+      api.getTokenUsage(bot.id)
+        .then((data) => setTokenUsage(data))
+        .catch(() => setTokenUsage(null))
+        .finally(() => setIsLoadingUsage(false));
+    };
+
+    setIsLoadingUsage(true);
+    fetchUsage();
+
+    const interval = setInterval(fetchUsage, 15_000);
+    return () => clearInterval(interval);
+  }, [bot.id, bot.status]);
 
   const handleDelete = useCallback(async () => {
-    if (!confirm(`Are you sure you want to delete "${bot.name}"? This action cannot be undone.`)) return;
+    const confirmed = await showConfirm({
+      message: `Delete "${bot.name}"?`,
+      description: "This action cannot be undone. The instance and all its data will be permanently removed.",
+      confirmLabel: "Delete",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
     setIsDeleting(true);
     try {
       await api.deleteBotInstance(bot.id);
+      toast("Instance deleted", "success");
       router.push("/bots");
     } catch (err) {
       console.error("Failed to delete bot:", err);
+      toast("Failed to delete instance", "error");
       setIsDeleting(false);
     }
-  }, [bot.id, bot.name, router]);
-
+  }, [bot.id, bot.name, router, showConfirm, toast]);
 
   const handleStop = useCallback(async () => {
-    if (!confirm(`Are you sure you want to stop "${bot.name}"?`)) return;
+    const confirmed = await showConfirm({
+      message: `Stop "${bot.name}"?`,
+      description: "The instance will be shut down. You can restart it later.",
+      confirmLabel: "Stop",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
     setIsLifecycleAction(true);
     try {
       await api.stopBotInstance(bot.id);
+      toast("Instance stopped", "success");
       router.refresh();
     } catch (err) {
       console.error("Failed to stop bot:", err);
+      toast("Failed to stop instance", "error");
     } finally {
       setIsLifecycleAction(false);
     }
-  }, [bot.id, bot.name, router]);
+  }, [bot.id, bot.name, router, showConfirm, toast]);
 
   const handleStart = useCallback(async () => {
     setIsLifecycleAction(true);
@@ -271,21 +312,34 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
 
   // Reconcile
   const handleReconcile = useCallback(async () => {
+    setIsReconciling(true);
     try {
       await api.reconcileInstance(bot.id);
+      toast("Reconciliation complete", "success");
+      router.refresh();
     } catch (err) {
       console.error("Failed to reconcile:", err);
+      toast("Reconcile failed. Check logs for details.", "error");
+    } finally {
+      setIsReconciling(false);
     }
-  }, [bot.id]);
+  }, [bot.id, router, toast]);
 
   // Run diagnostics
   const handleDiagnostics = useCallback(async () => {
+    setIsDiagnosing(true);
+    setDiagResult(null);
     try {
-      await api.runDiagnostics(bot.id);
+      const result = await api.runDiagnostics(bot.id);
+      setDiagResult(result as unknown as Record<string, unknown>);
+      toast("Diagnostics complete", "success");
     } catch (err) {
       console.error("Failed to run diagnostics:", err);
+      toast("Diagnostics failed. Check logs for details.", "error");
+    } finally {
+      setIsDiagnosing(false);
     }
-  }, [bot.id]);
+  }, [bot.id, toast]);
 
   const recentTraces = traces.slice(0, 20);
   const traceTypeStats = traces.reduce((acc, trace) => {
@@ -322,13 +376,13 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleReconcile}>
-              <RotateCcw className="w-4 h-4 mr-2" />
-              Reconcile
+            <Button variant="outline" size="sm" onClick={handleReconcile} disabled={isReconciling}>
+              <RotateCcw className={`w-4 h-4 mr-2 ${isReconciling ? "animate-spin" : ""}`} />
+              {isReconciling ? "Reconciling..." : "Reconcile"}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleDiagnostics}>
+            <Button variant="outline" size="sm" onClick={handleDiagnostics} disabled={isDiagnosing}>
               <Stethoscope className="w-4 h-4 mr-2" />
-              Diagnose
+              {isDiagnosing ? "Diagnosing..." : "Diagnose"}
             </Button>
             {bot.status === "RUNNING" || bot.status === "DEGRADED" ? (
               <Button variant="outline" size="sm" onClick={handleStop} disabled={isLifecycleAction}>
@@ -410,6 +464,24 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
               Try clicking <strong>Reconcile</strong> to retry, or check the logs for more details.
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Diagnostics Result */}
+      {diagResult && (
+        <div className="p-4 mb-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-medium text-indigo-800 flex items-center gap-2">
+              <Stethoscope className="w-4 h-4" />
+              Diagnostics Result
+            </p>
+            <Button variant="ghost" size="sm" onClick={() => setDiagResult(null)} className="text-indigo-600 h-6 px-2">
+              Dismiss
+            </Button>
+          </div>
+          <pre className="text-sm text-indigo-900 bg-indigo-100 rounded p-3 overflow-auto max-h-64 whitespace-pre-wrap">
+            {JSON.stringify(diagResult, null, 2)}
+          </pre>
         </div>
       )}
 
@@ -527,6 +599,24 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
               className={bot.restartCount > 0 ? "border-l-4 border-l-yellow-500" : ""}
             />
           </div>
+
+          {/* Token Usage */}
+          {(bot.status === "RUNNING" || bot.status === "DEGRADED") && (
+            <div className="grid gap-4 md:grid-cols-2 mb-6">
+              <MetricCard
+                title="Input Tokens"
+                value={isLoadingUsage ? "..." : tokenUsage?.totals ? tokenUsage.totals.input.toLocaleString() : "N/A"}
+                description="Total input tokens consumed"
+                icon={<Zap className="w-4 h-4" />}
+              />
+              <MetricCard
+                title="Output Tokens"
+                value={isLoadingUsage ? "..." : tokenUsage?.totals ? tokenUsage.totals.output.toLocaleString() : "N/A"}
+                description="Total output tokens generated"
+                icon={<Zap className="w-4 h-4" />}
+              />
+            </div>
+          )}
 
           {/* Gateway + Health + Deployment Info */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-6">

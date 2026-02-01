@@ -30,6 +30,7 @@ import {
   AlertCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/toast";
 
 // Diff viewer component
 function DiffViewer({ from, to }: { from?: Record<string, unknown>; to: Record<string, unknown> }) {
@@ -369,6 +370,7 @@ function RolloutControl({
 }
 
 export default function ChangeSetDetailPage({ params }: { params: { id: string } }) {
+  const { toast } = useToast();
   const [changeSet, setChangeSet] = useState<ChangeSet | null>(null);
   const [rolloutStatus, setRolloutStatus] = useState<ChangeSetStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -398,7 +400,7 @@ export default function ChangeSetDetailPage({ params }: { params: { id: string }
       await api.startRollout(params.id);
       loadChangeSet();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to start rollout");
+      toast(err instanceof Error ? err.message : "Failed to start rollout", "error");
     }
   }
 
@@ -407,7 +409,7 @@ export default function ChangeSetDetailPage({ params }: { params: { id: string }
       await api.rollbackChangeSet(params.id, reason);
       loadChangeSet();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to rollback");
+      toast(err instanceof Error ? err.message : "Failed to rollback", "error");
     }
   }
 

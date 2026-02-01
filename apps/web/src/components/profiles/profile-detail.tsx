@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useToast } from "@/components/ui/toast";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,10 +25,17 @@ export function ProfileDetail({
   onUpdate,
 }: ProfileDetailProps) {
   const searchParams = useSearchParams();
+  const { confirm: showConfirm } = useToast();
   const [isEditing, setIsEditing] = useState(searchParams.get("edit") === "true");
 
-  function handleDelete() {
-    if (window.confirm(`Are you sure you want to delete profile "${profile.name}"?`)) {
+  async function handleDelete() {
+    const confirmed = await showConfirm({
+      message: `Delete profile "${profile.name}"?`,
+      description: "This profile will be permanently removed.",
+      confirmLabel: "Delete",
+      variant: "destructive",
+    });
+    if (confirmed) {
       onDelete?.();
     }
   }

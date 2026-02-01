@@ -13,6 +13,7 @@ import type {
   GatewayHealthSnapshot,
   GatewayConnectionOptions,
   GatewayAuth,
+  CostUsageSummary,
 } from "@molthub/gateway-client";
 
 /** Maximum concurrent health polls. */
@@ -299,6 +300,46 @@ export class OpenClawHealthService {
         latencyMs: -1,
         reachable: false,
       };
+    } finally {
+      if (client) {
+        try { await client.disconnect(); } catch { /* ignore */ }
+      }
+    }
+  }
+
+  /**
+   * Fetch token usage from the gateway's usage.cost RPC.
+   */
+  async getUsage(instanceId: string): Promise<CostUsageSummary | null> {
+    const connection = await prisma.gatewayConnection.findUnique({
+      where: { instanceId },
+    });
+
+    if (!connection) {
+      this.logger.warn(`No gateway connection configured for instance ${instanceId}`);
+      return null;
+    }
+
+    const auth: GatewayAuth = connection.authMode === "token"
+      ? { mode: "token", token: connection.authToken ?? "" }
+      : { mode: "password", password: connection.authToken ?? "" };
+
+    const options: GatewayConnectionOptions = {
+      host: connection.host,
+      port: connection.port,
+      auth,
+      timeoutMs: POLL_TIMEOUT_MS,
+      reconnect: { enabled: false, maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 },
+    };
+
+    let client: GatewayClient | null = null;
+    try {
+      client = new GatewayClient(options);
+      await client.connect();
+      return await client.usageCost();
+    } catch (err) {
+      this.logger.warn(`Usage fetch failed for ${instanceId}: ${(err as Error).message}`);
+      return null;
     } finally {
       if (client) {
         try { await client.disconnect(); } catch { /* ignore */ }

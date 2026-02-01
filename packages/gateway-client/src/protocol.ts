@@ -250,3 +250,29 @@ export type GatewayEvent =
   | PresenceEvent
   | ShutdownEvent
   | KeepaliveEvent;
+
+// ---- Usage / Cost ---------------------------------------------------------
+
+export interface CostUsageTotals {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  totalCost: number;
+}
+
+export interface CostUsageDailyEntry {
+  date: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  totalCost: number;
+}
+
+export interface CostUsageSummary {
+  totals: CostUsageTotals;
+  daily: CostUsageDailyEntry[];
+}

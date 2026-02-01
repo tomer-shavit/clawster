@@ -63,4 +63,7 @@ export type {
   ShutdownEvent,
   KeepaliveEvent,
   GatewayEvent,
+  CostUsageTotals,
+  CostUsageDailyEntry,
+  CostUsageSummary,
 } from "./protocol";

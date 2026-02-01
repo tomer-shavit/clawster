@@ -27,9 +27,18 @@ export interface ProvisioningProgress {
   error?: string;
 }
 
+export interface ProvisioningLogEntry {
+  instanceId: string;
+  stepId: string;
+  stream: "stdout" | "stderr";
+  line: string;
+  timestamp: string;
+}
+
 interface UseProvisioningEventsResult {
   progress: ProvisioningProgress | null;
   isConnected: boolean;
+  logs: ProvisioningLogEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +47,7 @@ interface UseProvisioningEventsResult {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 const MAX_RECONNECT_ATTEMPTS = 10;
+const MAX_CLIENT_LOG_LINES = 1000;
 const POLL_INTERVAL_MS = 3000;
 
 export function useProvisioningEvents(
@@ -45,6 +55,7 @@ export function useProvisioningEvents(
 ): UseProvisioningEventsResult {
   const [progress, setProgress] = useState<ProvisioningProgress | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [logs, setLogs] = useState<ProvisioningLogEntry[]>([]);
   const socketRef = useRef<unknown>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectAttempts = useRef(0);
@@ -131,6 +142,26 @@ export function useProvisioningEvents(
           }
         });
 
+        socket.on("provisioning-log", (entry: ProvisioningLogEntry) => {
+          if (!mountedRef.current) return;
+          setLogs((prev) => {
+            const next = [...prev, entry];
+            return next.length > MAX_CLIENT_LOG_LINES
+              ? next.slice(next.length - MAX_CLIENT_LOG_LINES)
+              : next;
+          });
+        });
+
+        socket.on("provisioning-logs-buffer", (buffer: ProvisioningLogEntry[]) => {
+          if (!mountedRef.current) return;
+          setLogs((prev) => {
+            const merged = [...prev, ...buffer];
+            return merged.length > MAX_CLIENT_LOG_LINES
+              ? merged.slice(merged.length - MAX_CLIENT_LOG_LINES)
+              : merged;
+          });
+        });
+
         socket.on("disconnect", () => {
           if (!mountedRef.current) return;
           setIsConnected(false);
@@ -176,5 +207,5 @@ export function useProvisioningEvents(
     };
   }, [instanceId, startPolling, stopPolling]);
 
-  return { progress, isConnected };
+  return { progress, isConnected, logs };
 }

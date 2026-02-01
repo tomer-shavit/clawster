@@ -16,5 +16,8 @@ export class ProvisioningModule implements OnModuleInit {
 
   onModuleInit(): void {
     this.eventsService.setGateway(this.eventsGateway);
+    this.eventsGateway.setRecentLogsProvider((instanceId) =>
+      this.eventsService.getRecentLogs(instanceId),
+    );
   }
 }

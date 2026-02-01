@@ -89,9 +89,19 @@ export class LifecycleManagerService {
     const deploymentType = this.resolveDeploymentType(instance);
     this.provisioningEvents.startProvisioning(instance.id, deploymentType);
 
+    // Track the current step for log attribution
+    let currentStepId = "validate_config";
+
     try {
       this.provisioningEvents.updateStep(instance.id, "validate_config", "in_progress");
       const target = await this.resolveTarget(instance);
+
+      // Wire streaming log callback if the target supports it
+      if (target.setLogCallback) {
+        target.setLogCallback((line, stream) => {
+          this.provisioningEvents.emitLog(instance.id, currentStepId, stream, line);
+        });
+      }
 
       // 2. Generate config
       const config = this.configGenerator.generateOpenClawConfig(manifest);
@@ -99,6 +109,7 @@ export class LifecycleManagerService {
       const profileName = instance.profileName ?? manifest.metadata.name;
       const gatewayPort = instance.gatewayPort ?? config.gateway?.port ?? 18789;
       this.provisioningEvents.updateStep(instance.id, "validate_config", "completed");
+      currentStepId = "security_audit";
       this.provisioningEvents.updateStep(instance.id, "security_audit", "in_progress");
       this.provisioningEvents.updateStep(instance.id, "security_audit", "completed");
       // Extract container environment variables and auth token from instance metadata
@@ -107,6 +118,7 @@ export class LifecycleManagerService {
       const gatewayAuthToken = (instanceMeta?.gatewayAuthToken as string) ?? undefined;
 
       const installStepId = this.getInstallStepId(deploymentType);
+      currentStepId = installStepId;
       this.provisioningEvents.updateStep(instance.id, installStepId, "in_progress");
       const installResult = await target.install({
         profileName,
@@ -121,8 +133,10 @@ export class LifecycleManagerService {
         throw new Error(`Install failed: ${installResult.message}`);
       }
       this.provisioningEvents.updateStep(instance.id, installStepId, "completed");
+      currentStepId = "create_container";
       this.provisioningEvents.updateStep(instance.id, "create_container", "in_progress");
       this.provisioningEvents.updateStep(instance.id, "create_container", "completed");
+      currentStepId = "write_config";
       this.provisioningEvents.updateStep(instance.id, "write_config", "in_progress");
 
       const configureResult = await target.configure({
@@ -138,17 +152,20 @@ export class LifecycleManagerService {
       }
       this.provisioningEvents.updateStep(instance.id, "write_config", "completed");
       const startStepId = this.getStartStepId(deploymentType);
+      currentStepId = startStepId;
       this.provisioningEvents.updateStep(instance.id, startStepId, "in_progress");
       await target.start();
       this.provisioningEvents.updateStep(instance.id, startStepId, "completed");
 
       // 6.
+      currentStepId = "wait_for_gateway";
       this.provisioningEvents.updateStep(instance.id, "wait_for_gateway", "in_progress");
       const endpoint = await target.getEndpoint();
       const authToken = config.gateway?.auth?.token;
       const client = await this.connectGateway(instance.id, endpoint, authToken);
       this.provisioningEvents.updateStep(instance.id, "wait_for_gateway", "completed");
 
+      currentStepId = "health_check";
       this.provisioningEvents.updateStep(instance.id, "health_check", "in_progress");
       const health = await client.health();
       this.provisioningEvents.updateStep(instance.id, "health_check", "completed");

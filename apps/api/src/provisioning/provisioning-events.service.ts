@@ -25,6 +25,14 @@ export interface ProvisioningProgress {
   error?: string;
 }
 
+export interface ProvisioningLogEntry {
+  instanceId: string;
+  stepId: string;
+  stream: "stdout" | "stderr";
+  line: string;
+  timestamp: string;
+}
+
 // ---------------------------------------------------------------------------
 // Step definitions per deployment type
 // ---------------------------------------------------------------------------
@@ -114,11 +122,13 @@ export const PROVISIONING_STEPS: Record<string, string[]> = {
 // ---------------------------------------------------------------------------
 
 const PROVISIONING_TIMEOUT_MS = 15 * 60 * 1000;
+const MAX_LOG_LINES = 500;
 
 @Injectable()
 export class ProvisioningEventsService {
   private readonly logger = new Logger(ProvisioningEventsService.name);
   private readonly progress = new Map<string, ProvisioningProgress>();
+  private readonly logs = new Map<string, ProvisioningLogEntry[]>();
   private readonly timeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private gateway: ProvisioningEventsGateway | null = null;
 
@@ -213,6 +223,7 @@ export class ProvisioningEventsService {
 
     setTimeout(() => {
       this.progress.delete(instanceId);
+      this.logs.delete(instanceId);
     }, 60_000);
   }
 
@@ -238,7 +249,39 @@ export class ProvisioningEventsService {
 
     setTimeout(() => {
       this.progress.delete(instanceId);
+      this.logs.delete(instanceId);
     }, 5 * 60_000);
+  }
+
+  emitLog(
+    instanceId: string,
+    stepId: string,
+    stream: "stdout" | "stderr",
+    line: string,
+  ): void {
+    const entry: ProvisioningLogEntry = {
+      instanceId,
+      stepId,
+      stream,
+      line,
+      timestamp: new Date().toISOString(),
+    };
+
+    let buffer = this.logs.get(instanceId);
+    if (!buffer) {
+      buffer = [];
+      this.logs.set(instanceId, buffer);
+    }
+    buffer.push(entry);
+    if (buffer.length > MAX_LOG_LINES) {
+      buffer.splice(0, buffer.length - MAX_LOG_LINES);
+    }
+
+    this.gateway?.emitLog(instanceId, entry);
+  }
+
+  getRecentLogs(instanceId: string): ProvisioningLogEntry[] {
+    return this.logs.get(instanceId) ?? [];
   }
 
   getProgress(instanceId: string): ProvisioningProgress | null {
@@ -260,6 +303,7 @@ export class ProvisioningEventsService {
 
     setTimeout(() => {
       this.progress.delete(instanceId);
+      this.logs.delete(instanceId);
     }, 5 * 60_000);
   }
 

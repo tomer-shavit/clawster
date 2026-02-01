@@ -7,7 +7,6 @@ import { StatusBadge, HealthIndicator } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { SetupChecklist } from "@/components/dashboard/setup-checklist";
-import { redirect } from "next/navigation";
 import { api, type DashboardMetrics, type DashboardHealth } from "@/lib/api";
 import {
   Bot,
@@ -32,16 +31,6 @@ async function getDashboardData() {
 }
 
 export default async function DashboardPage() {
-  // Redirect to onboarding wizard if no bots exist
-  try {
-    const onboardingStatus = await api.getOnboardingStatus();
-    if (!onboardingStatus.hasInstances) {
-      redirect("/setup");
-    }
-  } catch {
-    // If onboarding check fails, continue to dashboard
-  }
-
   const { metrics, health, fleets, bots } = await getDashboardData();
 
   const overallStatus = health?.status || "HEALTHY";

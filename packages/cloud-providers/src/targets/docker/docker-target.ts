@@ -1,5 +1,6 @@
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import * as path from "path";
+import * as readline from "readline";
 import {
   DeploymentTarget,
   DeploymentTargetType,
@@ -31,6 +32,53 @@ function runCommand(cmd: string, args: string[]): Promise<string> {
 }
 
 /**
+ * Executes a command using child_process.spawn and streams stdout/stderr line by line.
+ */
+function runCommandStreaming(
+  cmd: string,
+  args: string[],
+  onLine?: (line: string, stream: "stdout" | "stderr") => void,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { timeout: 300_000 });
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+
+    if (child.stdout) {
+      const rl = readline.createInterface({ input: child.stdout });
+      rl.on("line", (line) => {
+        stdoutChunks.push(line);
+        onLine?.(line, "stdout");
+      });
+    }
+
+    if (child.stderr) {
+      const rl = readline.createInterface({ input: child.stderr });
+      rl.on("line", (line) => {
+        stderrChunks.push(line);
+        onLine?.(line, "stderr");
+      });
+    }
+
+    child.on("error", (err) => {
+      reject(new Error(`Command failed: ${cmd} ${args.join(" ")}\n${err.message}`));
+    });
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(
+          new Error(
+            `Command failed (exit ${code}): ${cmd} ${args.join(" ")}\n${stderrChunks.join("\n")}`,
+          ),
+        );
+        return;
+      }
+      resolve(stdoutChunks.join("\n"));
+    });
+  });
+}
+
+/**
  * DockerContainerTarget manages an OpenClaw gateway instance running
  * inside a Docker container.
  *
@@ -43,10 +91,15 @@ export class DockerContainerTarget implements DeploymentTarget {
   private config: DockerTargetConfig;
   private imageName: string;
   private environmentVars: Record<string, string> = {};
+  private onLog?: (line: string, stream: "stdout" | "stderr") => void;
 
   constructor(config: DockerTargetConfig) {
     this.config = config;
     this.imageName = config.imageName || DEFAULT_IMAGE;
+  }
+
+  setLogCallback(cb: (line: string, stream: "stdout" | "stderr") => void): void {
+    this.onLog = cb;
   }
 
   /**
@@ -73,7 +126,7 @@ export class DockerContainerTarget implements DeploymentTarget {
 
       if (this.config.dockerfilePath) {
         const resolved = path.resolve(this.config.dockerfilePath);
-        await runCommand("docker", ["build", "-t", image, resolved]);
+        await runCommandStreaming("docker", ["build", "-t", image, resolved], this.onLog);
         this.imageName = image;
         return {
           success: true,
@@ -83,7 +136,7 @@ export class DockerContainerTarget implements DeploymentTarget {
       }
 
       // Fallback: try to pull (for users with custom registries)
-      await runCommand("docker", ["pull", image]);
+      await runCommandStreaming("docker", ["pull", image], this.onLog);
       this.imageName = image;
       return {
         success: true,
@@ -232,7 +285,7 @@ export class DockerContainerTarget implements DeploymentTarget {
 
     args.push(this.imageName);
 
-    await runCommand("docker", args);
+    await runCommandStreaming("docker", args, this.onLog);
   }
 
   /**

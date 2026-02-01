@@ -33,6 +33,7 @@ import type {
   PresenceEvent,
   ShutdownEvent,
   ReconnectOptions,
+  CostUsageSummary,
 } from "./protocol";
 import { GatewayErrorCode } from "./protocol";
 import { buildConnectFrame, buildGatewayUrl } from "./auth";
@@ -249,6 +250,11 @@ export class GatewayClient extends EventEmitter {
   /** Merge-patch the configuration (optimistic concurrency via baseHash). */
   async configPatch(patch: ConfigPatchRequest): Promise<ConfigPatchResult> {
     return this.request<ConfigPatchResult>("config.patch", patch as unknown as Record<string, unknown>);
+  }
+
+  /** Request token usage / cost summary. */
+  async usageCost(days?: number): Promise<CostUsageSummary> {
+    return this.request<CostUsageSummary>("usage.cost", days ? { days } : undefined);
   }
 
   /** Send a message via an active channel. */

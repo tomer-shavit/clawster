@@ -1188,6 +1188,11 @@ class ApiClient {
     return this.fetch(`/bot-instances/${instanceId}/evolution/sync`, { method: 'POST' });
   }
 
+  // Token Usage (from Gateway)
+  async getTokenUsage(instanceId: string): Promise<TokenUsageSummary> {
+    return this.fetch(`/bot-instances/${instanceId}/usage`);
+  }
+
   // AI Gateway
   async updateAiGatewaySettings(instanceId: string, settings: AiGatewaySettings): Promise<BotInstance> {
     return this.fetch(`/bot-instances/${instanceId}/ai-gateway`, {
@@ -1240,6 +1245,40 @@ class ApiClient {
     return this.fetch(`/bot-instances/${instanceId}/pairings/sync`, {
       method: 'POST',
     });
+  }
+
+  // ============================================
+  // Channel Management
+  // ============================================
+
+  async listChannels(workspaceId: string): Promise<Channel[]> {
+    return this.fetch(`/channels?workspaceId=${encodeURIComponent(workspaceId)}`);
+  }
+
+  async createChannel(data: CreateChannelPayload): Promise<Channel> {
+    return this.fetch('/channels', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteChannel(id: string): Promise<void> {
+    await this.fetch(`/channels/${id}`, { method: 'DELETE' });
+  }
+
+  async getChannelTypes(): Promise<ChannelTypeInfo[]> {
+    return this.fetch('/channels/types');
+  }
+
+  async bindChannelToBot(channelId: string, botId: string, purpose: string): Promise<ChannelBotBinding> {
+    return this.fetch(`/channels/${channelId}/bind`, {
+      method: 'POST',
+      body: JSON.stringify({ botId, purpose }),
+    });
+  }
+
+  async unbindChannel(channelId: string, bindingId: string): Promise<void> {
+    await this.fetch(`/channels/${channelId}/bind/${bindingId}`, { method: 'DELETE' });
   }
 }
 
@@ -1524,6 +1563,102 @@ export interface DevicePairing {
   deviceInfo?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// ============================================
+// Channel Management Types
+// ============================================
+
+export interface ChannelBotBinding {
+  id: string;
+  botId: string;
+  channelId: string;
+  purpose: string;
+  isActive: boolean;
+  settings: Record<string, unknown> | null;
+  targetDestination: Record<string, unknown> | null;
+  healthStatus: string | null;
+  lastHealthCheck: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Channel {
+  id: string;
+  name: string;
+  workspaceId: string;
+  type: string;
+  config: string;
+  defaults: string | null;
+  isShared: boolean;
+  tags: string | null;
+  status: string;
+  statusMessage: string | null;
+  lastTestedAt: string | null;
+  lastError: string | null;
+  errorCount: number;
+  messagesSent: number;
+  messagesFailed: number;
+  lastMessageAt: string | null;
+  lastActivityAt: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  botBindings: ChannelBotBinding[];
+}
+
+export interface ChannelTypeInfo {
+  type: string;
+  label: string;
+  requiresNodeRuntime: boolean;
+  authMethod: 'qr-pairing' | 'token' | 'credentials' | 'service-account';
+  requiredSecrets: string[];
+  optionalSecrets: string[];
+  defaultConfig: Record<string, unknown>;
+}
+
+export interface CreateChannelPayload {
+  name: string;
+  workspaceId: string;
+  openclawType: string;
+  enabled?: boolean;
+  policies?: {
+    dmPolicy?: string;
+    groupPolicy?: string;
+    allowFrom?: string[];
+    groupAllowFrom?: string[];
+    historyLimit?: number;
+    mediaMaxMb?: number;
+  };
+  typeConfig?: Record<string, unknown>;
+  secrets?: Record<string, string>;
+  isShared?: boolean;
+}
+
+// ============================================
+// Token Usage Types (from Gateway usage.cost RPC)
+// ============================================
+
+export interface TokenUsageTotals {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  totalCost: number;
+}
+
+export interface TokenUsageSummary {
+  totals: TokenUsageTotals | null;
+  daily: Array<{
+    date: string;
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    totalTokens: number;
+    totalCost: number;
+  }>;
 }
 
 export const api = new ApiClient();

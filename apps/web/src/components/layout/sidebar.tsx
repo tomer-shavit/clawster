@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   LayoutDashboard,
@@ -59,22 +59,14 @@ const allNavItems: NavItem[] = [
   { label: "Connectors", href: "/connectors", icon: <Plug className="w-4 h-4" /> },
 ];
 
-// Items visible in the "getting-started" stage
-const gettingStartedLabels = new Set(["Dashboard", "Bots", "Channels"]);
 
 export function Sidebar() {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { stage, isLoading } = useUserStage();
+  const { isLoading } = useUserStage();
   const { user, logout } = useAuth();
 
-  const navItems = useMemo(() => {
-    if (stage === "fleet") {
-      return allNavItems;
-    }
-    // getting-started: only Dashboard, Bots, Channels
-    return allNavItems.filter((item) => gettingStartedLabels.has(item.label));
-  }, [stage]);
+  const navItems = allNavItems;
 
   const toggleExpand = (label: string) => {
     setExpanded(prev =>

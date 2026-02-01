@@ -183,6 +183,13 @@ export interface DeploymentTarget {
    * Stops the service, removes files/containers/manifests, and cleans up.
    */
   destroy(): Promise<void>;
+
+  /**
+   * Set a callback to receive real-time log output from commands.
+   * Used during provisioning to stream build/startup logs to the UI.
+   * Optional — not all targets support streaming.
+   */
+  setLogCallback?(cb: (line: string, stream: "stdout" | "stderr") => void): void;
 }
 
 // ── Configuration types for specific targets ──
