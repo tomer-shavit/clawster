@@ -87,6 +87,37 @@ export class ReconcilerScheduler {
   }
 
   /**
+   * Pick up PENDING instances every 30 seconds.
+   * Instances in PENDING state should be reconciled to start them.
+   * This is a safety net — normally resume() triggers reconciliation
+   * immediately, but if that fire-and-forget call fails, this catches it.
+   */
+  @Cron("*/30 * * * * *")
+  async reconcilePendingInstances(): Promise<void> {
+    try {
+      const pendingInstances = await prisma.botInstance.findMany({
+        where: { status: "PENDING" },
+        select: { id: true, name: true },
+      });
+
+      for (const instance of pendingInstances) {
+        this.logger.log(
+          `Picking up PENDING instance ${instance.id} (${instance.name}) for reconciliation`,
+        );
+        try {
+          await this.reconciler.reconcile(instance.id);
+        } catch (err) {
+          this.logger.error(
+            `Failed to reconcile PENDING instance ${instance.id}: ${err}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Pending instance check failed: ${error}`);
+    }
+  }
+
+  /**
    * Check for stale secrets daily.
    * Logs warnings for any channel tokens or gateway auth secrets that
    * haven't been rotated within the configured maximum age.

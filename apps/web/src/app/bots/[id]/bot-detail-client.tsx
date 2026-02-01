@@ -349,6 +349,70 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
         </div>
       </div>
 
+      {/* Status Insight Banner */}
+      {bot.status === "PENDING" && (
+        <div className="flex items-start gap-3 p-4 mb-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <Clock className="w-5 h-5 text-yellow-600 mt-0.5 animate-spin" />
+          <div>
+            <p className="font-medium text-yellow-800">Starting up...</p>
+            <p className="text-sm text-yellow-700">
+              This instance is queued for provisioning. The system will automatically start it shortly.
+              If it stays in this state for more than a few minutes, try clicking <strong>Reconcile</strong>.
+            </p>
+          </div>
+        </div>
+      )}
+      {bot.status === "CREATING" && (
+        <div className="flex items-start gap-3 p-4 mb-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <Clock className="w-5 h-5 text-blue-600 mt-0.5 animate-spin" />
+          <div>
+            <p className="font-medium text-blue-800">Provisioning infrastructure...</p>
+            <p className="text-sm text-blue-700">
+              {bot.deploymentType === "ECS_FARGATE"
+                ? "Creating AWS resources (ECS task, networking, secrets). This typically takes 2-5 minutes."
+                : "Building and starting the Docker container. This should complete within a minute."}
+            </p>
+          </div>
+        </div>
+      )}
+      {bot.status === "RECONCILING" && (
+        <div className="flex items-start gap-3 p-4 mb-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <Clock className="w-5 h-5 text-blue-600 mt-0.5 animate-spin" />
+          <div>
+            <p className="font-medium text-blue-800">Reconciling configuration...</p>
+            <p className="text-sm text-blue-700">
+              Applying the desired configuration to the running instance. The gateway will restart if config changed.
+            </p>
+          </div>
+        </div>
+      )}
+      {bot.status === "STOPPED" && (
+        <div className="flex items-start gap-3 p-4 mb-4 bg-gray-50 border border-gray-200 rounded-lg">
+          <Pause className="w-5 h-5 text-gray-500 mt-0.5" />
+          <div>
+            <p className="font-medium text-gray-700">Instance stopped</p>
+            <p className="text-sm text-gray-600">
+              This instance has been manually stopped. Click <strong>Start</strong> to bring it back online.
+              {bot.deploymentType === "ECS_FARGATE" && " The ECS task has been scaled down to zero."}
+            </p>
+          </div>
+        </div>
+      )}
+      {bot.status === "ERROR" && (
+        <div className="flex items-start gap-3 p-4 mb-4 bg-red-50 border border-red-200 rounded-lg">
+          <XCircle className="w-5 h-5 text-red-600 mt-0.5" />
+          <div>
+            <p className="font-medium text-red-800">Instance encountered an error</p>
+            <p className="text-sm text-red-700">
+              {bot.lastError || "An unknown error occurred during provisioning or reconciliation."}
+            </p>
+            <p className="text-sm text-red-600 mt-1">
+              Try clicking <strong>Reconcile</strong> to retry, or check the logs for more details.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Status Bar */}
       <div className="flex flex-wrap gap-4 mb-8">
         <HealthIndicator health={bot.health} />
@@ -695,7 +759,8 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
             const gatewayConfig = openclawConfig?.gateway as Record<string, unknown> | undefined;
             const gatewayAuth = gatewayConfig?.auth as Record<string, unknown> | undefined;
             const gatewayToken = (gatewayAuth?.token as string) || "";
-            const baseUrl = `http://localhost:${gatewayPort}`;
+            const gatewayHost = bot.gatewayConnection?.host || (bot.metadata?.gatewayHost as string) || "localhost";
+            const baseUrl = `http://${gatewayHost}:${gatewayPort}`;
             const dashboardUrl = gatewayToken ? `${baseUrl}?token=${encodeURIComponent(gatewayToken)}` : baseUrl;
             return (
               <Card>

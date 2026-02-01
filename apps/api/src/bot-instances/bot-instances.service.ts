@@ -101,6 +101,7 @@ export class BotInstancesService {
       where: { id },
       include: {
         fleet: true,
+        gatewayConnection: true,
         connectorBindings: {
           include: {
             connector: {
@@ -203,10 +204,15 @@ export class BotInstancesService {
 
   async resume(id: string): Promise<void> {
     const instance = await this.findOne(id);
-    
+
     await prisma.botInstance.update({
       where: { id },
       data: { status: "PENDING", runningSince: null },
+    });
+
+    // Trigger reconciliation to actually start the instance
+    this.reconciler.reconcile(id).catch((err) => {
+      // Logged by reconciler — don't block the response
     });
   }
 
