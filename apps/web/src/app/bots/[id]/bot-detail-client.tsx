@@ -121,6 +121,13 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
   const TASKS_PER_PAGE = 10;
   const MAX_EXPANDED_TEXT = 500;
 
+  // Streaming state
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
+  const [streamingStatus, setStreamingStatus] = useState<string | null>(null);
+  const [streamingTaskId, setStreamingTaskId] = useState<string | null>(null);
+  const [streamAbortRef, setStreamAbortRef] = useState<AbortController | null>(null);
+
   // Fetch token usage when bot is running/degraded, poll every 15s
   useEffect(() => {
     if (bot.status !== "RUNNING" && bot.status !== "DEGRADED") return;
@@ -421,6 +428,59 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
       setIsSendingA2a(false);
     }
   }, [a2aTestMessage, isSendingA2a, bot.id, newlyCreatedKey, fetchA2aTasks]);
+
+  // Stream A2A test message
+  const handleStreamA2aTest = useCallback(() => {
+    if (!a2aTestMessage.trim() || isStreaming) return;
+    const activeKey = newlyCreatedKey || undefined;
+    if (!activeKey) {
+      setStreamingStatus("failed");
+      setStreamingText("No API key available. Generate one above first.");
+      return;
+    }
+
+    setIsStreaming(true);
+    setStreamingText("");
+    setStreamingStatus("working");
+    setStreamingTaskId(null);
+    setA2aTestResult(null);
+
+    const controller = api.streamA2aMessage(bot.id, a2aTestMessage.trim(), activeKey, {
+      onChunk: (text) => {
+        setStreamingText((prev) => prev + text);
+      },
+      onStatus: (state, taskId) => {
+        setStreamingStatus(state);
+        if (taskId) setStreamingTaskId(taskId);
+      },
+      onDone: () => {
+        setIsStreaming(false);
+        setStreamAbortRef(null);
+        fetchA2aTasks();
+      },
+      onError: (error) => {
+        setStreamingStatus("failed");
+        setStreamingText((prev) => prev || error);
+        setIsStreaming(false);
+        setStreamAbortRef(null);
+      },
+    });
+
+    setStreamAbortRef(controller);
+    setA2aTestMessage("");
+  }, [a2aTestMessage, isStreaming, bot.id, newlyCreatedKey, fetchA2aTasks]);
+
+  const handleCancelStream = useCallback(() => {
+    if (streamAbortRef) {
+      streamAbortRef.abort();
+      setStreamAbortRef(null);
+    }
+    if (streamingTaskId && newlyCreatedKey) {
+      api.cancelA2aTask(bot.id, streamingTaskId, newlyCreatedKey).catch(() => {});
+    }
+    setIsStreaming(false);
+    setStreamingStatus("canceled");
+  }, [streamAbortRef, streamingTaskId, bot.id, newlyCreatedKey]);
 
   // Run diagnostics
   const handleDiagnostics = useCallback(async () => {
@@ -1368,6 +1428,155 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
                 </CardContent>
               </Card>
 
+              {/* Test A2A Message */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Send className="w-4 h-4" />
+                    Test A2A Message
+                  </CardTitle>
+                  <CardDescription>
+                    Send a test message via the A2A SendMessage JSON-RPC method
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {!newlyCreatedKey && apiKeys.filter((k) => k.isActive).length === 0 && (
+                    <div className="rounded-md border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-300">
+                      Generate an API key above to test — the A2A endpoint requires authentication.
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={a2aTestMessage}
+                      onChange={(e) => setA2aTestMessage(e.target.value)}
+                      placeholder="Type a message to send to this agent..."
+                      className="flex-1 px-3 py-2 text-sm rounded-md border bg-background"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !isSendingA2a && !isStreaming && a2aTestMessage.trim()) {
+                          handleSendA2aTest();
+                        }
+                      }}
+                      disabled={isSendingA2a || isStreaming}
+                    />
+                    <Button
+                      onClick={handleSendA2aTest}
+                      disabled={isSendingA2a || isStreaming || !a2aTestMessage.trim()}
+                      size="sm"
+                      title="Send (blocking)"
+                    >
+                      {isSendingA2a ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
+                    </Button>
+                    <Button
+                      onClick={handleStreamA2aTest}
+                      disabled={isSendingA2a || isStreaming || !a2aTestMessage.trim()}
+                      size="sm"
+                      variant="outline"
+                      title="Stream (real-time)"
+                    >
+                      {isStreaming ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Zap className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* Streaming output */}
+                  {(isStreaming || streamingText || streamingStatus) && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-sm">
+                          <Badge
+                            variant={
+                              streamingStatus === "completed" ? "default"
+                                : streamingStatus === "failed" ? "destructive"
+                                : streamingStatus === "canceled" ? "secondary"
+                                : "outline"
+                            }
+                          >
+                            {isStreaming && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
+                            {streamingStatus || "connecting"}
+                          </Badge>
+                          {streamingTaskId && (
+                            <span className="text-muted-foreground text-xs font-mono">
+                              {streamingTaskId.slice(0, 8)}...
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {isStreaming && (
+                            <Button variant="destructive" size="sm" onClick={handleCancelStream}>
+                              <XCircle className="w-3.5 h-3.5 mr-1" />
+                              Cancel
+                            </Button>
+                          )}
+                          {!isStreaming && (
+                            <button
+                              onClick={() => { setStreamingText(""); setStreamingStatus(null); setStreamingTaskId(null); }}
+                              className="text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {streamingText && (
+                        <div className="rounded-md border bg-muted/50 p-3 max-h-64 overflow-auto">
+                          <p className="text-sm whitespace-pre-wrap">{streamingText}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Non-streaming result */}
+                  {a2aTestResult && !isStreaming && !streamingText && (
+                    <div className="space-y-3">
+                      {a2aTestResult.error ? (
+                        <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-950/20 p-3">
+                          <p className="text-sm font-medium text-red-600">Error {a2aTestResult.error.code}</p>
+                          <p className="text-sm text-red-500 mt-1">{a2aTestResult.error.message}</p>
+                        </div>
+                      ) : a2aTestResult.result ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm">
+                            <Badge variant={a2aTestResult.result.status.state === "completed" ? "default" : "destructive"}>
+                              {a2aTestResult.result.status.state}
+                            </Badge>
+                            <span className="text-muted-foreground text-xs">
+                              Task: {a2aTestResult.result.id.slice(0, 8)}...
+                            </span>
+                          </div>
+                          {a2aTestResult.result.status.message && (
+                            <div className="rounded-md border bg-muted/50 p-3">
+                              <p className="text-sm whitespace-pre-wrap">
+                                {a2aTestResult.result.status.message.parts
+                                  ?.map((p) => p.text)
+                                  .filter(Boolean)
+                                  .join("\n") || "No text content"}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+
+                      <div>
+                        <button
+                          onClick={() => setA2aTestResult(null)}
+                          className="text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          Clear result
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* Recent Tasks */}
               <Card>
                 <CardHeader className="pb-3">
@@ -1416,7 +1625,7 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
                 <CardContent>
                   {a2aTasks.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-6">
-                      No A2A tasks yet. Send a test message below to create one.
+                      No A2A tasks yet. Send a test message above to create one.
                     </p>
                   ) : (() => {
                     const filtered = a2aTasks.filter((task) => {
@@ -1526,93 +1735,6 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
                       </>
                     );
                   })()}
-                </CardContent>
-              </Card>
-
-              {/* Test A2A Message */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Send className="w-4 h-4" />
-                    Test A2A Message
-                  </CardTitle>
-                  <CardDescription>
-                    Send a test message via the A2A SendMessage JSON-RPC method
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {!newlyCreatedKey && apiKeys.filter((k) => k.isActive).length === 0 && (
-                    <div className="rounded-md border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-300">
-                      Generate an API key above to test — the A2A endpoint requires authentication.
-                    </div>
-                  )}
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={a2aTestMessage}
-                      onChange={(e) => setA2aTestMessage(e.target.value)}
-                      placeholder="Type a message to send to this agent..."
-                      className="flex-1 px-3 py-2 text-sm rounded-md border bg-background"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !isSendingA2a && a2aTestMessage.trim()) {
-                          handleSendA2aTest();
-                        }
-                      }}
-                      disabled={isSendingA2a}
-                    />
-                    <Button
-                      onClick={handleSendA2aTest}
-                      disabled={isSendingA2a || !a2aTestMessage.trim()}
-                      size="sm"
-                    >
-                      {isSendingA2a ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Send className="w-4 h-4" />
-                      )}
-                    </Button>
-                  </div>
-
-                  {a2aTestResult && (
-                    <div className="space-y-3">
-                      {a2aTestResult.error ? (
-                        <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-950/20 p-3">
-                          <p className="text-sm font-medium text-red-600">Error {a2aTestResult.error.code}</p>
-                          <p className="text-sm text-red-500 mt-1">{a2aTestResult.error.message}</p>
-                        </div>
-                      ) : a2aTestResult.result ? (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-sm">
-                            <Badge variant={a2aTestResult.result.status.state === "completed" ? "default" : "destructive"}>
-                              {a2aTestResult.result.status.state}
-                            </Badge>
-                            <span className="text-muted-foreground text-xs">
-                              Task: {a2aTestResult.result.id.slice(0, 8)}...
-                            </span>
-                          </div>
-                          {a2aTestResult.result.status.message && (
-                            <div className="rounded-md border bg-muted/50 p-3">
-                              <p className="text-sm whitespace-pre-wrap">
-                                {a2aTestResult.result.status.message.parts
-                                  ?.map((p) => p.text)
-                                  .filter(Boolean)
-                                  .join("\n") || "No text content"}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      ) : null}
-
-                      <div>
-                        <button
-                          onClick={() => setA2aTestResult(null)}
-                          className="text-xs text-muted-foreground hover:text-foreground"
-                        >
-                          Clear result
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             </div>

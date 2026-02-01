@@ -143,3 +143,38 @@ export interface TaskGetParams {
   id: string;
   historyLength?: number;
 }
+
+// --- A2A tasks/cancel Params ---
+
+export interface TaskCancelParams {
+  id: string;
+}
+
+// --- A2A Streaming SSE Event Types ---
+
+export interface TaskStatusUpdateEvent {
+  taskId: string;
+  contextId: string;
+  status: TaskStatus;
+  final: boolean;
+}
+
+export interface TaskArtifactUpdateEvent {
+  taskId: string;
+  contextId: string;
+  artifact: {
+    artifactId: string;
+    parts: Part[];
+    append: boolean;
+    lastChunk: boolean;
+  };
+}
+
+export interface A2aStreamEvent {
+  jsonrpc: "2.0";
+  id: string | number;
+  result: {
+    statusUpdate?: TaskStatusUpdateEvent;
+    artifactUpdate?: TaskArtifactUpdateEvent;
+  };
+}

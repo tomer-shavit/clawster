@@ -1365,6 +1365,129 @@ class ApiClient {
     return this.fetch(`/a2a/${botInstanceId}/tasks`);
   }
 
+  /**
+   * Stream an A2A message via SSE. Returns an AbortController to cancel the stream.
+   */
+  streamA2aMessage(
+    botInstanceId: string,
+    message: string,
+    apiKey: string,
+    callbacks: {
+      onChunk: (text: string) => void;
+      onStatus: (state: string, taskId: string) => void;
+      onDone: () => void;
+      onError: (error: string) => void;
+    },
+  ): AbortController {
+    const controller = new AbortController();
+    const body = {
+      jsonrpc: "2.0",
+      id: `stream-${Date.now()}`,
+      method: "message/stream",
+      params: {
+        message: {
+          messageId: `msg-${Date.now()}`,
+          role: "user",
+          parts: [{ text: message }],
+        },
+      },
+    };
+
+    const baseUrl = API_URL;
+    fetch(`${baseUrl}/a2a/${botInstanceId}/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok || !response.body) {
+          callbacks.onError(`HTTP ${response.status}: ${response.statusText}`);
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (!data) continue;
+
+            try {
+              const event = JSON.parse(data);
+              if (event.error) {
+                callbacks.onError(event.error.message || "Unknown error");
+                continue;
+              }
+              const result = event.result;
+              if (result?.statusUpdate) {
+                const su = result.statusUpdate;
+                callbacks.onStatus(su.status?.state || su.state, su.taskId);
+              }
+              if (result?.artifactUpdate) {
+                const au = result.artifactUpdate;
+                const text = au.artifact?.parts
+                  ?.map((p: { text?: string }) => p.text)
+                  .filter(Boolean)
+                  .join("");
+                if (text) {
+                  if (au.artifact.lastChunk && !au.artifact.append) {
+                    // Final full output — don't append, it replaces accumulated chunks
+                  } else {
+                    callbacks.onChunk(text);
+                  }
+                }
+              }
+            } catch {
+              // Skip unparseable lines
+            }
+          }
+        }
+        callbacks.onDone();
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          callbacks.onDone();
+          return;
+        }
+        callbacks.onError(err instanceof Error ? err.message : String(err));
+      });
+
+    return controller;
+  }
+
+  async cancelA2aTask(botInstanceId: string, taskId: string, apiKey: string): Promise<A2aJsonRpcResponse> {
+    const body = {
+      jsonrpc: "2.0",
+      id: `cancel-${Date.now()}`,
+      method: "tasks/cancel",
+      params: { id: taskId },
+    };
+    const baseUrl = API_URL;
+    const response = await window.fetch(`${baseUrl}/a2a/${botInstanceId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+    return response.json();
+  }
+
   // ============================================
   // Bot Routing Rules
   // ============================================

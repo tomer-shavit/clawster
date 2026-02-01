@@ -68,7 +68,7 @@ export class A2aAgentCardService {
       version: "1.0.0",
       skills,
       capabilities: {
-        streaming: false,
+        streaming: true,
         pushNotifications: false,
         stateTransitionHistory: false,
       },

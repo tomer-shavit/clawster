@@ -1,12 +1,14 @@
-import { Controller, Get, Post, Delete, Param, Body, Logger, UseGuards, NotFoundException } from "@nestjs/common";
+import { Controller, Get, Post, Delete, Param, Body, Res, Logger, UseGuards, NotFoundException, HttpException, HttpStatus } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiParam } from "@nestjs/swagger";
+import type { Response } from "express";
 import { Public } from "../auth/public.decorator";
 import { A2aAgentCardService } from "./a2a-agent-card.service";
 import { A2aMessageService } from "./a2a-message.service";
 import { A2aApiKeyService } from "./a2a-api-key.service";
 import { A2aTaskService } from "./a2a-task.service";
+import { A2aStreamingService } from "./a2a-streaming.service";
 import { A2aApiKeyGuard } from "./a2a-api-key.guard";
-import type { JsonRpcRequest, JsonRpcResponse, SendMessageParams, TaskGetParams } from "./a2a.types";
+import type { JsonRpcRequest, JsonRpcResponse, SendMessageParams, TaskGetParams, TaskCancelParams } from "./a2a.types";
 
 @ApiTags("a2a")
 @Controller("a2a")
@@ -18,6 +20,7 @@ export class A2aController {
     private readonly messageService: A2aMessageService,
     private readonly apiKeyService: A2aApiKeyService,
     private readonly taskService: A2aTaskService,
+    private readonly streamingService: A2aStreamingService,
   ) {}
 
   // ---- Public discovery endpoints (no auth) ----
@@ -115,6 +118,42 @@ export class A2aController {
         }
       }
 
+      case "tasks/cancel": {
+        const params = body.params as TaskCancelParams | undefined;
+        if (!params?.id) {
+          return {
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32602, message: "Invalid params: id is required" },
+          };
+        }
+        try {
+          const task = await this.streamingService.cancelTask(botInstanceId, params.id);
+          return { jsonrpc: "2.0", id: body.id, result: task };
+        } catch (err) {
+          if (err instanceof NotFoundException) {
+            return { jsonrpc: "2.0", id: body.id, error: { code: -32001, message: "Task not found" } };
+          }
+          if (err instanceof HttpException) {
+            return { jsonrpc: "2.0", id: body.id, error: { code: -32002, message: (err as HttpException).message } };
+          }
+          const message = err instanceof Error ? err.message : String(err);
+          return { jsonrpc: "2.0", id: body.id, error: { code: -32000, message } };
+        }
+      }
+
+      case "message/stream": {
+        // Streaming must use the dedicated /stream endpoint
+        return {
+          jsonrpc: "2.0",
+          id: body.id,
+          error: {
+            code: -32601,
+            message: "message/stream requires the streaming endpoint: POST /a2a/:botInstanceId/stream",
+          },
+        };
+      }
+
       default:
         return {
           jsonrpc: "2.0",
@@ -122,6 +161,77 @@ export class A2aController {
           error: { code: -32601, message: `Method not found: ${body.method}` },
         };
     }
+  }
+
+  // ---- A2A Streaming endpoint (SSE, requires API key) ----
+
+  @Post(":botInstanceId/stream")
+  @Public()
+  @UseGuards(A2aApiKeyGuard)
+  @ApiOperation({ summary: "A2A streaming endpoint (SSE)" })
+  @ApiParam({ name: "botInstanceId", description: "Bot instance ID" })
+  async handleStream(
+    @Param("botInstanceId") botInstanceId: string,
+    @Body() body: JsonRpcRequest,
+    @Res() res: Response,
+  ): Promise<void> {
+    // Validate JSON-RPC envelope
+    if (body.jsonrpc !== "2.0" || body.id === undefined) {
+      res.status(400).json({
+        jsonrpc: "2.0",
+        id: body?.id ?? null,
+        error: { code: -32600, message: "Invalid Request" },
+      });
+      return;
+    }
+
+    const params = body.params as SendMessageParams | undefined;
+    if (
+      !params?.message?.parts ||
+      !Array.isArray(params.message.parts) ||
+      !params.message.messageId ||
+      !params.message.role
+    ) {
+      res.status(400).json({
+        jsonrpc: "2.0",
+        id: body.id,
+        error: {
+          code: -32602,
+          message: "Invalid params: message with messageId, role, and parts[] is required",
+        },
+      });
+      return;
+    }
+
+    this.logger.log(`A2A Stream: message/stream for bot ${botInstanceId}`);
+
+    // Set SSE headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    const stream$ = this.streamingService.streamMessage(botInstanceId, params, body.id);
+
+    const subscription = stream$.subscribe({
+      next: (event) => {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      },
+      error: (err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        res.write(`data: ${JSON.stringify({ jsonrpc: "2.0", id: body.id, error: { code: -32000, message } })}\n\n`);
+        res.end();
+      },
+      complete: () => {
+        res.end();
+      },
+    });
+
+    // Clean up if client disconnects
+    res.on("close", () => {
+      subscription.unsubscribe();
+    });
   }
 
   // ---- Task listing (requires user JWT auth) ----
