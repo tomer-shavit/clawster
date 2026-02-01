@@ -460,8 +460,9 @@ export class BotInstancesService {
 
     try {
       const result = await client.agent({
-        prompt: message,
-        context: { sessionId: resolvedSessionId },
+        message,
+        idempotencyKey: `chat-${instanceId}-${Date.now()}`,
+        sessionId: resolvedSessionId,
       });
 
       return {

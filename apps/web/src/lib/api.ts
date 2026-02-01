@@ -1304,6 +1304,14 @@ class ApiClient {
   }
 
   // ============================================
+  // A2A Agent Card
+  // ============================================
+
+  async getAgentCard(botInstanceId: string): Promise<AgentCard> {
+    return this.fetch(`/a2a/${botInstanceId}/agent-card`);
+  }
+
+  // ============================================
   // Bot Routing Rules
   // ============================================
 
@@ -1842,6 +1850,45 @@ export interface UpdateBotRoutingRulePayload {
   description?: string;
   priority?: number;
   enabled?: boolean;
+}
+
+// ============================================
+// A2A Agent Card Types
+// ============================================
+
+export interface AgentSkill {
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  examples?: string[];
+}
+
+export interface AgentCapabilities {
+  streaming: boolean;
+  pushNotifications: boolean;
+  stateTransitionHistory: boolean;
+}
+
+export interface AgentAuthentication {
+  schemes: string[];
+  credentials?: string;
+}
+
+export interface AgentCard {
+  name: string;
+  description: string;
+  url: string;
+  version: string;
+  skills: AgentSkill[];
+  capabilities: AgentCapabilities;
+  authentication: AgentAuthentication;
+  defaultInputModes: string[];
+  defaultOutputModes: string[];
+  provider?: {
+    organization: string;
+    url?: string;
+  };
 }
 
 // ============================================

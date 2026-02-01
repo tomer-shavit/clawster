@@ -63,6 +63,7 @@ export type {
   ShutdownEvent,
   KeepaliveEvent,
   GatewayEvent,
+  AgentIdentityResult,
   CostUsageTotals,
   CostUsageDailyEntry,
   CostUsageSummary,

@@ -34,6 +34,7 @@ import { AgentEvolutionModule } from "./agent-evolution/agent-evolution.module";
 import { PairingModule } from "./pairing/pairing.module";
 import { NotificationChannelsModule } from "./notification-channels/notification-channels.module";
 import { BotRoutingModule } from "./bot-routing/bot-routing.module";
+import { A2aModule } from "./a2a/a2a.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 
 @Module({
@@ -81,6 +82,7 @@ import { JwtAuthGuard } from "./auth/jwt-auth.guard";
     PairingModule,
     NotificationChannelsModule,
     BotRoutingModule,
+    A2aModule,
   ],
   providers: [
     {

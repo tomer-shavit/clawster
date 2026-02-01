@@ -34,6 +34,7 @@ import type {
   ShutdownEvent,
   ReconnectOptions,
   CostUsageSummary,
+  AgentIdentityResult,
 } from "./protocol";
 import { GatewayErrorCode } from "./protocol";
 import { buildConnectFrame, buildGatewayUrl } from "./auth";
@@ -252,6 +253,14 @@ export class GatewayClient extends EventEmitter {
     return this.request<ConfigPatchResult>("config.patch", patch as unknown as Record<string, unknown>);
   }
 
+  /** Get the resolved agent identity (name + avatar from IDENTITY.md / config). */
+  async agentIdentityGet(agentId?: string): Promise<AgentIdentityResult> {
+    return this.request<AgentIdentityResult>(
+      "agent.identity.get",
+      agentId ? { agentId } : undefined,
+    );
+  }
+
   /** Request token usage / cost summary. */
   async usageCost(days?: number): Promise<CostUsageSummary> {
     return this.request<CostUsageSummary>("usage.cost", days ? { days } : undefined);
@@ -269,11 +278,14 @@ export class GatewayClient extends EventEmitter {
    */
   async agent(request: AgentRequest): Promise<AgentResult> {
     const id = uuidv4();
-    const msg: Record<string, unknown> = { type: "req", id, method: "agent", params: request as unknown as Record<string, unknown> };
+
+    // Strip _localTimeoutMs before sending — it's a client-only field.
+    const { _localTimeoutMs, ...wireParams } = request;
+    const msg: Record<string, unknown> = { type: "req", id, method: "agent", params: wireParams as unknown as Record<string, unknown> };
 
     this.ensureConnected();
 
-    // First we get the ack via the normal request/response path.
+    // Phase 1: Get the ack (first res frame).
     const ack = await new Promise<AgentAck>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -289,16 +301,53 @@ export class GatewayClient extends EventEmitter {
       this.ws!.send(JSON.stringify(msg));
     });
 
-    // Then we wait for the completion event which arrives as a separate
-    // response keyed by the ack's requestId.
-    const agentTimeoutMs = request.timeoutMs ?? this.timeoutMs;
+    // Phase 2: Wait for the completion (second res frame with the SAME id).
+    // OpenClaw sends two res frames for agent requests — re-register on the
+    // same message id to catch the completion.
+    const agentTimeoutMs = _localTimeoutMs ?? request.timeout ?? 60_000;
     const completion = await new Promise<AgentCompletion>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.agentCompletions.delete(ack.requestId);
+        this.pending.delete(id);
         reject(new GatewayTimeoutError("Agent completion timed out"));
       }, agentTimeoutMs);
 
-      this.agentCompletions.set(ack.requestId, { resolve, reject, timer });
+      this.pending.set(id, {
+        resolve: (raw: unknown) => {
+          clearTimeout(timer);
+          const payload = raw as Record<string, unknown> | undefined;
+
+          // Extract the agent text output from the completion payload.
+          // OpenClaw completion: { status: "ok", summary: "completed",
+          //   result: { payloads: [{ text: "...", mediaUrl: ... }], meta: {...} } }
+          let output: string | undefined;
+          const result = payload?.result as Record<string, unknown> | undefined;
+          if (result) {
+            const payloads = result.payloads as Array<Record<string, unknown>> | undefined;
+            if (payloads?.[0]?.text) {
+              output = payloads.map((p) => p.text as string).join("\n");
+            } else if (typeof result === "string") {
+              output = result;
+            }
+          }
+
+          resolve({
+            runId: (payload?.runId ?? ack.runId) as string,
+            status: payload?.status === "error" ? "failed" : "completed",
+            output,
+            error: payload?.error as string | undefined,
+          });
+        },
+        reject: (err: unknown) => {
+          clearTimeout(timer);
+          // Map gateway errors to a failed completion instead of throwing.
+          resolve({
+            runId: ack.runId,
+            status: "failed",
+            error: err instanceof Error ? err.message : String(err),
+          });
+        },
+        timer,
+      });
     });
 
     return { ack, completion };
@@ -375,13 +424,14 @@ export class GatewayClient extends EventEmitter {
         return;
       }
 
-      // Agent completion event (keyed by requestId)
+      // Agent completion event (legacy format, keyed by runId)
+      const completionRunId = (data.runId ?? data.requestId) as string | undefined;
       if (
-        typeof data.requestId === "string" &&
+        typeof completionRunId === "string" &&
         (data.status === "completed" || data.status === "failed") &&
-        this.agentCompletions.has(data.requestId as string)
+        this.agentCompletions.has(completionRunId)
       ) {
-        this.handleAgentCompletion(data as unknown as AgentCompletion);
+        this.handleAgentCompletion({ ...data, runId: completionRunId } as unknown as AgentCompletion);
         return;
       }
 
@@ -457,11 +507,11 @@ export class GatewayClient extends EventEmitter {
   }
 
   private handleAgentCompletion(completion: AgentCompletion): void {
-    const entry = this.agentCompletions.get(completion.requestId);
+    const entry = this.agentCompletions.get(completion.runId);
     if (!entry) return;
 
     clearTimeout(entry.timer);
-    this.agentCompletions.delete(completion.requestId);
+    this.agentCompletions.delete(completion.runId);
     entry.resolve(completion);
   }
 

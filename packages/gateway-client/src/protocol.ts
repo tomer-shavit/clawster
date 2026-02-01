@@ -180,18 +180,27 @@ export interface SendResult {
 // ---- Agent ----------------------------------------------------------------
 
 export interface AgentRequest {
-  prompt: string;
-  context?: Record<string, unknown>;
-  timeoutMs?: number;
+  message: string;
+  idempotencyKey: string;
+  agentId?: string;
+  to?: string;
+  sessionId?: string;
+  sessionKey?: string;
+  timeout?: number;
+  deliver?: boolean;
+  extraSystemPrompt?: string;
+  /** Local-only: override completion wait timeout (not sent to gateway). */
+  _localTimeoutMs?: number;
 }
 
 export interface AgentAck {
-  requestId: string;
+  runId: string;
   status: "accepted";
+  acceptedAt?: number;
 }
 
 export interface AgentCompletion {
-  requestId: string;
+  runId: string;
   status: "completed" | "failed";
   output?: string;
   error?: string;
@@ -250,6 +259,14 @@ export type GatewayEvent =
   | PresenceEvent
   | ShutdownEvent
   | KeepaliveEvent;
+
+// ---- Agent Identity -------------------------------------------------------
+
+export interface AgentIdentityResult {
+  agentId: string;
+  name: string;
+  avatar?: string;
+}
 
 // ---- Usage / Cost ---------------------------------------------------------
 

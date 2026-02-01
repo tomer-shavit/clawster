@@ -22,9 +22,6 @@ import { Progress } from "@/components/ui/progress";
 import { GatewayStatus, type GatewayStatusData } from "@/components/openclaw/gateway-status";
 import { HealthSnapshot, type HealthSnapshotData } from "@/components/openclaw/health-snapshot";
 import { ChannelStatusList, type ChannelStatusData } from "@/components/openclaw/channel-status";
-import { ConfigEditor } from "@/components/openclaw/config-editor";
-import { ConfigSectionsEditor } from "@/components/openclaw/config-sections-editor";
-import { LogViewer, type LogEntry } from "@/components/openclaw/log-viewer";
 import { QrPairing, type PairingState } from "@/components/openclaw/qr-pairing";
 import { SkillSelector, type SkillItem } from "@/components/openclaw/skill-selector";
 import { SandboxConfig as SandboxConfigComponent, type SandboxConfigData } from "@/components/openclaw/sandbox-config";
@@ -35,8 +32,7 @@ import { JustDeployedBanner } from "@/components/dashboard/just-deployed-banner"
 import { EvolutionBanner, type EvolutionBannerData } from "@/components/openclaw/evolution-banner";
 import { LiveSkills } from "@/components/openclaw/live-skills";
 import { EvolutionDiff } from "@/components/openclaw/evolution-diff";
-import { api, type BotInstance, type Trace, type TraceStats, type ChangeSet, type DeploymentEvent, type AgentEvolutionSnapshot, type TokenUsageSummary } from "@/lib/api";
-import { AiGatewayToggle } from "@/components/openclaw/ai-gateway-toggle";
+import { api, type BotInstance, type Trace, type TraceStats, type ChangeSet, type DeploymentEvent, type AgentEvolutionSnapshot, type TokenUsageSummary, type AgentCard } from "@/lib/api";
 import { PairingTab } from "@/components/pairing/pairing-tab";
 import Link from "next/link";
 import {
@@ -54,10 +50,8 @@ import {
   Zap,
   FileText,
   GitBranch,
-  Terminal,
   Wifi,
   MessageSquare,
-  Settings,
   Puzzle,
   Stethoscope,
   BarChart3,
@@ -65,6 +59,10 @@ import {
   Smartphone,
   LayoutDashboard,
   ExternalLink,
+  Network,
+  Copy,
+  Check,
+  Loader2,
 } from "lucide-react";
 
 interface BotDetailClientProps {
@@ -80,7 +78,6 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
   const router = useRouter();
   const { toast, confirm: showConfirm } = useToast();
   const [activeTab, setActiveTab] = useState("overview");
-  const [isApplyingConfig, setIsApplyingConfig] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLifecycleAction, setIsLifecycleAction] = useState(false);
   const [pairingChannel, setPairingChannel] = useState<string | null>(null);
@@ -94,6 +91,10 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
   const [tokenUsage, setTokenUsage] = useState<TokenUsageSummary | null>(null);
   const [isLoadingUsage, setIsLoadingUsage] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [agentCard, setAgentCard] = useState<AgentCard | null>(null);
+  const [isLoadingAgentCard, setIsLoadingAgentCard] = useState(false);
+  const [agentCardError, setAgentCardError] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Fetch token usage when bot is running/degraded, poll every 15s
   useEffect(() => {
@@ -113,6 +114,25 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
     const interval = setInterval(fetchUsage, 15_000);
     return () => clearInterval(interval);
   }, [bot.id, bot.status]);
+
+  // Lazy-load agent card when A2A tab is activated
+  useEffect(() => {
+    if (activeTab !== "a2a") return;
+    if (agentCard || isLoadingAgentCard) return;
+
+    setIsLoadingAgentCard(true);
+    setAgentCardError(null);
+    api.getAgentCard(bot.id)
+      .then((card) => setAgentCard(card))
+      .catch((err) => setAgentCardError(err instanceof Error ? err.message : "Failed to load Agent Card"))
+      .finally(() => setIsLoadingAgentCard(false));
+  }, [activeTab, bot.id, agentCard, isLoadingAgentCard]);
+
+  const handleCopy = useCallback((text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  }, []);
 
   const handleDelete = useCallback(async () => {
     const confirmed = await showConfirm({
@@ -277,44 +297,7 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
       : undefined,
   };
 
-  // Mock log entries from recent traces (in production, these come from a real log endpoint)
-  const logEntries: LogEntry[] = traces.slice(0, 50).map((trace, i) => ({
-    id: trace.id || String(i),
-    timestamp: trace.startedAt,
-    level: trace.status === "ERROR" ? "error" : trace.status === "PENDING" ? "warn" : "info",
-    message: `[${trace.type}] ${trace.name}${trace.durationMs ? ` (${trace.durationMs}ms)` : ""}${trace.error ? ` - ${JSON.stringify(trace.error)}` : ""}`,
-    source: trace.type.toLowerCase(),
-  }));
 
-  // Config editor
-  const currentConfigStr = JSON.stringify(bot.desiredManifest, null, 2);
-
-  const handleApplyConfig = useCallback(async (configStr: string) => {
-    setIsApplyingConfig(true);
-    try {
-      await api.applyConfig(bot.id, configStr);
-    } catch (err) {
-      console.error("Failed to apply config:", err);
-    } finally {
-      setIsApplyingConfig(false);
-    }
-  }, [bot.id]);
-
-  const handleApplyStructuredConfig = useCallback(async (configStr: string) => {
-    setIsApplyingConfig(true);
-    try {
-      const parsed = JSON.parse(configStr) as Record<string, unknown>;
-      await api.patchBotConfig(bot.id, parsed);
-      toast("Config applied — changes are live", "success");
-      router.refresh();
-    } catch (err) {
-      console.error("Failed to apply structured config:", err);
-      const message = err instanceof Error ? err.message : "Failed to apply config";
-      toast(message, "error");
-    } finally {
-      setIsApplyingConfig(false);
-    }
-  }, [bot.id, router, toast]);
 
   // Channel auth
   const handleStartAuth = useCallback(async (channelId: string) => {
@@ -551,14 +534,6 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
             <Smartphone className="w-4 h-4 mr-1.5" />
             Pairing
           </TabsTrigger>
-          <TabsTrigger active={activeTab === "config"} onClick={() => setActiveTab("config")}>
-            <Settings className="w-4 h-4 mr-1.5" />
-            Config
-          </TabsTrigger>
-          <TabsTrigger active={activeTab === "logs"} onClick={() => setActiveTab("logs")}>
-            <Terminal className="w-4 h-4 mr-1.5" />
-            Logs
-          </TabsTrigger>
           <TabsTrigger active={activeTab === "skills"} onClick={() => setActiveTab("skills")}>
             <Puzzle className="w-4 h-4 mr-1.5" />
             Skills
@@ -571,6 +546,10 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
                 {evolution.totalChanges}
               </Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger active={activeTab === "a2a"} onClick={() => setActiveTab("a2a")}>
+            <Network className="w-4 h-4 mr-1.5" />
+            A2A
           </TabsTrigger>
         </TabsList>
 
@@ -942,33 +921,7 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
           <PairingTab botId={bot.id} />
         </TabsContent>
 
-        {/* Config Tab */}
-        <TabsContent active={activeTab === "config"} className="mt-6">
-          <div className="space-y-6">
-            <AiGatewayToggle
-              botId={bot.id}
-              initialEnabled={bot.aiGatewayEnabled}
-              initialUrl={bot.aiGatewayUrl}
-              initialApiKey={bot.aiGatewayApiKey}
-              initialProvider={bot.aiGatewayProvider}
-            />
-            <ConfigSectionsEditor
-              config={currentConfigStr}
-              onApply={handleApplyStructuredConfig}
-              isApplying={isApplyingConfig}
-            />
-            <ConfigEditor
-              currentConfig={currentConfigStr}
-              onApply={handleApplyConfig}
-              isApplying={isApplyingConfig}
-            />
-          </div>
-        </TabsContent>
 
-        {/* Logs Tab */}
-        <TabsContent active={activeTab === "logs"} className="mt-6">
-          <LogViewer logs={logEntries} isLive={bot.status === "RUNNING"} instanceId={bot.id} />
-        </TabsContent>
 
         {/* Skills Tab */}
         <TabsContent active={activeTab === "skills"} className="mt-6">
@@ -997,6 +950,225 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
             liveConfig={evolution?.diff?.changes ? openclawConfig as Record<string, unknown> : {}}
             changes={(evolution?.diff?.changes || []) as Array<{ category: string; field: string; changeType: "added" | "removed" | "modified"; deployedValue?: unknown; liveValue?: unknown }>}
           />
+        </TabsContent>
+
+        {/* A2A Tab */}
+        <TabsContent active={activeTab === "a2a"} className="mt-6">
+          {isLoadingAgentCard ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">Loading Agent Card...</span>
+            </div>
+          ) : agentCardError ? (
+            <Card>
+              <CardContent className="py-8 text-center">
+                <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-2" />
+                <p className="text-red-600 font-medium">Failed to load Agent Card</p>
+                <p className="text-sm text-muted-foreground mt-1">{agentCardError}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => {
+                    setAgentCard(null);
+                    setAgentCardError(null);
+                  }}
+                >
+                  Retry
+                </Button>
+              </CardContent>
+            </Card>
+          ) : agentCard ? (
+            <div className="space-y-6">
+              {/* Endpoint URLs */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Network className="w-4 h-4" />
+                    A2A Endpoints
+                  </CardTitle>
+                  <CardDescription>
+                    Use these URLs to interact with this bot via the A2A protocol
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Agent Card URL</label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono truncate">
+                        GET {agentCard.url}/agent-card
+                      </code>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCopy(`${agentCard.url}/agent-card`, "agentCardUrl")}
+                      >
+                        {copiedField === "agentCardUrl" ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">A2A Endpoint (JSON-RPC)</label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono truncate">
+                        POST {agentCard.url}
+                      </code>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCopy(agentCard.url, "a2aUrl")}
+                      >
+                        {copiedField === "a2aUrl" ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      JSON-RPC 2.0 — methods: message/send, message/stream, tasks/get, tasks/cancel (coming in next chunks)
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Agent Identity */}
+              <div className="grid gap-4 md:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Agent Identity</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Name</span>
+                      <span className="font-medium">{agentCard.name}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Version</span>
+                      <Badge variant="outline">{agentCard.version}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Provider</span>
+                      <span>{agentCard.provider?.organization || "—"}</span>
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Description</span>
+                      <p className="mt-1 text-foreground">{agentCard.description}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Capabilities</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Streaming</span>
+                      <Badge variant={agentCard.capabilities.streaming ? "default" : "secondary"}>
+                        {agentCard.capabilities.streaming ? "Enabled" : "Not yet"}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Push Notifications</span>
+                      <Badge variant={agentCard.capabilities.pushNotifications ? "default" : "secondary"}>
+                        {agentCard.capabilities.pushNotifications ? "Enabled" : "Not yet"}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">State History</span>
+                      <Badge variant={agentCard.capabilities.stateTransitionHistory ? "default" : "secondary"}>
+                        {agentCard.capabilities.stateTransitionHistory ? "Enabled" : "Not yet"}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Input Modes</span>
+                      <div className="flex gap-1">
+                        {agentCard.defaultInputModes.map((mode) => (
+                          <Badge key={mode} variant="outline" className="text-xs">{mode}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Output Modes</span>
+                      <div className="flex gap-1">
+                        {agentCard.defaultOutputModes.map((mode) => (
+                          <Badge key={mode} variant="outline" className="text-xs">{mode}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Auth Schemes</span>
+                      <div className="flex gap-1">
+                        {agentCard.authentication.schemes.map((scheme) => (
+                          <Badge key={scheme} variant="outline" className="text-xs">{scheme}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Skills */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Puzzle className="w-4 h-4" />
+                    Agent Skills
+                    <Badge variant="secondary" className="ml-1">{agentCard.skills.length}</Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    Skills this agent advertises to other A2A clients
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {agentCard.skills.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No skills configured. Add SkillPacks or configure skills in the bot&apos;s config.
+                    </p>
+                  ) : (
+                    <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+                      {agentCard.skills.map((skill) => (
+                        <div key={skill.id} className="flex items-start gap-3 p-3 rounded-lg border bg-card">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{skill.name}</p>
+                            {skill.description && (
+                              <p className="text-xs text-muted-foreground mt-0.5">{skill.description}</p>
+                            )}
+                            {skill.tags && skill.tags.length > 0 && (
+                              <div className="flex gap-1 mt-1.5">
+                                {skill.tags.map((tag) => (
+                                  <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0">{tag}</Badge>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Raw JSON */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">Raw Agent Card JSON</CardTitle>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleCopy(JSON.stringify(agentCard, null, 2), "rawJson")}
+                    >
+                      {copiedField === "rawJson" ? <Check className="w-4 h-4 mr-1.5 text-green-500" /> : <Copy className="w-4 h-4 mr-1.5" />}
+                      {copiedField === "rawJson" ? "Copied" : "Copy"}
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <pre className="text-xs bg-muted rounded-md p-4 overflow-auto max-h-64 font-mono">
+                    {JSON.stringify(agentCard, null, 2)}
+                  </pre>
+                </CardContent>
+              </Card>
+            </div>
+          ) : null}
         </TabsContent>
       </Tabs>
 

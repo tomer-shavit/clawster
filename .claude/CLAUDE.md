@@ -186,3 +186,48 @@ molthub/
 - **Monorepo**: pnpm + Turborepo
 - **Auth**: JWT + bcrypt
 - **Testing**: Jest (unit/integration), Playwright (E2E)
+
+---
+
+## OpenClaw Gateway Protocol — Hard-Won Lessons
+
+These are protocol details discovered through debugging real gateway interactions. **Do not guess protocol shapes — always verify against the OpenClaw source at `src/gateway/protocol/schema/`.**
+
+### RPC Parameter Validation is Strict
+
+OpenClaw uses TypeBox schemas with `additionalProperties: false`. Any unknown property in an RPC request causes an `INVALID_REQUEST` error. Always check the exact schema in `src/gateway/protocol/schema/` before adding or renaming fields.
+
+### The `agent` RPC
+
+The `agent` method has specific requirements that differ from what you might assume:
+
+- **Required fields**: `message` (not `prompt`), `idempotencyKey` (not optional)
+- **Timeout field**: `timeout` (not `timeoutMs`) — integer in milliseconds
+- **Session targeting**: The gateway requires at least one of `agentId`, `to`, or `sessionId` to route the request. Without this, you get `UNAVAILABLE: Pass --to <E.164>, --session-id, or --agent to choose a session`. For targeting the default agent, use `agentId: "main"`.
+- **Delivery control**: Set `deliver: false` to prevent the agent from trying to deliver the response to a channel (useful for internal probes).
+- **Full schema reference**: `src/gateway/protocol/schema/agent.ts` → `AgentParamsSchema`
+
+### Two-Phase Agent Response Pattern
+
+The `agent` RPC uses a **two `res` frames with the same `id`** pattern:
+
+1. **Ack (immediate)**: `{ type: "res", id: "<req-id>", ok: true, payload: { runId: "<idempotencyKey>", status: "accepted", acceptedAt: <timestamp> } }`
+2. **Completion (after LLM finishes)**: `{ type: "res", id: "<same-req-id>", ok: true, payload: { runId: "...", status: "ok", summary: "completed", result: { payloads: [{ text: "...", mediaUrl: null }], meta: {...} } } }`
+
+The `runId` in the ack is always equal to the `idempotencyKey` you sent. If the completion is an error, `status` is `"error"` and `summary` contains the error message.
+
+**Critical: `summary` is NOT the agent output.** `summary` is a status string (e.g., `"completed"`). The actual agent text response is in `result.payloads[0].text`. Each payload has `{ text, mediaUrl }`. Multiple payloads can exist for multi-part responses. Do NOT use `summary` or `result` directly as the output string.
+
+**Critical client implementation detail**: After the first `res` frame resolves the pending WebSocket handler, you must **re-register on the same message `id`** to catch the second `res` frame. If you delete the pending entry after the ack (as is normal for single-response RPCs), the completion frame will be silently dropped.
+
+### The `agent.identity.get` RPC
+
+Returns `{ agentId, name, avatar }`. Resolves through: config overrides → agents section → IDENTITY.md → defaults. In practice, often returns the default `{ name: "Assistant", avatar: "A" }` because IDENTITY.md workspace resolution may not work for all setups. The bot's identity IS available in its chat context (IDENTITY.md is loaded for conversations), so probing via the `agent` RPC is more reliable for getting the real identity.
+
+### Debugging Gateway Issues
+
+When gateway communication fails:
+1. **Always check Docker logs**: `docker logs <container-name> --tail 50` — the gateway logs every RPC request/response with method, timing, and error details
+2. **Container naming**: OpenClaw containers are named `openclaw-<bot-name>` (e.g., `openclaw-test-l-1`)
+3. **Gateway error format**: `⇄ res ✗ <method> errorCode=<CODE> errorMessage=<msg>` — this shows the exact rejection reason
+4. **Don't assume protocol shapes** — even if the TypeScript types compile, the gateway validates at runtime with strict schemas. A build passing does NOT mean the wire protocol is correct.
