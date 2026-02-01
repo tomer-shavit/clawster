@@ -27,6 +27,8 @@ model Workspace {
   auditEvents           AuditEvent[]
   skillPacks            SkillPack[]
   communicationChannels CommunicationChannel[]
+  notificationChannels  NotificationChannel[]
+  botRoutingRules       BotRoutingRule[]
 
   @@index([slug])
 }
@@ -176,6 +178,10 @@ model BotInstance {
   budgetConfigs  BudgetConfig[]
   costEvents     CostEvent[]
   healthAlerts   HealthAlert[]
+
+  // Routing rules
+  routingRulesAsSource BotRoutingRule[] @relation("SourceBot")
+  routingRulesAsTarget BotRoutingRule[] @relation("TargetBot")
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
@@ -1019,4 +1025,95 @@ model DevicePairing {
   @@index([channelType])
   @@index([instanceId, pairingCode])
   @@unique([instanceId, channelType, senderId])
+}
+
+// ============================================
+// NOTIFICATION CHANNELS & ALERT ROUTING
+// ============================================
+
+// NotificationChannel: External notification destinations (Slack webhook, generic webhook, email)
+model NotificationChannel {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  name    String
+  type    String // SLACK_WEBHOOK, WEBHOOK, EMAIL
+
+  // Type-specific config (JSON)
+  // SLACK_WEBHOOK: { url: string }
+  // WEBHOOK: { url: string, headers?: Record<string, string>, secret?: string }
+  // EMAIL: { addresses: string[], smtpConfig?: {...} }
+  config  String
+
+  enabled Boolean @default(true)
+
+  // Status tracking
+  lastTestedAt   DateTime?
+  lastDeliveryAt DateTime?
+  lastError      String?
+  deliveryCount  Int @default(0)
+  failureCount   Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  notificationRules AlertNotificationRule[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@index([type])
+  @@index([enabled])
+}
+
+// AlertNotificationRule: Links alert severity/types to notification channels
+model AlertNotificationRule {
+  id        String              @id @default(cuid())
+  channelId String
+  channel   NotificationChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  // Filter criteria (all optional — if unset, matches all)
+  severities String? // JSON array, e.g. ["CRITICAL","ERROR"]
+  alertRules String? // JSON array, e.g. ["token_spike","budget_critical"]
+
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([channelId])
+  @@index([enabled])
+}
+
+// ============================================
+// BOT-TO-BOT ROUTING / DELEGATION
+// ============================================
+
+// BotRoutingRule: Defines when one bot should delegate to another
+model BotRoutingRule {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  sourceBotId String
+  sourceBot   BotInstance @relation("SourceBot", fields: [sourceBotId], references: [id], onDelete: Cascade)
+
+  targetBotId String
+  targetBot   BotInstance @relation("TargetBot", fields: [targetBotId], references: [id], onDelete: Cascade)
+
+  // Matching criteria
+  triggerPattern String  // Regex or keyword match
+  description    String  // Human-readable, e.g. "infrastructure questions"
+
+  priority Int     @default(0)
+  enabled  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([sourceBotId])
+  @@index([targetBotId])
+  @@index([enabled])
 }

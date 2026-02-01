@@ -284,7 +284,7 @@ Molthub API                          OpenClaw Gateway
 | `config.apply` | Replace entire config (optimistic concurrency via hash) | Reconciler |
 | `config.patch` | Partial config update (merge-patch) | Quick config changes |
 | `send` | Send message via channel | Message sending |
-| `agent` | Execute agent (ack + streaming + completion) | Agent invocation |
+| `agent` | Execute agent (ack + streaming + completion) | Agent invocation, chat relay, bot-to-bot delegation |
 
 **Concurrency control**: `config.apply` and `config.patch` require the current `baseHash`. If the hash doesn't match (someone else changed config), the call fails. This prevents lost updates.
 
@@ -311,9 +311,11 @@ molthub/
 │   │       ├── onboarding/     # First-time setup wizard
 │   │       ├── templates/      # Built-in + custom templates
 │   │       ├── channels/       # Channel management + auth flows
-│   │       ├── health/         # Health polling + diagnostics
+│   │       ├── health/         # Health polling + diagnostics + alerting + notification delivery
 │   │       ├── provisioning/   # Real-time provisioning events (WS)
-│   │       └── ... (32 modules total)
+│   │       ├── notification-channels/ # External notification destinations + delivery
+│   │       ├── bot-routing/    # Bot-to-bot routing rules + delegation service
+│   │       └── ... (34 modules total)
 │   │
 │   └── web/                    # Next.js frontend
 │       └── src/
@@ -667,6 +669,58 @@ The `ConfigGeneratorService` handles all transformations. The `DockerContainerTa
 - **Secure defaults enforcement**: Gateway auth required, DM pairing by default, logging redaction
 - **Security audit**: Scans for plaintext secrets, permission issues, misconfigurations
 - **Credential rotation**: Scheduled rotation with blast radius tracking
+
+---
+
+## Bot-to-Bot Delegation Architecture
+
+When a user sends a message to Bot A and routing rules match, Molthub can delegate the message to Bot B before or instead of processing it with Bot A.
+
+```
+User → Chat API (POST /bot-instances/:id/chat)
+         │
+         ▼
+  BotDelegationService.attemptDelegation(sourceBotId, message)
+         │
+         ├── Query BotRoutingRules for sourceBotId (enabled, priority-ordered)
+         ├── Regex match message against triggerPattern
+         │
+         ├── [No match] → Proceed to source bot via GatewayClient.agent()
+         │
+         └── [Match found] →
+              ├── Create Trace record (type: TASK, metadata.delegationType: "delegation")
+              ├── Send message to target bot via GatewayClient.agent()
+              ├── Return delegation result (targetBotId, response, traceId)
+              └── Source bot is NOT invoked (delegation replaces)
+```
+
+Delegation traces are visible in the traces UI with a visual chain: User → Source Bot → Target Bot → Response.
+
+---
+
+## External Notifications Architecture
+
+When an alert fires (health degraded, token spike, budget threshold), the notification delivery service sends to configured channels.
+
+```
+AlertingService.evaluateAlerts() (cron every 60s)
+  │
+  ├── evaluateHealthAlerts()
+  ├── evaluateTokenSpikeAlerts()
+  └── evaluateBudgetThresholds()
+         │
+         ▼
+  upsertAlertAndNotify(alert)
+    ├── alertsService.upsertAlert() → DB
+    └── notificationDeliveryService.deliverAlert() → fire-and-forget
+           │
+           ├── Query AlertNotificationRules matching severity/alertRule
+           ├── For each matching rule → get NotificationChannel
+           │
+           ├── SLACK_WEBHOOK → Format as Slack Block Kit → HTTP POST to webhook URL
+           ├── WEBHOOK → Format as JSON → HTTP POST with optional headers/secret
+           └── EMAIL → (future: SMTP delivery)
+```
 
 ---
 

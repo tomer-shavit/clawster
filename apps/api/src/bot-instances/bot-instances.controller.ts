@@ -18,16 +18,20 @@ import {
   UpdateBotStatusDto,
   UpdateBotHealthDto,
   UpdateAiGatewaySettingsDto,
-  ListBotInstancesQueryDto
+  ListBotInstancesQueryDto,
+  ChatMessageDto,
+  PatchConfigDto,
 } from "./bot-instances.dto";
 import { CompareBotsDto, BulkActionDto, BulkActionResultItem } from "./bot-compare.dto";
 import { OpenClawHealthService } from "../health/openclaw-health.service";
+import { BotDelegationService } from "../bot-routing/bot-delegation.service";
 
 @Controller("bot-instances")
 export class BotInstancesController {
   constructor(
     private readonly botInstancesService: BotInstancesService,
     private readonly openClawHealthService: OpenClawHealthService,
+    private readonly botDelegationService: BotDelegationService,
   ) {}
 
   @Post()
@@ -111,6 +115,29 @@ export class BotInstancesController {
   @HttpCode(HttpStatus.OK)
   async reconcile(@Param("id") id: string): Promise<Record<string, unknown>> {
     return this.botInstancesService.reconcileInstance(id);
+  }
+
+  @Post(":id/chat")
+  async chat(@Param("id") id: string, @Body() dto: ChatMessageDto) {
+    // Check routing rules before sending to the source bot.
+    // If a rule matches, delegate to the target bot instead.
+    const delegation = await this.botDelegationService.attemptDelegation(
+      id,
+      dto.message,
+      dto.sessionId,
+    );
+
+    if (delegation) {
+      return delegation;
+    }
+
+    // No delegation — handle normally via the source bot
+    return this.botInstancesService.chat(id, dto.message, dto.sessionId);
+  }
+
+  @Patch(":id/config")
+  async patchConfig(@Param("id") id: string, @Body() dto: PatchConfigDto) {
+    return this.botInstancesService.patchConfig(id, dto.patch);
   }
 
   @Post(":id/doctor")

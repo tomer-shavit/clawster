@@ -16,19 +16,39 @@ import {
 import { TimeDisplay, DurationDisplay } from "@/components/ui/time-display";
 import { api, type Trace } from "@/lib/api";
 import Link from "next/link";
-import { 
-  Search, 
-  Filter, 
-  Clock, 
-  CheckCircle, 
-  XCircle, 
+import { Badge } from "@/components/ui/badge";
+import {
+  Search,
+  Filter,
+  Clock,
+  CheckCircle,
+  XCircle,
   Activity,
   Zap,
   GitBranch,
   ArrowRight,
+  ArrowRightLeft,
   BarChart3
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+function isDelegationTrace(trace: Trace): boolean {
+  return (
+    trace.type === 'TASK' &&
+    trace.metadata != null &&
+    (trace.metadata as Record<string, unknown>).delegationType === 'delegation'
+  );
+}
+
+function getDelegationMeta(trace: Trace) {
+  const m = trace.metadata as Record<string, unknown> | undefined;
+  if (!m) return null;
+  return {
+    sourceBotName: (m.sourceBotName as string) || 'Unknown',
+    targetBotName: (m.targetBotName as string) || 'Unknown',
+    triggerPattern: (m.triggerPattern as string) || '',
+  };
+}
 
 async function getTraces(searchParams: { [key: string]: string | undefined }): Promise<Trace[]> {
   try {
@@ -84,6 +104,8 @@ export default async function TracesPage({
   const avgDuration = traces.length > 0
     ? Math.round(traces.reduce((sum, t) => sum + (t.durationMs || 0), 0) / traces.length)
     : 0;
+
+  const delegationCount = traces.filter(isDelegationTrace).length;
 
   // Get type distribution
   const typeStats = traces.reduce((acc, trace) => {
@@ -225,6 +247,15 @@ export default async function TracesPage({
                       <span className="font-medium text-sm">{count}</span>
                     </div>
                   ))}
+                {delegationCount > 0 && (
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div className="flex items-center gap-2">
+                      <ArrowRightLeft className="w-4 h-4 text-violet-500" />
+                      <span className="text-sm">Delegations</span>
+                    </div>
+                    <span className="font-medium text-sm">{delegationCount}</span>
+                  </div>
+                )}
                 {!Object.keys(typeStats).length && (
                   <p className="text-sm text-muted-foreground text-center py-4">
                     No data
@@ -275,11 +306,30 @@ export default async function TracesPage({
                           <div className="flex items-center gap-2">
                             {getTypeIcon(trace.type)}
                             <span className="text-xs capitalize">{trace.type.toLowerCase()}</span>
+                            {isDelegationTrace(trace) && (
+                              <Badge variant="outline" className="ml-1 border-violet-300 text-violet-700 bg-violet-50">
+                                <ArrowRightLeft className="w-3 h-3 mr-1" />
+                                Delegation
+                              </Badge>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell>
-                          {trace.botInstance ? (
-                            <Link 
+                          {isDelegationTrace(trace) ? (
+                            (() => {
+                              const meta = getDelegationMeta(trace);
+                              return meta ? (
+                                <div className="flex items-center gap-1.5 text-sm">
+                                  <span className="font-medium text-violet-700">{meta.sourceBotName}</span>
+                                  <ArrowRight className="w-3 h-3 text-muted-foreground" />
+                                  <span className="font-medium text-violet-700">{meta.targetBotName}</span>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground text-sm">-</span>
+                              );
+                            })()
+                          ) : trace.botInstance ? (
+                            <Link
                               href={`/bots/${trace.botInstance.id}`}
                               className="hover:underline text-sm"
                             >

@@ -87,7 +87,7 @@ For users who don't want to manage infrastructure, a future hosted SaaS offering
 
 - **Team hierarchy**: A team has a lead bot and member bots. The lead understands the team's goals and delegates work to the right specialist.
 - **Goal-driven coordination**: Users set team-level goals and roadmaps. The lead breaks these into tasks and assigns them based on member capabilities.
-- **Rule-governed communication**: All inter-bot communication flows through Molthub. Users define rules: who can talk to whom, what context is shared, what requires human approval.
+- **Rule-governed communication**: All inter-bot communication flows through Molthub. Users define routing rules with pattern matching to control when Bot A delegates to Bot B. All delegations are traced and auditable. Users can configure who talks to whom, what context is shared, and what requires human approval.
 - **Shared context**: Teams maintain shared context that members can read and contribute to, enabling coherent multi-agent workflows.
 - **Auditable**: Every message, every delegation, every result is logged and traceable.
 
@@ -98,7 +98,7 @@ For users who don't want to manage infrastructure, a future hosted SaaS offering
 - **Skills and tools usage**: Which tools each bot is using, how often, success rates.
 - **Cost tracking**: Token usage, API costs, infrastructure costs — per bot, per team, per channel.
 - **SLOs**: Define targets (uptime, latency, error rate) and track compliance.
-- **Alerts**: Get notified when health degrades, costs spike, SLOs breach, or bots need attention. Alerts include remediation suggestions.
+- **Alerts**: Get notified when health degrades, costs spike, SLOs breach, or bots need attention. Alerts fire and notify via Slack webhook, email, or arbitrary webhook URL. Token spike detection and budget threshold alerts are built in. Alerts include remediation suggestions.
 
 ### Enforce Security
 
@@ -157,4 +157,6 @@ Both paths use the same codebase. No feature gates. No artificial limitations on
 - An enterprise can manage 500+ bots across multiple clouds with governance and compliance
 - All inter-bot communication is auditable and rule-governed
 - Zero plaintext secrets in any deployment
+- Bot-to-bot delegation is auditable and visible in traces
+- External notifications (Slack/webhook) are configurable per alert type and severity
 - Open-source community actively contributing deployment targets, templates, and integrations

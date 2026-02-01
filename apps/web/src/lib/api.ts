@@ -859,6 +859,13 @@ class ApiClient {
     });
   }
 
+  async patchBotConfig(instanceId: string, patch: Record<string, unknown>): Promise<BotInstance> {
+    return this.fetch(`/bot-instances/${instanceId}/config`, {
+      method: 'PATCH',
+      body: JSON.stringify({ patch }),
+    });
+  }
+
   async startChannelAuth(id: string, channelId: string): Promise<ChannelAuthStatus> {
     return this.fetch(`/bot-instances/${id}/channels/${channelId}/auth`, { method: 'POST' });
   }
@@ -1280,6 +1287,130 @@ class ApiClient {
   async unbindChannel(channelId: string, bindingId: string): Promise<void> {
     await this.fetch(`/channels/${channelId}/bind/${bindingId}`, { method: 'DELETE' });
   }
+
+  // ============================================
+  // Bot Chat
+  // ============================================
+
+  async chatWithBot(instanceId: string, message: string, sessionId?: string): Promise<{
+    response: string;
+    sessionId: string;
+    status: string;
+  }> {
+    return this.fetch(`/bot-instances/${instanceId}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ message, sessionId }),
+    });
+  }
+
+  // ============================================
+  // Bot Routing Rules
+  // ============================================
+
+  async listRoutingRules(filters?: {
+    sourceBotId?: string;
+    targetBotId?: string;
+    enabled?: boolean;
+  }): Promise<BotRoutingRule[]> {
+    const params = new URLSearchParams();
+    if (filters?.sourceBotId) params.set('sourceBotId', filters.sourceBotId);
+    if (filters?.targetBotId) params.set('targetBotId', filters.targetBotId);
+    if (filters?.enabled !== undefined) params.set('enabled', String(filters.enabled));
+    const query = params.toString();
+    return this.fetch(`/bot-routing-rules${query ? `?${query}` : ''}`);
+  }
+
+  async getRoutingRule(id: string): Promise<BotRoutingRule> {
+    return this.fetch(`/bot-routing-rules/${id}`);
+  }
+
+  async createRoutingRule(data: CreateBotRoutingRulePayload): Promise<BotRoutingRule> {
+    return this.fetch('/bot-routing-rules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateRoutingRule(id: string, data: UpdateBotRoutingRulePayload): Promise<BotRoutingRule> {
+    return this.fetch(`/bot-routing-rules/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteRoutingRule(id: string): Promise<void> {
+    await this.fetch(`/bot-routing-rules/${id}`, { method: 'DELETE' });
+  }
+
+  async delegateMessage(data: DelegateRequestPayload): Promise<DelegationResult> {
+    return this.fetch('/bot-routing-rules/delegate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ============================================
+  // Notification Channels
+  // ============================================
+
+  async listNotificationChannels(filters?: {
+    type?: string;
+    enabled?: boolean;
+  }): Promise<NotificationChannel[]> {
+    const params = new URLSearchParams();
+    if (filters?.type) params.set('type', filters.type);
+    if (filters?.enabled !== undefined) params.set('enabled', String(filters.enabled));
+    const query = params.toString();
+    return this.fetch(`/notification-channels${query ? `?${query}` : ''}`);
+  }
+
+  async getNotificationChannel(id: string): Promise<NotificationChannel> {
+    return this.fetch(`/notification-channels/${id}`);
+  }
+
+  async createNotificationChannel(data: CreateNotificationChannelPayload): Promise<NotificationChannel> {
+    return this.fetch('/notification-channels', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateNotificationChannel(id: string, data: UpdateNotificationChannelPayload): Promise<NotificationChannel> {
+    return this.fetch(`/notification-channels/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteNotificationChannel(id: string): Promise<void> {
+    await this.fetch(`/notification-channels/${id}`, { method: 'DELETE' });
+  }
+
+  async testNotificationChannel(id: string): Promise<NotificationChannel> {
+    return this.fetch(`/notification-channels/${id}/test`, { method: 'POST' });
+  }
+
+  // ============================================
+  // Notification Rules
+  // ============================================
+
+  async createNotificationRule(channelId: string, data: CreateNotificationRulePayload): Promise<AlertNotificationRule> {
+    return this.fetch(`/notification-channels/${channelId}/rules`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateNotificationRule(ruleId: string, data: UpdateNotificationRulePayload): Promise<AlertNotificationRule> {
+    return this.fetch(`/notification-channels/rules/${ruleId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteNotificationRule(ruleId: string): Promise<void> {
+    await this.fetch(`/notification-channels/rules/${ruleId}`, { method: 'DELETE' });
+  }
 }
 
 // ============================================
@@ -1659,6 +1790,118 @@ export interface TokenUsageSummary {
     totalTokens: number;
     totalCost: number;
   }>;
+}
+
+// ============================================
+// Bot Routing Rule Types
+// ============================================
+
+export interface BotRoutingRule {
+  id: string;
+  workspaceId: string;
+  sourceBotId: string;
+  targetBotId: string;
+  triggerPattern: string;
+  description: string;
+  priority: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  sourceBot?: { id: string; name: string };
+  targetBot?: { id: string; name: string };
+}
+
+export interface DelegateRequestPayload {
+  sourceBotId: string;
+  message: string;
+  sessionId?: string;
+}
+
+export interface DelegationResult {
+  delegated: true;
+  targetBotId: string;
+  targetBotName: string;
+  response: string | undefined;
+  traceId: string;
+  sessionId: string;
+}
+
+export interface CreateBotRoutingRulePayload {
+  sourceBotId: string;
+  targetBotId: string;
+  triggerPattern: string;
+  description: string;
+  priority?: number;
+  enabled?: boolean;
+}
+
+export interface UpdateBotRoutingRulePayload {
+  sourceBotId?: string;
+  targetBotId?: string;
+  triggerPattern?: string;
+  description?: string;
+  priority?: number;
+  enabled?: boolean;
+}
+
+// ============================================
+// Notification Channel Types
+// ============================================
+
+export type NotificationChannelType = 'SLACK_WEBHOOK' | 'WEBHOOK' | 'EMAIL';
+
+export interface NotificationChannel {
+  id: string;
+  workspaceId: string;
+  name: string;
+  type: NotificationChannelType;
+  config: string;
+  enabled: boolean;
+  lastTestedAt?: string | null;
+  lastDeliveryAt?: string | null;
+  lastError?: string | null;
+  deliveryCount: number;
+  failureCount: number;
+  createdAt: string;
+  updatedAt: string;
+  notificationRules: AlertNotificationRule[];
+}
+
+export interface AlertNotificationRule {
+  id: string;
+  channelId: string;
+  severities?: string | null;
+  alertRules?: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateNotificationChannelPayload {
+  name: string;
+  type: NotificationChannelType;
+  config: string;
+  enabled?: boolean;
+}
+
+export interface UpdateNotificationChannelPayload {
+  name?: string;
+  type?: NotificationChannelType;
+  config?: string;
+  enabled?: boolean;
+}
+
+export interface CreateNotificationRulePayload {
+  channelId: string;
+  severities?: string;
+  alertRules?: string;
+  enabled?: boolean;
+}
+
+export interface UpdateNotificationRulePayload {
+  severities?: string;
+  alertRules?: string;
+  enabled?: boolean;
 }
 
 export const api = new ApiClient();

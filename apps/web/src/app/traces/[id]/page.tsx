@@ -11,17 +11,197 @@ import { TimeDisplay, DurationDisplay } from "@/components/ui/time-display";
 import { Progress } from "@/components/ui/progress";
 import { api, type Trace } from "@/lib/api";
 import Link from "next/link";
-import { 
-  ArrowLeft, 
-  Clock, 
-  CheckCircle, 
-  XCircle, 
+import { Badge } from "@/components/ui/badge";
+import {
+  ArrowLeft,
+  Clock,
+  CheckCircle,
+  XCircle,
   Activity,
   ChevronRight,
   ChevronDown,
   Copy,
-  FileJson
+  FileJson,
+  ArrowRightLeft,
+  User,
+  Bot,
+  MessageSquare,
+  Regex
 } from "lucide-react";
+
+function isDelegationTrace(trace: Trace): boolean {
+  return (
+    trace.type === 'TASK' &&
+    trace.metadata != null &&
+    (trace.metadata as Record<string, unknown>).delegationType === 'delegation'
+  );
+}
+
+function getDelegationMeta(trace: Trace) {
+  const m = trace.metadata as Record<string, unknown> | undefined;
+  if (!m) return null;
+  return {
+    sourceBotId: (m.sourceBotId as string) || '',
+    sourceBotName: (m.sourceBotName as string) || 'Unknown',
+    targetBotId: (m.targetBotId as string) || '',
+    targetBotName: (m.targetBotName as string) || 'Unknown',
+    triggerPattern: (m.triggerPattern as string) || '',
+    originalMessage: (m.originalMessage as string) || '',
+  };
+}
+
+function DelegationChainVisualization({ trace }: { trace: Trace }) {
+  const meta = getDelegationMeta(trace);
+  if (!meta) return null;
+
+  const hasResponse = trace.status === 'SUCCESS' && trace.output != null;
+  const outputText = hasResponse
+    ? typeof (trace.output as Record<string, unknown>)?.response === 'string'
+      ? (trace.output as Record<string, unknown>).response as string
+      : JSON.stringify(trace.output, null, 2)
+    : null;
+
+  return (
+    <Card className="border-violet-200 bg-violet-50/30">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-violet-900">
+          <ArrowRightLeft className="w-5 h-5" />
+          Delegation Flow
+        </CardTitle>
+        <CardDescription>
+          Bot-to-bot delegation chain for this trace
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {/* Chain visualization */}
+        <div className="flex flex-col items-stretch gap-0">
+          {/* Step 1: User sends message */}
+          <div className="flex items-start gap-4">
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center border-2 border-blue-300">
+                <User className="w-5 h-5 text-blue-700" />
+              </div>
+              <div className="w-0.5 h-8 bg-violet-300" />
+            </div>
+            <div className="pt-1.5 flex-1">
+              <p className="text-sm font-medium text-foreground">User Message</p>
+              {meta.originalMessage && (
+                <p className="text-sm text-muted-foreground mt-1 bg-white rounded px-3 py-2 border">
+                  &ldquo;{meta.originalMessage}&rdquo;
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Step 2: Source bot receives and delegates */}
+          <div className="flex items-start gap-4">
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center border-2 border-violet-400">
+                <Bot className="w-5 h-5 text-violet-700" />
+              </div>
+              <div className="w-0.5 h-8 bg-violet-300" />
+            </div>
+            <div className="pt-1.5 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-foreground">{meta.sourceBotName}</p>
+                <Badge variant="secondary" className="text-xs">Source Bot</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Matched trigger pattern and delegated to target bot
+              </p>
+              {meta.triggerPattern && (
+                <div className="flex items-center gap-2 mt-2 bg-white rounded px-3 py-2 border text-xs">
+                  <Regex className="w-3.5 h-3.5 text-orange-500 flex-shrink-0" />
+                  <span className="text-muted-foreground">Trigger pattern:</span>
+                  <code className="font-mono text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded">{meta.triggerPattern}</code>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Step 3: Target bot processes */}
+          <div className="flex items-start gap-4">
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center border-2 border-emerald-400">
+                <Bot className="w-5 h-5 text-emerald-700" />
+              </div>
+              {hasResponse && <div className="w-0.5 h-8 bg-violet-300" />}
+            </div>
+            <div className="pt-1.5 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-foreground">{meta.targetBotName}</p>
+                <Badge variant="secondary" className="text-xs">Target Bot</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Received delegated message and processed it
+              </p>
+            </div>
+          </div>
+
+          {/* Step 4: Response (if available) */}
+          {hasResponse && (
+            <div className="flex items-start gap-4">
+              <div className="flex flex-col items-center">
+                <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center border-2 border-green-300">
+                  <MessageSquare className="w-5 h-5 text-green-700" />
+                </div>
+              </div>
+              <div className="pt-1.5 flex-1">
+                <p className="text-sm font-medium text-foreground">Response</p>
+                {outputText && (
+                  <pre className="text-sm text-muted-foreground mt-1 bg-white rounded px-3 py-2 border whitespace-pre-wrap break-words max-h-48 overflow-auto">
+                    {outputText}
+                  </pre>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Error display for failed delegations */}
+          {trace.status === 'ERROR' && (
+            <div className="flex items-start gap-4">
+              <div className="flex flex-col items-center">
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center border-2 border-red-300">
+                  <XCircle className="w-5 h-5 text-red-700" />
+                </div>
+              </div>
+              <div className="pt-1.5 flex-1">
+                <p className="text-sm font-medium text-red-700">Delegation Failed</p>
+                {trace.error && (
+                  <pre className="text-sm text-red-600 mt-1 bg-red-50 rounded px-3 py-2 border border-red-200 whitespace-pre-wrap break-words">
+                    {JSON.stringify(trace.error, null, 2)}
+                  </pre>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Summary table */}
+        <div className="mt-6 grid grid-cols-2 gap-4 text-sm border-t border-violet-200 pt-4">
+          <div>
+            <span className="text-muted-foreground">Source Bot</span>
+            <p className="font-medium mt-0.5">{meta.sourceBotName}</p>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Target Bot</span>
+            <p className="font-medium mt-0.5">{meta.targetBotName}</p>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Trigger Pattern</span>
+            <p className="font-mono text-xs mt-0.5">{meta.triggerPattern || 'N/A'}</p>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Duration</span>
+            <p className="font-medium mt-0.5">
+              {trace.durationMs ? <DurationDisplay ms={trace.durationMs} /> : 'N/A'}
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 interface TraceTreeNodeProps {
   trace: Trace & { children?: Trace[] };
@@ -62,6 +242,15 @@ function TraceTreeNode({ trace, level = 0, totalDuration }: TraceTreeNodeProps) 
         <span className="text-xs text-muted-foreground px-2 py-0.5 rounded bg-secondary">
           {trace.type}
         </span>
+        {isDelegationTrace(trace) && (
+          <span className="text-xs px-2 py-0.5 rounded bg-violet-100 text-violet-700 border border-violet-200 flex items-center gap-1">
+            <ArrowRightLeft className="w-3 h-3" />
+            {(() => {
+              const m = getDelegationMeta(trace);
+              return m ? `${m.sourceBotName} \u2192 ${m.targetBotName}` : 'Delegation';
+            })()}
+          </span>
+        )}
         
         <div className="flex-1" />
         
@@ -159,7 +348,15 @@ export default function TraceDetailPage({ params }: { params: { id: string } }) 
         </Link>
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">{trace.name}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold tracking-tight">{trace.name}</h1>
+              {isDelegationTrace(trace) && (
+                <Badge variant="outline" className="border-violet-300 text-violet-700 bg-violet-50">
+                  <ArrowRightLeft className="w-3 h-3 mr-1" />
+                  Delegation
+                </Badge>
+              )}
+            </div>
             <p className="text-muted-foreground mt-1">
               Trace ID: <code className="bg-muted px-1 rounded">{trace.traceId}</code>
             </p>
@@ -235,6 +432,13 @@ export default function TraceDetailPage({ params }: { params: { id: string } }) 
           </CardContent>
         </Card>
       </div>
+
+      {/* Delegation Chain Visualization */}
+      {isDelegationTrace(trace) && (
+        <div className="mb-8">
+          <DelegationChainVisualization trace={trace} />
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="tree" className="w-full">

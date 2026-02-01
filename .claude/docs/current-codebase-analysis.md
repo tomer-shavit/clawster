@@ -27,7 +27,7 @@ molthub/
 └── .github/workflows/        # CI/CD pipelines
 ```
 
-## API App — 32 Modules, 100+ Endpoints
+## API App — 34 Modules, 100+ Endpoints
 
 ### Module Inventory
 
@@ -62,6 +62,8 @@ molthub/
 | pairing | list + approve/reject/revoke | Device pairing for DM access control |
 | state-sync | status + upload/download | Multi-backend state sync (S3, R2, GCS, Azure Blob, Local) |
 | user-context | User stage tracking | Onboarding stage management |
+| notification-channels | CRUD /notification-channels + test | External notification destinations (Slack webhook, generic webhook, email) + delivery service |
+| bot-routing | CRUD /bot-routing-rules + POST /delegate | Bot-to-bot routing rules + delegation execution with trace creation |
 
 ### Request Lifecycle
 CORS → ThrottlerGuard (60s/100req) → ValidationPipe → JwtAuthGuard (if protected) → Controller → Service (Prisma) → Response
@@ -115,6 +117,8 @@ CORS → ThrottlerGuard (60s/100req) → ValidationPipe → JwtAuthGuard (if pro
 | /slos | Working — SLO dashboard |
 | /audit | Working — audit log with filters |
 | /alerts | Working — alert management |
+| /notifications | Working — notification channel management (Slack/webhook) |
+| /routing | Working — bot routing rules configuration |
 
 ### Component Groups
 
@@ -132,6 +136,10 @@ CORS → ThrottlerGuard (60s/100req) → ValidationPipe → JwtAuthGuard (if pro
 | Deploy Wizard | deploy-wizard, step-template, step-channels, step-review, step-deploying, wizard-layout |
 | Cost & SLOs | cost-breakdown, budget-gauge, slo-card, slo-form |
 | Alerts | alert-card, alert-summary |
+| Chat | bot-chat-panel (slide-over chat with any bot) |
+| Config Editor | config-sections-editor (Identity, Tools, Channels, Model sections) |
+| Routing | routing-rules-client (CRUD routing rules with source→target) |
+| Notifications | notification settings page (channels, rules, test) |
 | Provisioning | provisioning-screen, step-progress |
 
 ### Hooks & Context
@@ -141,6 +149,7 @@ CORS → ThrottlerGuard (60s/100req) → ValidationPipe → JwtAuthGuard (if pro
 - `use-provisioning-events` — Provisioning event stream
 - `websocket-context` — Global WebSocket management
 - `user-stage-context` — User onboarding state
+- `use-bot-chat` — Chat state management + API calls for bot chat relay
 
 **UI stack**: Tailwind CSS 3.4 + shadcn/ui + Recharts 3.7 + Lucide icons + date-fns 4.1. SSR default with client-side for interactive pages.
 
@@ -162,6 +171,8 @@ Workspace → User, AuthUser, Fleet → BotInstance (status machine: CREATING �
 | Skills | SkillPack, BotInstanceSkillPack |
 | OpenClaw | GatewayConnection, OpenClawProfile, DeploymentTarget, SecurityAuditResult, HealthSnapshot, AgentStateSnapshot, DevicePairing |
 | Cost & SLOs | SloDefinition, BudgetConfig, CostEvent, HealthAlert |
+| Notifications | NotificationChannel, AlertNotificationRule |
+| Routing | BotRoutingRule |
 
 ### Key Enums
 - `UserRole`: OWNER, ADMIN, OPERATOR, VIEWER

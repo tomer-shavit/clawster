@@ -176,6 +176,8 @@ Dashboards are useful, but only if they lead to action. Showing a metric is poin
 - Health card shows "Degraded" → show which health check failed and link to diagnostics (the equivalent of `openclaw doctor`).
 - Channel card shows "WhatsApp disconnected" → link to re-pairing flow.
 - Cost card shows spending increased → link directly to the agent or channel causing the spike.
+- Chat panel lets you talk to any bot directly — the ultimate action-oriented design.
+- Slack/webhook notifications proactively alert you when something needs attention, even when you're not looking at the dashboard.
 - Every metric panel should answer: "So what? What do I do with this number?"
 
 **The rule:** If a piece of information doesn't lead to an action, question whether it belongs on that page.
@@ -233,6 +235,9 @@ Molthub deploys agents, but agents don't stay as deployed. They're autonomous. T
 - Molthub can push config changes to agents (`config.apply`, `config.patch`), and agents can change their own config. The UI should make both directions visible: "You set this" vs "The agent changed this."
 - Skills, tools, and MCP servers should be browsable per agent. "What can this agent do?" is a fundamental question the dashboard must answer at all times — and the answer may have changed since yesterday.
 - When Sarah hasn't checked on an agent for a week, Molthub should show her what's changed: "Your DevOps bot added 2 skills and connected to a new MCP server since your last visit." This makes the dashboard worth coming back to.
+
+- Chat panel enables direct two-way interaction with agents — not just observation, but conversation.
+- Delegation traces show how bots communicate with each other, making inter-bot collaboration visible.
 
 **The rule:** Molthub is not fire-and-forget. Every agent page should answer two questions: "What did I deploy?" and "What has this agent become?" If those diverge, the user should understand why and feel in control.
 
@@ -299,6 +304,8 @@ Every navigation path, every page title, every breadcrumb should reinforce this 
 - Agent cards showing: name, status, Gateway health (connected/disconnected), connected channels with status, uptime, agent identity (emoji + personality snippet). Each agent is a first-class citizen on the page.
 - **Live agent state**: each card reflects what the agent currently is — including skills it's added, tools it's using, and MCP servers it's connected to since deployment. If the agent has evolved, a subtle indicator shows "2 new skills since deploy" or similar.
 - Setup checklist: what they've done, what they could do next (connect channels, verify health, configure skills, deploy another agent)
+- **Built-in chat panel**: Click any bot card to open a slide-over chat panel and talk to the bot directly inside Molthub — no need to switch to Telegram or Slack.
+- **Routing rules**: Configure which bots can delegate to others via simple pattern-based rules.
 - Quick actions: Add Channel, View Health, Edit Config, Deploy Another Bot
 
 **Feeling:** "I can see all my agents are healthy, I know what they're doing, and adding another one is right there."
@@ -312,6 +319,8 @@ Every navigation path, every page title, every breadcrumb should reinforce this 
 - Fleet-wide metrics: total agents, Gateway health breakdown (healthy/degraded/down), channel connectivity, cost estimate
 - Charts (only when real data exists — messages processed, health over time, cost trends)
 - Agents that need attention surfaced first (degraded health, disconnected channels, errors)
+- Notification settings for Slack/webhook alerts when bots need attention
+- Delegation traces showing inter-bot communication chains
 - "Deploy New Bot" always accessible
 
 **Feeling:** "I'm running a fleet of agents and I have full visibility. I can still deploy a new one in 2 minutes if I need one."

@@ -23,12 +23,14 @@ import { GatewayStatus, type GatewayStatusData } from "@/components/openclaw/gat
 import { HealthSnapshot, type HealthSnapshotData } from "@/components/openclaw/health-snapshot";
 import { ChannelStatusList, type ChannelStatusData } from "@/components/openclaw/channel-status";
 import { ConfigEditor } from "@/components/openclaw/config-editor";
+import { ConfigSectionsEditor } from "@/components/openclaw/config-sections-editor";
 import { LogViewer, type LogEntry } from "@/components/openclaw/log-viewer";
 import { QrPairing, type PairingState } from "@/components/openclaw/qr-pairing";
 import { SkillSelector, type SkillItem } from "@/components/openclaw/skill-selector";
 import { SandboxConfig as SandboxConfigComponent, type SandboxConfigData } from "@/components/openclaw/sandbox-config";
 import { cn } from "@/lib/utils";
 import { ContextualSuggestions } from "@/components/bots/contextual-suggestions";
+import { BotChatPanel } from "@/components/chat/bot-chat-panel";
 import { JustDeployedBanner } from "@/components/dashboard/just-deployed-banner";
 import { EvolutionBanner, type EvolutionBannerData } from "@/components/openclaw/evolution-banner";
 import { LiveSkills } from "@/components/openclaw/live-skills";
@@ -91,6 +93,7 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
   const [diagResult, setDiagResult] = useState<Record<string, unknown> | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageSummary | null>(null);
   const [isLoadingUsage, setIsLoadingUsage] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   // Fetch token usage when bot is running/degraded, poll every 15s
   useEffect(() => {
@@ -297,6 +300,22 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
     }
   }, [bot.id]);
 
+  const handleApplyStructuredConfig = useCallback(async (configStr: string) => {
+    setIsApplyingConfig(true);
+    try {
+      const parsed = JSON.parse(configStr) as Record<string, unknown>;
+      await api.patchBotConfig(bot.id, parsed);
+      toast("Config applied — changes are live", "success");
+      router.refresh();
+    } catch (err) {
+      console.error("Failed to apply structured config:", err);
+      const message = err instanceof Error ? err.message : "Failed to apply config";
+      toast(message, "error");
+    } finally {
+      setIsApplyingConfig(false);
+    }
+  }, [bot.id, router, toast]);
+
   // Channel auth
   const handleStartAuth = useCallback(async (channelId: string) => {
     setPairingChannel(channelId);
@@ -376,6 +395,12 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {bot.status === "RUNNING" && (
+              <Button variant="outline" size="sm" onClick={() => setIsChatOpen(true)}>
+                <MessageSquare className="w-4 h-4 mr-2" />
+                Chat
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={handleReconcile} disabled={isReconciling}>
               <RotateCcw className={`w-4 h-4 mr-2 ${isReconciling ? "animate-spin" : ""}`} />
               {isReconciling ? "Reconciling..." : "Reconcile"}
@@ -927,6 +952,11 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
               initialApiKey={bot.aiGatewayApiKey}
               initialProvider={bot.aiGatewayProvider}
             />
+            <ConfigSectionsEditor
+              config={currentConfigStr}
+              onApply={handleApplyStructuredConfig}
+              isApplying={isApplyingConfig}
+            />
             <ConfigEditor
               currentConfig={currentConfigStr}
               onApply={handleApplyConfig}
@@ -987,6 +1017,14 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
           </CardContent>
         </Card>
       )}
+
+      {/* Chat Panel */}
+      <BotChatPanel
+        instanceId={bot.id}
+        botName={bot.name}
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+      />
     </>
   );
 }

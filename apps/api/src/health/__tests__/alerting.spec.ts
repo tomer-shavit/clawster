@@ -1,7 +1,14 @@
 import { AlertingService } from "../alerting.service";
 
 jest.mock("@molthub/database", () => ({
-  prisma: { botInstance: { findMany: jest.fn().mockResolvedValue([]) } },
+  prisma: {
+    botInstance: { findMany: jest.fn().mockResolvedValue([]) },
+    budgetConfig: { findMany: jest.fn().mockResolvedValue([]) },
+    costEvent: {
+      findMany: jest.fn().mockResolvedValue([]),
+      aggregate: jest.fn().mockResolvedValue({ _sum: { costCents: 0 } }),
+    },
+  },
   BotStatus: { RUNNING: "RUNNING", DEGRADED: "DEGRADED", DELETING: "DELETING", CREATING: "CREATING" },
   BotHealth: { HEALTHY: "HEALTHY", DEGRADED: "DEGRADED", UNHEALTHY: "UNHEALTHY", UNKNOWN: "UNKNOWN" },
   GatewayConnectionStatus: { CONNECTED: "CONNECTED", DISCONNECTED: "DISCONNECTED", ERROR: "ERROR" },
@@ -11,11 +18,15 @@ jest.mock("@molthub/database", () => ({
 }));
 
 const mockAlertsService = {
-  upsertAlert: jest.fn().mockResolvedValue({}),
+  upsertAlert: jest.fn().mockResolvedValue({ id: "alert-1" }),
   resolveAlertByKey: jest.fn().mockResolvedValue(null),
   listAlerts: jest.fn().mockResolvedValue({ data: [], total: 0, page: 1, limit: 50 }),
   acknowledgeAlert: jest.fn().mockResolvedValue({}),
   getActiveAlertCount: jest.fn().mockResolvedValue(0),
+};
+
+const mockNotificationDeliveryService = {
+  deliverAlert: jest.fn().mockResolvedValue(undefined),
 };
 
 function createInstance(overrides: Record<string, unknown> = {}) {
@@ -35,7 +46,7 @@ describe("AlertingService", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AlertingService(mockAlertsService as any);
+    service = new AlertingService(mockAlertsService as any, mockNotificationDeliveryService as any);
   });
 
   describe("unreachable_instance", () => {
@@ -143,6 +154,153 @@ describe("AlertingService", () => {
       prisma.botInstance.findMany.mockResolvedValueOnce([createInstance({ errorCount: 2 })]);
       await service.evaluateAlerts();
       expect(mockAlertsService.resolveAlertByKey).toHaveBeenCalledWith("health_check_failed", "inst-1");
+    });
+  });
+
+  describe("budget_warning", () => {
+    it("fires WARNING alert when spend exceeds warnThresholdPct", async () => {
+      prisma.botInstance.findMany.mockResolvedValueOnce([createInstance()]);
+      prisma.budgetConfig.findMany.mockResolvedValueOnce([
+        {
+          id: "budget-1",
+          name: "Test Budget",
+          instanceId: "inst-1",
+          fleetId: "fleet-1",
+          monthlyLimitCents: 10000,
+          warnThresholdPct: 75,
+          criticalThresholdPct: 90,
+          isActive: true,
+          currentSpendCents: 0,
+        },
+      ]);
+      // 80% of 10000 = 8000 cents
+      prisma.costEvent.aggregate.mockResolvedValueOnce({ _sum: { costCents: 8000 } });
+
+      await service.evaluateAlerts();
+
+      expect(mockAlertsService.upsertAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ rule: "budget_warning", severity: "WARNING" }),
+      );
+    });
+
+    it("resolves WARNING when spend drops below warnThresholdPct", async () => {
+      prisma.botInstance.findMany.mockResolvedValueOnce([createInstance()]);
+      prisma.budgetConfig.findMany.mockResolvedValueOnce([
+        {
+          id: "budget-1",
+          name: "Test Budget",
+          instanceId: "inst-1",
+          fleetId: "fleet-1",
+          monthlyLimitCents: 10000,
+          warnThresholdPct: 75,
+          criticalThresholdPct: 90,
+          isActive: true,
+          currentSpendCents: 0,
+        },
+      ]);
+      // 50% of 10000 = 5000 cents — below 75% threshold
+      prisma.costEvent.aggregate.mockResolvedValueOnce({ _sum: { costCents: 5000 } });
+
+      await service.evaluateAlerts();
+
+      expect(mockAlertsService.resolveAlertByKey).toHaveBeenCalledWith("budget_warning", "inst-1");
+    });
+  });
+
+  describe("budget_critical", () => {
+    it("fires CRITICAL alert when spend exceeds criticalThresholdPct", async () => {
+      prisma.botInstance.findMany.mockResolvedValueOnce([createInstance()]);
+      prisma.budgetConfig.findMany.mockResolvedValueOnce([
+        {
+          id: "budget-1",
+          name: "Test Budget",
+          instanceId: "inst-1",
+          fleetId: "fleet-1",
+          monthlyLimitCents: 10000,
+          warnThresholdPct: 75,
+          criticalThresholdPct: 90,
+          isActive: true,
+          currentSpendCents: 0,
+        },
+      ]);
+      // 95% of 10000 = 9500 cents — above 90% critical threshold
+      prisma.costEvent.aggregate.mockResolvedValueOnce({ _sum: { costCents: 9500 } });
+
+      await service.evaluateAlerts();
+
+      expect(mockAlertsService.upsertAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ rule: "budget_critical", severity: "CRITICAL" }),
+      );
+    });
+
+    it("fires CRITICAL alert when spend exceeds 100% of budget", async () => {
+      prisma.botInstance.findMany.mockResolvedValueOnce([createInstance()]);
+      prisma.budgetConfig.findMany.mockResolvedValueOnce([
+        {
+          id: "budget-1",
+          name: "Test Budget",
+          instanceId: "inst-1",
+          fleetId: "fleet-1",
+          monthlyLimitCents: 10000,
+          warnThresholdPct: 75,
+          criticalThresholdPct: 90,
+          isActive: true,
+          currentSpendCents: 0,
+        },
+      ]);
+      // 120% of 10000 = 12000 cents
+      prisma.costEvent.aggregate.mockResolvedValueOnce({ _sum: { costCents: 12000 } });
+
+      await service.evaluateAlerts();
+
+      expect(mockAlertsService.upsertAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ rule: "budget_critical", severity: "CRITICAL" }),
+      );
+    });
+
+    it("resolves both budget alerts when no budgets are configured", async () => {
+      prisma.botInstance.findMany.mockResolvedValueOnce([createInstance()]);
+      prisma.budgetConfig.findMany.mockResolvedValueOnce([]);
+
+      await service.evaluateAlerts();
+
+      expect(mockAlertsService.resolveAlertByKey).toHaveBeenCalledWith("budget_warning", "inst-1");
+      expect(mockAlertsService.resolveAlertByKey).toHaveBeenCalledWith("budget_critical", "inst-1");
+    });
+
+    it("includes budget details in alert payload", async () => {
+      prisma.botInstance.findMany.mockResolvedValueOnce([createInstance()]);
+      prisma.budgetConfig.findMany.mockResolvedValueOnce([
+        {
+          id: "budget-1",
+          name: "Production Budget",
+          instanceId: "inst-1",
+          fleetId: "fleet-1",
+          monthlyLimitCents: 10000,
+          warnThresholdPct: 75,
+          criticalThresholdPct: 90,
+          isActive: true,
+          currentSpendCents: 0,
+        },
+      ]);
+      prisma.costEvent.aggregate.mockResolvedValueOnce({ _sum: { costCents: 9500 } });
+
+      await service.evaluateAlerts();
+
+      const call = mockAlertsService.upsertAlert.mock.calls.find(
+        (c: any[]) => c[0].rule === "budget_critical",
+      );
+      expect(call).toBeDefined();
+      const detail = JSON.parse(call![0].detail);
+      expect(detail).toEqual(
+        expect.objectContaining({
+          budgetId: "budget-1",
+          budgetName: "Production Budget",
+          currentSpendCents: 9500,
+          monthlyLimitCents: 10000,
+          instanceName: "test-bot",
+        }),
+      );
     });
   });
 

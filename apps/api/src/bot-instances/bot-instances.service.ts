@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
+import { Injectable, NotFoundException, BadRequestException, HttpException, HttpStatus } from "@nestjs/common";
 import {
   prisma,
   BotInstance,
@@ -7,6 +7,10 @@ import {
 import {
   PolicyEngine
 } from "@molthub/core";
+import {
+  GatewayClient,
+} from "@molthub/gateway-client";
+import type { GatewayConnectionOptions } from "@molthub/gateway-client";
 import { CreateBotInstanceDto, UpdateBotInstanceDto, UpdateAiGatewaySettingsDto, ListBotInstancesQueryDto } from "./bot-instances.dto";
 import { BulkActionType, BulkActionResultItem } from "./bot-compare.dto";
 import { ReconcilerService } from "../reconciler/reconciler.service";
@@ -402,6 +406,171 @@ export class BotInstancesService {
     });
 
     return this.redactSensitiveFields(updated);
+  }
+
+  async chat(
+    instanceId: string,
+    message: string,
+    sessionId?: string,
+  ): Promise<{ response: string | undefined; sessionId: string; status: string }> {
+    // 1. Verify instance exists
+    const instance = await prisma.botInstance.findUnique({
+      where: { id: instanceId },
+    });
+
+    if (!instance) {
+      throw new NotFoundException(`Bot instance ${instanceId} not found`);
+    }
+
+    // 2. Look up GatewayConnection from DB to get host/port/auth
+    const gwConn = await prisma.gatewayConnection.findUnique({
+      where: { instanceId },
+    });
+
+    if (!gwConn) {
+      throw new HttpException(
+        `No gateway connection found for instance ${instanceId}. The instance may not be running.`,
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+
+    const resolvedSessionId = sessionId || crypto.randomUUID();
+
+    // 3. Create a temporary GatewayClient, connect, call agent(), disconnect
+    const options: GatewayConnectionOptions = {
+      host: gwConn.host,
+      port: gwConn.port,
+      auth: gwConn.authToken
+        ? { mode: "token", token: gwConn.authToken }
+        : { mode: "token", token: "molthub" },
+      reconnect: { enabled: false, maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 },
+    };
+
+    const client = new GatewayClient(options);
+
+    try {
+      await client.connect();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new HttpException(
+        `Failed to connect to gateway for instance ${instanceId}: ${msg}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+
+    try {
+      const result = await client.agent({
+        prompt: message,
+        context: { sessionId: resolvedSessionId },
+      });
+
+      return {
+        response: result.completion.output,
+        sessionId: resolvedSessionId,
+        status: result.completion.status,
+      };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("timed out")) {
+        throw new HttpException(
+          `Agent request timed out for instance ${instanceId}`,
+          HttpStatus.GATEWAY_TIMEOUT,
+        );
+      }
+      throw new HttpException(
+        `Agent request failed for instance ${instanceId}: ${msg}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    } finally {
+      await client.disconnect().catch(() => {
+        // Swallow disconnect errors — best-effort cleanup
+      });
+    }
+  }
+
+  async patchConfig(
+    instanceId: string,
+    patch: Record<string, unknown>,
+  ): Promise<{ success: boolean; message: string }> {
+    // 1. Verify instance exists
+    const instance = await prisma.botInstance.findUnique({
+      where: { id: instanceId },
+    });
+
+    if (!instance) {
+      throw new NotFoundException(`Bot instance ${instanceId} not found`);
+    }
+
+    // 2. Look up GatewayConnection from DB to get host/port/auth
+    const gwConn = await prisma.gatewayConnection.findUnique({
+      where: { instanceId },
+    });
+
+    if (!gwConn) {
+      throw new HttpException(
+        `No gateway connection found for instance ${instanceId}. The instance may not be running.`,
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+
+    // 3. Create a temporary GatewayClient, connect, do the operation, disconnect
+    const options: GatewayConnectionOptions = {
+      host: gwConn.host,
+      port: gwConn.port,
+      auth: gwConn.authToken
+        ? { mode: "token", token: gwConn.authToken }
+        : { mode: "token", token: "molthub" },
+      reconnect: { enabled: false, maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 },
+    };
+
+    const client = new GatewayClient(options);
+
+    try {
+      await client.connect();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new HttpException(
+        `Failed to connect to gateway for instance ${instanceId}: ${msg}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+
+    try {
+      // Get current config and hash for optimistic concurrency
+      const { hash } = await client.configGet();
+
+      // Apply the partial update
+      const result = await client.configPatch({ patch, baseHash: hash });
+
+      if (!result.success) {
+        throw new BadRequestException({
+          message: "Config patch failed due to validation errors",
+          validationErrors: result.validationErrors ?? [],
+        });
+      }
+
+      return { success: true, message: "Config applied successfully" };
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("timed out")) {
+        throw new HttpException(
+          `Config patch request timed out for instance ${instanceId}`,
+          HttpStatus.GATEWAY_TIMEOUT,
+        );
+      }
+      throw new HttpException(
+        `Config patch failed for instance ${instanceId}: ${msg}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    } finally {
+      await client.disconnect().catch(() => {
+        // Swallow disconnect errors — best-effort cleanup
+      });
+    }
   }
 
   private redactSensitiveFields<T extends BotInstance>(instance: T): T {

@@ -112,6 +112,20 @@ export class UpdateAiGatewaySettingsDto {
   gatewayApiKey?: string;
 }
 
+export class ChatMessageDto {
+  @IsString()
+  message: string;
+
+  @IsString()
+  @IsOptional()
+  sessionId?: string;
+}
+
+export class PatchConfigDto {
+  @IsObject()
+  patch: Record<string, unknown>;
+}
+
 export class ListBotInstancesQueryDto {
   @IsString()
   @IsOptional()
