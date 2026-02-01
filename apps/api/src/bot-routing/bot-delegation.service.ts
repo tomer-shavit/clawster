@@ -1,7 +1,9 @@
-import { Injectable, Inject, Logger, forwardRef } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { BotRoutingService } from "./bot-routing.service";
-import { BotInstancesService } from "../bot-instances/bot-instances.service";
+import { A2aMessageService } from "../a2a/a2a-message.service";
 import { TracesService } from "../traces/traces.service";
+import type { A2aTask, TextPart } from "../a2a/a2a.types";
+import * as crypto from "crypto";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,8 +28,7 @@ export class BotDelegationService {
 
   constructor(
     private readonly routingService: BotRoutingService,
-    @Inject(forwardRef(() => BotInstancesService))
-    private readonly botInstancesService: BotInstancesService,
+    private readonly a2aMessageService: A2aMessageService,
     private readonly tracesService: TracesService,
   ) {}
 
@@ -37,8 +38,8 @@ export class BotDelegationService {
    *
    * Returns `null` when no routing rule matches (i.e. the source bot should
    * handle the message itself). Otherwise sends the message to the
-   * highest-priority target bot, creates an audit trace, and returns the
-   * delegation result.
+   * highest-priority target bot via A2A, creates an audit trace, and returns
+   * the delegation result.
    */
   async attemptDelegation(
     sourceBotId: string,
@@ -89,39 +90,66 @@ export class BotDelegationService {
       },
     });
 
-    // 4. Send the message to the target bot
+    // 4. Send the message to the target bot via A2A
     try {
-      const chatResult = await this.botInstancesService.chat(
+      const a2aTask = await this.a2aMessageService.sendMessage(
         rule.targetBotId,
-        message,
-        sessionId,
+        {
+          message: {
+            messageId: crypto.randomUUID(),
+            role: "user",
+            parts: [{ text: message }],
+            contextId: sessionId || undefined,
+          },
+        },
+        { parentTraceId: traceId },
       );
 
-      // 5. Complete the trace with the response
-      await this.tracesService.complete(trace.id, {
-        response: chatResult.response,
-        sessionId: chatResult.sessionId,
-        status: chatResult.status,
-      });
+      // 5. Extract response text from A2A task
+      const responseText = this.extractA2aResponse(a2aTask);
+      const resolvedSessionId = a2aTask.contextId;
 
-      return {
-        delegated: true,
-        targetBotId: rule.targetBotId,
-        targetBotName: rule.targetBot.name,
-        response: chatResult.response,
-        traceId,
-        sessionId: chatResult.sessionId,
-      };
+      if (a2aTask.status.state === "completed") {
+        await this.tracesService.complete(trace.id, {
+          response: responseText,
+          a2aTaskId: a2aTask.id,
+          a2aContextId: a2aTask.contextId,
+          status: a2aTask.status.state,
+        });
+
+        return {
+          delegated: true,
+          targetBotId: rule.targetBotId,
+          targetBotName: rule.targetBot.name,
+          response: responseText,
+          traceId,
+          sessionId: resolvedSessionId,
+        };
+      } else {
+        const errorMsg =
+          responseText || `A2A task ended with state: ${a2aTask.status.state}`;
+        await this.tracesService.fail(trace.id, {
+          error: errorMsg,
+          a2aTaskId: a2aTask.id,
+          a2aState: a2aTask.status.state,
+        });
+        throw new Error(
+          `Delegation to "${rule.targetBot.name}" failed: ${errorMsg}`,
+        );
+      }
     } catch (error) {
-      // 6. Record failure in the trace
+      // 6. Record failure in the trace (if not already recorded above)
       const errorMessage =
         error instanceof Error ? error.message : String(error);
 
-      await this.tracesService.fail(trace.id, {
-        error: errorMessage,
-        targetBotId: rule.targetBotId,
-        targetBotName: rule.targetBot.name,
-      });
+      // Only fail trace if it hasn't been failed already in the block above
+      if (trace.status === "PENDING") {
+        await this.tracesService.fail(trace.id, {
+          error: errorMessage,
+          targetBotId: rule.targetBotId,
+          targetBotName: rule.targetBot.name,
+        });
+      }
 
       this.logger.error(
         `Delegation to bot "${rule.targetBot.name}" (${rule.targetBotId}) failed: ${errorMessage}`,
@@ -130,5 +158,16 @@ export class BotDelegationService {
       // Re-throw so the caller can decide how to handle it
       throw error;
     }
+  }
+
+  private extractA2aResponse(
+    task: A2aTask,
+  ): string | undefined {
+    const msg = task.status.message;
+    if (!msg) return undefined;
+    const texts = msg.parts
+      .filter((p): p is TextPart => "text" in p)
+      .map((p) => p.text);
+    return texts.length > 0 ? texts.join("\n") : undefined;
   }
 }

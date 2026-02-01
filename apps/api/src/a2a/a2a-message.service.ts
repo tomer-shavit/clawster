@@ -13,7 +13,11 @@ export class A2aMessageService {
 
   constructor(private readonly tracesService: TracesService) {}
 
-  async sendMessage(botInstanceId: string, params: SendMessageParams): Promise<A2aTask> {
+  async sendMessage(
+    botInstanceId: string,
+    params: SendMessageParams,
+    options?: { parentTraceId?: string },
+  ): Promise<A2aTask> {
     // 1. Validate bot exists
     const bot = await prisma.botInstance.findUnique({
       where: { id: botInstanceId },
@@ -37,6 +41,7 @@ export class A2aMessageService {
     const trace = await this.tracesService.create({
       botInstanceId,
       traceId: taskId,
+      parentTraceId: options?.parentTraceId,
       name: "a2a:SendMessage",
       type: "TASK",
       status: "PENDING",

@@ -32,7 +32,7 @@ import { JustDeployedBanner } from "@/components/dashboard/just-deployed-banner"
 import { EvolutionBanner, type EvolutionBannerData } from "@/components/openclaw/evolution-banner";
 import { LiveSkills } from "@/components/openclaw/live-skills";
 import { EvolutionDiff } from "@/components/openclaw/evolution-diff";
-import { api, type BotInstance, type Trace, type TraceStats, type ChangeSet, type DeploymentEvent, type AgentEvolutionSnapshot, type TokenUsageSummary, type AgentCard, type A2aJsonRpcResponse, type A2aApiKeyInfo, type A2aTaskInfo } from "@/lib/api";
+import { api, type BotInstance, type Trace, type TraceStats, type ChangeSet, type DeploymentEvent, type AgentEvolutionSnapshot, type TokenUsageSummary, type AgentCard, type A2aJsonRpcResponse, type A2aApiKeyInfo, type A2aTaskInfo, type BotTeamMember } from "@/lib/api";
 import { PairingTab } from "@/components/pairing/pairing-tab";
 import Link from "next/link";
 import {
@@ -71,6 +71,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
+  Users,
 } from "lucide-react";
 
 interface BotDetailClientProps {
@@ -128,6 +129,21 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
   const [streamingTaskId, setStreamingTaskId] = useState<string | null>(null);
   const [streamAbortRef, setStreamAbortRef] = useState<AbortController | null>(null);
 
+  // Team state
+  const [teamMembers, setTeamMembers] = useState<BotTeamMember[]>([]);
+  const [memberOfTeams, setMemberOfTeams] = useState<BotTeamMember[]>([]);
+  const [isLoadingTeam, setIsLoadingTeam] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [allBots, setAllBots] = useState<BotInstance[]>([]);
+  const [newMemberBotId, setNewMemberBotId] = useState("");
+  const [newMemberRole, setNewMemberRole] = useState("");
+  const [newMemberDescription, setNewMemberDescription] = useState("");
+  const [isAddingMember, setIsAddingMember] = useState(false);
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [editRole, setEditRole] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [isUpdatingMember, setIsUpdatingMember] = useState(false);
+
   // Fetch token usage when bot is running/degraded, poll every 15s
   useEffect(() => {
     if (bot.status !== "RUNNING" && bot.status !== "DEGRADED") return;
@@ -182,6 +198,97 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
     fetchApiKeys();
     fetchA2aTasks();
   }, [activeTab, fetchApiKeys, fetchA2aTasks]);
+
+  // Fetch team data when Team tab is activated
+  const fetchTeamData = useCallback(() => {
+    setIsLoadingTeam(true);
+    Promise.all([
+      api.listTeamMembers(bot.id),
+      api.listMemberOfTeams(bot.id),
+      api.listBotInstances(),
+    ])
+      .then(([members, memberOf, bots]) => {
+        setTeamMembers(members);
+        setMemberOfTeams(memberOf);
+        setAllBots(bots);
+      })
+      .catch(() => {
+        setTeamMembers([]);
+        setMemberOfTeams([]);
+      })
+      .finally(() => setIsLoadingTeam(false));
+  }, [bot.id]);
+
+  useEffect(() => {
+    if (activeTab !== "team") return;
+    fetchTeamData();
+  }, [activeTab, fetchTeamData]);
+
+  const handleAddTeamMember = useCallback(async () => {
+    if (!newMemberBotId || !newMemberRole.trim() || !newMemberDescription.trim()) return;
+    setIsAddingMember(true);
+    try {
+      await api.addTeamMember({
+        ownerBotId: bot.id,
+        memberBotId: newMemberBotId,
+        role: newMemberRole.trim(),
+        description: newMemberDescription.trim(),
+      });
+      toast("Team member added", "success");
+      setShowAddForm(false);
+      setNewMemberBotId("");
+      setNewMemberRole("");
+      setNewMemberDescription("");
+      fetchTeamData();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to add team member", "error");
+    } finally {
+      setIsAddingMember(false);
+    }
+  }, [bot.id, newMemberBotId, newMemberRole, newMemberDescription, fetchTeamData, toast]);
+
+  const handleUpdateTeamMember = useCallback(async (id: string) => {
+    setIsUpdatingMember(true);
+    try {
+      await api.updateTeamMember(id, {
+        role: editRole.trim(),
+        description: editDescription.trim(),
+      });
+      toast("Team member updated", "success");
+      setEditingMemberId(null);
+      fetchTeamData();
+    } catch (err) {
+      toast("Failed to update team member", "error");
+    } finally {
+      setIsUpdatingMember(false);
+    }
+  }, [editRole, editDescription, fetchTeamData, toast]);
+
+  const handleToggleTeamMember = useCallback(async (id: string, enabled: boolean) => {
+    try {
+      await api.updateTeamMember(id, { enabled });
+      fetchTeamData();
+    } catch {
+      toast("Failed to toggle team member", "error");
+    }
+  }, [fetchTeamData, toast]);
+
+  const handleRemoveTeamMember = useCallback(async (member: BotTeamMember) => {
+    const confirmed = await showConfirm({
+      message: `Remove ${member.memberBot?.name || "this bot"} from the team?`,
+      description: `${bot.name} will no longer be able to delegate tasks to it.`,
+      confirmLabel: "Remove",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+    try {
+      await api.removeTeamMember(member.id);
+      toast("Team member removed", "success");
+      fetchTeamData();
+    } catch {
+      toast("Failed to remove team member", "error");
+    }
+  }, [bot.name, fetchTeamData, showConfirm, toast]);
 
   const handleGenerateApiKey = useCallback(async () => {
     setIsGeneratingKey(true);
@@ -529,7 +636,7 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
               {bot.openclawVersion && <> &middot; v{bot.openclawVersion}</>}
               {bot.profileName && <> &middot; {bot.profileName}</>}
               {bot.deploymentType && <> &middot; {bot.deploymentType}</>}
-              {" "}&middot; {bot.id.slice(0, 8)}
+              {" "}&middot; <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded" title={`Full ID: ${bot.id}`}>ID: {bot.id}</span>
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -712,6 +819,15 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
           <TabsTrigger active={activeTab === "a2a"} onClick={() => setActiveTab("a2a")}>
             <Network className="w-4 h-4 mr-1.5" />
             A2A
+          </TabsTrigger>
+          <TabsTrigger active={activeTab === "team"} onClick={() => setActiveTab("team")}>
+            <Users className="w-4 h-4 mr-1.5" />
+            Team
+            {teamMembers.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs px-1.5 py-0">
+                {teamMembers.length}
+              </Badge>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -1739,6 +1855,274 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
               </Card>
             </div>
           ) : null}
+        </TabsContent>
+        {/* Team Tab */}
+        <TabsContent active={activeTab === "team"} className="mt-6">
+          {isLoadingTeam ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">Loading team...</span>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Add Form */}
+              {showAddForm && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">Add Team Member</CardTitle>
+                      <Button variant="ghost" size="sm" onClick={() => setShowAddForm(false)}>
+                        <XCircle className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium">Bot</label>
+                      <select
+                        value={newMemberBotId}
+                        onChange={(e) => setNewMemberBotId(e.target.value)}
+                        className="w-full mt-1 px-3 py-2 text-sm rounded-md border bg-background"
+                      >
+                        <option value="">Select a bot...</option>
+                        {allBots
+                          .filter((b) => b.id !== bot.id && !teamMembers.some((m) => m.memberBotId === b.id))
+                          .map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name} ({b.status})
+                            </option>
+                          ))}
+                      </select>
+                      {allBots.filter((b) => b.id !== bot.id && !teamMembers.some((m) => m.memberBotId === b.id)).length === 0 && (
+                        <p className="text-xs text-muted-foreground mt-1">All bots in this workspace are already team members.</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Role</label>
+                      <input
+                        type="text"
+                        value={newMemberRole}
+                        onChange={(e) => setNewMemberRole(e.target.value)}
+                        placeholder="e.g. Marketing Expert"
+                        className="w-full mt-1 px-3 py-2 text-sm rounded-md border bg-background"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Short label for what this bot specializes in.</p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Description</label>
+                      <textarea
+                        value={newMemberDescription}
+                        onChange={(e) => setNewMemberDescription(e.target.value)}
+                        placeholder="Handles marketing strategy, content creation, and campaign planning..."
+                        rows={3}
+                        className="w-full mt-1 px-3 py-2 text-sm rounded-md border bg-background resize-none"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">This description helps the team lead bot decide when to delegate. Be specific about capabilities.</p>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <Button variant="outline" size="sm" onClick={() => setShowAddForm(false)}>Cancel</Button>
+                      <Button
+                        size="sm"
+                        onClick={handleAddTeamMember}
+                        disabled={isAddingMember || !newMemberBotId || !newMemberRole.trim() || !newMemberDescription.trim()}
+                      >
+                        {isAddingMember && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
+                        Add to Team
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Team Members List */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Users className="w-4 h-4" />
+                        Team Members
+                        {teamMembers.length > 0 && (
+                          <span className="text-xs font-normal text-muted-foreground">({teamMembers.length})</span>
+                        )}
+                      </CardTitle>
+                      <CardDescription>
+                        {teamMembers.length > 0
+                          ? `These bots are available for "${bot.name}" to delegate tasks to during conversations.`
+                          : `Add bots to this team so "${bot.name}" can delegate tasks to specialists during conversations.`}
+                      </CardDescription>
+                    </div>
+                    {!showAddForm && (
+                      <Button size="sm" onClick={() => setShowAddForm(true)}>
+                        <Users className="w-4 h-4 mr-1.5" />
+                        Add Member
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {teamMembers.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                      <p className="text-sm text-muted-foreground mb-1">No team members yet</p>
+                      <p className="text-xs text-muted-foreground mb-4">
+                        When you add team members, this bot will learn about their roles and can autonomously decide when to ask them for help.
+                      </p>
+                      {!showAddForm && (
+                        <Button variant="outline" size="sm" onClick={() => setShowAddForm(true)}>
+                          Add Team Member
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {teamMembers.map((member) => {
+                        const isEditing = editingMemberId === member.id;
+                        return (
+                          <div
+                            key={member.id}
+                            className={cn(
+                              "border rounded-lg p-4",
+                              !member.enabled && "opacity-50 bg-muted/30"
+                            )}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                  <Bot className="w-4 h-4 text-primary" />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <Link href={`/bots/${member.memberBotId}`} className="font-medium text-sm hover:underline">
+                                      {member.memberBot?.name || member.memberBotId}
+                                    </Link>
+                                    {member.memberBot?.status && (
+                                      <StatusBadge status={member.memberBot.status as BotInstance["status"]} />
+                                    )}
+                                  </div>
+                                  {isEditing ? (
+                                    <div className="mt-2 space-y-2">
+                                      <input
+                                        type="text"
+                                        value={editRole}
+                                        onChange={(e) => setEditRole(e.target.value)}
+                                        className="w-full px-2 py-1 text-sm rounded border bg-background"
+                                        placeholder="Role"
+                                      />
+                                      <textarea
+                                        value={editDescription}
+                                        onChange={(e) => setEditDescription(e.target.value)}
+                                        className="w-full px-2 py-1 text-sm rounded border bg-background resize-none"
+                                        rows={2}
+                                        placeholder="Description"
+                                      />
+                                      <div className="flex gap-2">
+                                        <Button
+                                          size="sm"
+                                          onClick={() => handleUpdateTeamMember(member.id)}
+                                          disabled={isUpdatingMember}
+                                        >
+                                          {isUpdatingMember && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
+                                          Save
+                                        </Button>
+                                        <Button variant="outline" size="sm" onClick={() => setEditingMemberId(null)}>
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <p className="text-xs text-muted-foreground mt-0.5">
+                                        Role: <span className="text-foreground">{member.role}</span>
+                                      </p>
+                                      <p className="text-xs text-muted-foreground mt-1">{member.description}</p>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              {!isEditing && (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleToggleTeamMember(member.id, !member.enabled)}
+                                    className={cn(
+                                      "w-9 h-5 rounded-full relative transition-colors",
+                                      member.enabled ? "bg-primary" : "bg-muted-foreground/30"
+                                    )}
+                                    title={member.enabled ? "Disable" : "Enable"}
+                                  >
+                                    <span
+                                      className={cn(
+                                        "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
+                                        member.enabled ? "left-4.5" : "left-0.5"
+                                      )}
+                                    />
+                                  </button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0"
+                                    onClick={() => {
+                                      setEditingMemberId(member.id);
+                                      setEditRole(member.role);
+                                      setEditDescription(member.description);
+                                    }}
+                                  >
+                                    <FileText className="w-3.5 h-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                                    onClick={() => handleRemoveTeamMember(member)}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Member Of section */}
+              {memberOfTeams.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Member Of</CardTitle>
+                    <CardDescription>
+                      This bot is a team member of the following bots:
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {memberOfTeams.map((membership) => (
+                        <div key={membership.id} className="flex items-center gap-3 p-3 rounded-lg border">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                            <Bot className="w-4 h-4 text-primary" />
+                          </div>
+                          <div className="flex-1">
+                            <Link href={`/bots/${membership.ownerBotId}`} className="text-sm font-medium hover:underline">
+                              {membership.ownerBot?.name || membership.ownerBotId}
+                            </Link>
+                            <p className="text-xs text-muted-foreground">
+                              as &quot;{membership.role}&quot; &mdash; {membership.description}
+                            </p>
+                          </div>
+                          <Badge variant={membership.enabled ? "default" : "secondary"} className="text-xs">
+                            {membership.enabled ? "Active" : "Disabled"}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 

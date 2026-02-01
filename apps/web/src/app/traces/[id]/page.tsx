@@ -50,6 +50,13 @@ function getDelegationMeta(trace: Trace) {
   };
 }
 
+function isA2aTrace(trace: Trace): boolean {
+  return (
+    trace.metadata != null &&
+    (trace.metadata as Record<string, unknown>).a2a === true
+  );
+}
+
 function DelegationChainVisualization({ trace }: { trace: Trace }) {
   const meta = getDelegationMeta(trace);
   if (!meta) return null;
@@ -60,6 +67,8 @@ function DelegationChainVisualization({ trace }: { trace: Trace }) {
       ? (trace.output as Record<string, unknown>).response as string
       : JSON.stringify(trace.output, null, 2)
     : null;
+
+  const a2aChild = (trace as any).children?.find((c: Trace) => isA2aTrace(c)) ?? null;
 
   return (
     <Card className="border-violet-200 bg-violet-50/30">
@@ -138,6 +147,37 @@ function DelegationChainVisualization({ trace }: { trace: Trace }) {
             </div>
           </div>
 
+          {/* Step 3.5: A2A Task (if child A2A trace exists) */}
+          {a2aChild && (
+            <div className="flex items-start gap-4">
+              <div className="flex flex-col items-center">
+                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center border-2 border-blue-300">
+                  <MessageSquare className="w-5 h-5 text-blue-700" />
+                </div>
+                {(hasResponse || trace.status === 'ERROR') && <div className="w-0.5 h-8 bg-violet-300" />}
+              </div>
+              <div className="pt-1.5 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-foreground">A2A Task</p>
+                  <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 border border-blue-200">
+                    {a2aChild.status === 'SUCCESS' ? 'Completed' : a2aChild.status === 'ERROR' ? 'Failed' : 'Pending'}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Message sent via A2A protocol to target bot
+                </p>
+                {a2aChild.durationMs != null && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Duration: <DurationDisplay ms={a2aChild.durationMs} />
+                  </p>
+                )}
+                <Link href={`/traces/${a2aChild.traceId}`} className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+                  View A2A trace details →
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Step 4: Response (if available) */}
           {hasResponse && (
             <div className="flex items-start gap-4">
@@ -178,7 +218,7 @@ function DelegationChainVisualization({ trace }: { trace: Trace }) {
         </div>
 
         {/* Summary table */}
-        <div className="mt-6 grid grid-cols-2 gap-4 text-sm border-t border-violet-200 pt-4">
+        <div className="mt-6 grid grid-cols-2 md:grid-cols-3 gap-4 text-sm border-t border-violet-200 pt-4">
           <div>
             <span className="text-muted-foreground">Source Bot</span>
             <p className="font-medium mt-0.5">{meta.sourceBotName}</p>
@@ -196,6 +236,10 @@ function DelegationChainVisualization({ trace }: { trace: Trace }) {
             <p className="font-medium mt-0.5">
               {trace.durationMs ? <DurationDisplay ms={trace.durationMs} /> : 'N/A'}
             </p>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Protocol</span>
+            <p className="font-medium mt-0.5">{a2aChild ? 'A2A' : 'Direct Gateway'}</p>
           </div>
         </div>
       </CardContent>
@@ -251,7 +295,13 @@ function TraceTreeNode({ trace, level = 0, totalDuration }: TraceTreeNodeProps) 
             })()}
           </span>
         )}
-        
+        {isA2aTrace(trace) && (
+          <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200 flex items-center gap-1">
+            <MessageSquare className="w-3 h-3" />
+            A2A
+          </span>
+        )}
+
         <div className="flex-1" />
         
         {trace.durationMs && (

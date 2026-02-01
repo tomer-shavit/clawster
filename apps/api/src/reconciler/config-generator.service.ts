@@ -27,13 +27,17 @@ export class ConfigGeneratorService {
   ): OpenClawFullConfig {
     const base = manifest.spec.openclawConfig;
 
+    // OpenClaw's root schema uses .strict() — sandbox is NOT a valid top-level
+    // key. It must live under agents.defaults.sandbox.  If the manifest has
+    // sandbox at the top level, relocate it before building the config object.
+    const { sandbox: topLevelSandbox, ...baseWithoutSandbox } = base as Record<string, unknown> & typeof base;
+
     // Apply environment-aware defaults that are not already set in the spec.
     let config: OpenClawFullConfig = {
-      ...base,
+      ...baseWithoutSandbox,
       // Ensure gateway section exists with sensible defaults for deployment
       gateway: {
         port: base.gateway?.port ?? 18789,
-        host: base.gateway?.host ?? "127.0.0.1",
         ...base.gateway,
       },
       // Ensure logging section exists with environment-aware defaults
@@ -42,6 +46,20 @@ export class ConfigGeneratorService {
         ...base.logging,
       },
     };
+
+    // Relocate sandbox into agents.defaults.sandbox if it was at top level
+    if (topLevelSandbox && typeof topLevelSandbox === "object") {
+      config.agents = {
+        ...config.agents,
+        defaults: {
+          ...config.agents?.defaults,
+          sandbox: {
+            ...(topLevelSandbox as Record<string, unknown>),
+            ...config.agents?.defaults?.sandbox,
+          },
+        },
+      };
+    }
 
     // Inject AI Gateway provider if enabled
     if (aiGatewaySettings?.enabled) {
@@ -55,6 +73,31 @@ export class ConfigGeneratorService {
           `AI Gateway enabled for ${manifest.metadata.name} but no model primary is set — gateway provider added but not routing traffic`,
         );
       }
+    }
+
+    // Strip fields that OpenClaw's strict Zod schema does not recognize.
+    // OpenClaw uses `gateway.bind` (not `host`); `host` is a Molthub-internal
+    // concept used for GatewayConnection options.
+    if (config.gateway && "host" in config.gateway) {
+      const { host: _host, ...gwRest } = config.gateway as Record<string, unknown>;
+      config.gateway = gwRest as typeof config.gateway;
+    }
+
+    // Default gateway.bind to "lan" so the gateway listens on 0.0.0.0 and is
+    // reachable from outside Docker containers. OpenClaw defaults to "loopback"
+    // (127.0.0.1) which is inaccessible from the host network.
+    // Valid modes: "auto" | "lan" | "loopback" | "custom" | "tailnet"
+    if (config.gateway) {
+      const gw = config.gateway as Record<string, unknown>;
+      if (!gw.bind) {
+        gw.bind = "lan";
+      }
+    }
+
+    // OpenClaw skills schema does not have `allowUnverified`.
+    if (config.skills && "allowUnverified" in config.skills) {
+      const { allowUnverified: _av, ...skillsRest } = config.skills as Record<string, unknown>;
+      config.skills = skillsRest as typeof config.skills;
     }
 
     // Strip "enabled" from channel configs — OpenClaw doesn't recognize this key.
@@ -118,14 +161,22 @@ export class ConfigGeneratorService {
     }
 
     // Force sandbox mode to "all" in prod/staging if currently "off"
+    // Sandbox lives under agents.defaults.sandbox (not top-level)
+    const agentSandbox = secured.agents?.defaults?.sandbox;
     if (
       (environment === "prod" || environment === "staging") &&
-      secured.sandbox?.mode === "off" &&
+      agentSandbox?.mode === "off" &&
       !securityOverrides?.allowSandboxOff
     ) {
-      secured.sandbox = {
-        ...secured.sandbox,
-        mode: "all",
+      secured.agents = {
+        ...secured.agents,
+        defaults: {
+          ...secured.agents?.defaults,
+          sandbox: {
+            ...agentSandbox,
+            mode: "all",
+          },
+        },
       };
       this.logger.warn(
         `Sandbox mode was "off" in ${environment} — forced to "all"`,

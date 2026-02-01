@@ -148,7 +148,12 @@ export interface ConfigApplyRequest {
 }
 
 export interface ConfigApplyResult {
-  success: boolean;
+  /** Gateway returns `ok` (not `success`) on the wire */
+  ok?: boolean;
+  success?: boolean;
+  path?: string;
+  config?: Record<string, unknown>;
+  restart?: Record<string, unknown>;
   validationErrors?: string[];
 }
 

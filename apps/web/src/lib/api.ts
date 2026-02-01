@@ -1527,6 +1527,36 @@ class ApiClient {
     await this.fetch(`/bot-routing-rules/${id}`, { method: 'DELETE' });
   }
 
+  // ============================================
+  // Bot Team Members
+  // ============================================
+
+  async listTeamMembers(ownerBotId: string): Promise<BotTeamMember[]> {
+    return this.fetch(`/bot-teams?ownerBotId=${encodeURIComponent(ownerBotId)}`);
+  }
+
+  async listMemberOfTeams(memberBotId: string): Promise<BotTeamMember[]> {
+    return this.fetch(`/bot-teams?memberBotId=${encodeURIComponent(memberBotId)}`);
+  }
+
+  async addTeamMember(data: { ownerBotId: string; memberBotId: string; role: string; description: string }): Promise<BotTeamMember> {
+    return this.fetch('/bot-teams', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateTeamMember(id: string, data: Partial<{ role: string; description: string; enabled: boolean }>): Promise<BotTeamMember> {
+    return this.fetch(`/bot-teams/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeTeamMember(id: string): Promise<void> {
+    await this.fetch(`/bot-teams/${id}`, { method: 'DELETE' });
+  }
+
   async delegateMessage(data: DelegateRequestPayload): Promise<DelegationResult> {
     return this.fetch('/bot-routing-rules/delegate', {
       method: 'POST',
@@ -2027,6 +2057,24 @@ export interface UpdateBotRoutingRulePayload {
   description?: string;
   priority?: number;
   enabled?: boolean;
+}
+
+// ============================================
+// Bot Team Member Types
+// ============================================
+
+export interface BotTeamMember {
+  id: string;
+  workspaceId: string;
+  ownerBotId: string;
+  memberBotId: string;
+  role: string;
+  description: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  ownerBot?: { id: string; name: string; status: string };
+  memberBot?: { id: string; name: string; status: string };
 }
 
 // ============================================

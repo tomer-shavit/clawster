@@ -1,149 +1,286 @@
-# Chunk 2: A2A SendMessage — JSON-RPC Endpoint, Message Service & Test Form UI
+# Bot Team Configuration — "Give Bots the Ability to Call Other Bots"
 
 ## Goal
-Add the A2A `SendMessage` JSON-RPC endpoint per the A2A protocol spec. External agents can POST a JSON-RPC request to `POST /a2a/:botInstanceId` to send a message and get a Task response. The bot detail A2A tab gets a "Test Message" form to try it from the UI.
 
-## What You'll Be Able to Test
-- `POST /a2a/:botId` with a JSON-RPC `SendMessage` request → bot processes it, returns a Task with the response
-- The A2A tab on the bot detail page has a form where you type a message and send it → see the response
-- Each message creates a Trace for observability
+Let users configure bot-to-bot relationships in Molthub's UI so that Bot A (team lead) can autonomously delegate tasks to Bot B (marketing expert), Bot C (DevOps), etc. during its reasoning. The bot itself decides when to delegate — not Molthub.
+
+## How It Works (End-to-End)
+
+```
+1. User configures in Molthub UI:
+   "Bot A can delegate to Bot B (Marketing Expert) and Bot C (DevOps)"
+
+2. Molthub generates a delegation skill for Bot A:
+   - SKILL.md with team member descriptions + delegation instructions
+   - delegate.js script that calls Molthub's API
+
+3. On next reconcile, Molthub writes these files to Bot A's workspace
+   and updates Bot A's OpenClaw config to load the skill
+
+4. Bot A now has team knowledge in its context + a delegation tool
+
+5. User chats with Bot A: "Create a marketing campaign for our new product"
+   → Bot A reasons: "This is a marketing task, I should delegate to Bot B"
+   → Bot A runs: node delegate.js "Bot B" "Create a marketing campaign..."
+   → delegate.js POSTs to Molthub API → A2aMessageService → Bot B
+   → Bot B responds → response flows back to Bot A
+   → Bot A incorporates the response and replies to user
+```
 
 ---
 
 ## Architecture
 
-### JSON-RPC Layer
-The A2A spec uses JSON-RPC 2.0 over HTTPS. A single POST endpoint handles all methods. For Chunk 2, we only implement `SendMessage`. The controller parses the JSON-RPC envelope, dispatches to the right service method, and wraps the response in JSON-RPC format.
+### Why This Approach
 
-### Task Model
-Per A2A spec, `SendMessage` returns a `Task` object with a `status` containing the agent's response. Since our bot calls are synchronous (blocking until the agent completes), we return the task in `completed` state immediately. The task is also stored as a Trace in the DB for later retrieval (Chunk 4).
+- **Bot decides** — The LLM reasons about when to delegate (not regex pattern matching)
+- **Uses existing A2A** — Delegation flows through `A2aMessageService` we already built
+- **OpenClaw-native** — Uses OpenClaw's skill system (SKILL.md) + exec tools (group:runtime)
+- **No MCP server needed** — A simple Node.js script handles the HTTP call to Molthub
+- **Traceable** — Every delegation creates traces via the existing A2A trace hierarchy
 
-### Flow
-```
-Client → POST /a2a/:botId (JSON-RPC)
-       → A2aController.handleJsonRpc()
-       → A2aMessageService.sendMessage()
-       → creates Trace (PENDING)
-       → connects to gateway via GatewayManager
-       → client.agent({ message, ... })
-       → waits for completion
-       → updates Trace (SUCCESS/ERROR)
-       → returns A2A Task object
-```
+### Components
+
+1. **Database**: `BotTeamMember` model (who can delegate to whom + role metadata)
+2. **API**: CRUD for team members + `POST /bot-delegation/invoke` endpoint for bots
+3. **Delegation Skill Generator**: Creates SKILL.md + delegate.js per bot
+4. **Config Injection**: Adds skill directory + enables runtime tools during reconciliation
+5. **UI**: "Team" tab on bot detail page
 
 ---
 
 ## Files to Create/Modify
 
-### 1. `apps/api/src/a2a/a2a.types.ts` (MODIFY)
-Add A2A JSON-RPC and Task types alongside existing Agent Card types:
+### 1. `packages/database/prisma/schema.prisma` (MODIFY)
 
-```ts
-// --- JSON-RPC 2.0 ---
-interface JsonRpcRequest { jsonrpc: "2.0"; id: string | number; method: string; params?: unknown }
-interface JsonRpcResponse { jsonrpc: "2.0"; id: string | number; result?: unknown; error?: JsonRpcError }
-interface JsonRpcError { code: number; message: string; data?: unknown }
+Add new model:
 
-// --- A2A Message Types ---
-interface TextPart { text: string; mediaType?: string }
-interface FilePart { url: string; mediaType?: string; filename?: string }
-interface DataPart { data: Record<string, unknown>; mediaType?: string }
-type Part = TextPart | FilePart | DataPart
+```prisma
+model BotTeamMember {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-interface Message { messageId: string; role: "user" | "agent"; parts: Part[]; contextId?: string; taskId?: string; metadata?: Record<string, unknown> }
+  // The bot that can delegate (the "team lead")
+  ownerBotId  String
+  ownerBot    BotInstance @relation("TeamOwner", fields: [ownerBotId], references: [id], onDelete: Cascade)
 
-interface SendMessageParams { message: Message; configuration?: { acceptedOutputModes?: string[]; blocking?: boolean; historyLength?: number }; metadata?: Record<string, unknown> }
+  // The bot that receives delegated tasks (the "team member")
+  memberBotId String
+  memberBot   BotInstance @relation("TeamMember", fields: [memberBotId], references: [id], onDelete: Cascade)
 
-// --- A2A Task Types ---
-type TaskState = "submitted" | "working" | "input_required" | "completed" | "failed" | "canceled" | "rejected"
-interface TaskStatus { state: TaskState; message?: Message; timestamp?: string }
-interface Artifact { artifactId: string; name?: string; parts: Part[]; metadata?: Record<string, unknown> }
-interface Task { id: string; contextId: string; status: TaskStatus; artifacts?: Artifact[]; history?: Message[]; metadata?: Record<string, unknown> }
-```
+  // What this team member does
+  role        String    // e.g. "Marketing Expert", "DevOps Engineer"
+  description String    // e.g. "Handles marketing strategy, content creation, campaigns"
 
-### 2. `apps/api/src/a2a/a2a-message.service.ts` (NEW)
-New `@Injectable()` service for handling `SendMessage`:
+  enabled     Boolean   @default(true)
 
-- `sendMessage(botInstanceId: string, params: SendMessageParams): Promise<Task>`
-  1. Validate bot exists in DB
-  2. Extract text from `params.message.parts` (concatenate TextParts)
-  3. Generate `taskId = crypto.randomUUID()`, use `contextId` from message or generate one
-  4. Create a Trace: `{ botInstanceId, traceId: taskId, name: "a2a:SendMessage", type: "TASK", status: "PENDING", input: params.message }`
-  5. Connect to gateway via `GatewayManager.getClient()`
-  6. Call `client.agent({ message: text, idempotencyKey: taskId, agentId: "main", deliver: false, timeout: 60_000, _localTimeoutMs: 65_000 })`
-  7. On success: complete Trace, return Task `{ id: taskId, contextId, status: { state: "completed", message: { role: "agent", parts: [{ text: output }] } } }`
-  8. On failure: fail Trace, return Task with `state: "failed"`
-  9. Disconnect client in finally block
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-- Uses same gateway connection pattern as `A2aAgentCardService` (GatewayManager pool)
-- Injects `TracesService` for trace creation/completion
-
-### 3. `apps/api/src/a2a/a2a.controller.ts` (MODIFY)
-Add the JSON-RPC POST endpoint:
-
-```ts
-@Post(":botInstanceId")
-@Public()  // A2A endpoints are public per spec (auth added in Chunk 3)
-async handleJsonRpc(@Param("botInstanceId") botInstanceId: string, @Body() body: JsonRpcRequest) {
-  // Validate JSON-RPC envelope
-  if (body.jsonrpc !== "2.0" || !body.method || !body.id) {
-    return { jsonrpc: "2.0", id: body.id ?? null, error: { code: -32600, message: "Invalid Request" } };
-  }
-  switch (body.method) {
-    case "SendMessage":
-      const result = await this.messageService.sendMessage(botInstanceId, body.params as SendMessageParams);
-      return { jsonrpc: "2.0", id: body.id, result };
-    default:
-      return { jsonrpc: "2.0", id: body.id, error: { code: -32601, message: `Method not found: ${body.method}` } };
-  }
+  @@unique([ownerBotId, memberBotId])
+  @@index([ownerBotId])
+  @@index([memberBotId])
 }
 ```
 
-### 4. `apps/api/src/a2a/a2a.module.ts` (MODIFY)
-- Add `A2aMessageService` to providers
-- Import `TracesModule` (forwardRef if needed)
-
-### 5. `apps/api/src/traces/traces.module.ts` (MODIFY if needed)
-- Ensure `TracesService` is exported so `A2aModule` can import it
-
-### 6. `apps/web/src/lib/api.ts` (MODIFY)
-Add types and method:
-
-```ts
-interface A2aTask { id: string; contextId: string; status: { state: string; message?: { role: string; parts: { text?: string }[] }; timestamp?: string }; artifacts?: unknown[] }
-interface A2aSendResult { jsonrpc: "2.0"; id: string; result?: A2aTask; error?: { code: number; message: string } }
-
-async sendA2aMessage(botInstanceId: string, message: string): Promise<A2aSendResult>
+Add relations to `BotInstance`:
+```prisma
+  teamMembers    BotTeamMember[] @relation("TeamOwner")
+  memberOfTeams  BotTeamMember[] @relation("TeamMember")
 ```
 
-### 7. `apps/web/src/app/bots/[id]/bot-detail-client.tsx` (MODIFY)
-Add a "Test Message" card below existing Agent Card display in A2A tab:
-- Text input + Send button
-- On send: calls `api.sendA2aMessage(bot.id, message)`
-- Shows loading spinner while waiting
-- Displays the response (task state, agent message, task ID)
-- Shows error if failed
+Add relation to `Workspace`:
+```prisma
+  teamMembers    BotTeamMember[]
+```
+
+### 2. `apps/api/src/bot-teams/bot-teams.service.ts` (NEW)
+
+CRUD service for `BotTeamMember`:
+- `create(ownerBotId, memberBotId, role, description)` — validates both bots exist and belong to same workspace
+- `findByOwner(ownerBotId)` — list all team members for a bot
+- `findByMember(memberBotId)` — list all teams a bot belongs to
+- `update(id, { role?, description?, enabled? })`
+- `remove(id)`
+
+### 3. `apps/api/src/bot-teams/bot-teams.controller.ts` (NEW)
+
+REST endpoints:
+- `GET /bot-teams/:botId` — list team members
+- `POST /bot-teams/:botId/members` — add team member
+- `PATCH /bot-teams/members/:id` — update member
+- `DELETE /bot-teams/members/:id` — remove member
+
+### 4. `apps/api/src/bot-teams/bot-teams.module.ts` (NEW)
+
+NestJS module importing `TracesModule`, `A2aModule`.
+
+### 5. `apps/api/src/bot-teams/delegation-skill-generator.service.ts` (NEW)
+
+Generates the delegation skill files for a bot based on its team members:
+
+**`generateSkillFiles(bot, teamMembers, apiUrl, apiKey)`** returns:
+
+- **`SKILL.md`** — Markdown file with YAML frontmatter:
+  ```markdown
+  ---
+  name: molthub-delegation
+  description: Delegate tasks to your team members
+  ---
+
+  ## Your Team
+
+  You have the following team members who can help with specialized tasks:
+
+  ### Bot B — Marketing Expert
+  Handles marketing strategy, content creation, campaigns.
+
+  ### Bot C — DevOps Engineer
+  Handles infrastructure, deployments, monitoring.
+
+  ## How to Delegate
+
+  When a task falls outside your expertise or matches a team member's specialty,
+  delegate it by running this command:
+
+  ```bash
+  node /path/to/skills/molthub-delegation/delegate.js "<team member name>" "<task description>"
+  ```
+
+  The command will send the task to the team member and return their response.
+  Wait for the response before continuing.
+
+  ## Guidelines
+  - Delegate when a task clearly matches a team member's specialty
+  - Provide clear, specific task descriptions
+  - You can delegate to multiple team members for different parts of a complex task
+  - Incorporate the team member's response into your own response to the user
+  ```
+
+- **`delegate.js`** — Node.js script (~50 lines):
+  ```js
+  // Reads target bot name + message from argv
+  // POSTs to MOLTHUB_API_URL/bot-delegation/invoke
+  // Uses MOLTHUB_API_KEY for auth
+  // Prints the response text to stdout
+  // Exits with error code on failure
+  ```
+
+### 6. `apps/api/src/bot-delegation/bot-delegation.controller.ts` (MODIFY existing or NEW)
+
+Add the invoke endpoint that bots call:
+
+```
+POST /bot-delegation/invoke
+Authorization: Bearer <api-key>
+Body: { sourceBotId, targetBotName, message }
+```
+
+- Authenticates using the bot's A2A API key
+- Looks up target bot by name within the workspace
+- Validates the team relationship exists (owner → member)
+- Calls `A2aMessageService.sendMessage()` to send to target bot
+- Creates a delegation trace (parent) with A2A child trace
+- Returns `{ success, response, traceId }`
+
+### 7. `apps/api/src/reconciler/config-generator.service.ts` (MODIFY)
+
+When generating config for a bot that has team members:
+
+1. Query `BotTeamMember` records for the bot
+2. If any exist, call `DelegationSkillGenerator.generateSkillFiles()`
+3. Add `group:runtime` to `tools.allow` (needed for `exec` to run the delegate script)
+4. Add the delegation skill directory to `skills.load.extraDirs`
+5. Set env vars in the skill config: `MOLTHUB_API_URL`, `MOLTHUB_API_KEY`, `MOLTHUB_BOT_ID`
+
+### 8. `apps/api/src/reconciler/lifecycle-manager.service.ts` (MODIFY)
+
+During provision/update, write the delegation skill files to the bot's workspace:
+- Create `<workspace>/skills/molthub-delegation/` directory
+- Write `SKILL.md` and `delegate.js`
+- These files are regenerated on every reconcile (so team changes take effect)
+
+### 9. `apps/web/src/lib/api.ts` (MODIFY)
+
+Add API methods:
+```ts
+listTeamMembers(botId: string): Promise<BotTeamMember[]>
+addTeamMember(botId: string, data: { memberBotId, role, description }): Promise<BotTeamMember>
+updateTeamMember(id: string, data: Partial<{ role, description, enabled }>): Promise<BotTeamMember>
+removeTeamMember(id: string): Promise<void>
+```
+
+### 10. `apps/web/src/app/bots/[id]/bot-detail-client.tsx` (MODIFY)
+
+Add a "Team" tab to the bot detail page:
+
+- **Team Members List**: Cards showing each team member with role, description, enabled toggle
+- **Add Member**: Button opens a form — select bot from dropdown, enter role + description
+- **Edit**: Inline edit role/description
+- **Remove**: Delete with confirmation
+- **Empty State**: "No team members configured. Add bots to this team to enable delegation."
+
+### 11. `apps/api/src/app.module.ts` (MODIFY)
+
+Import `BotTeamsModule`.
 
 ---
 
-## Parallelism Plan
+## Implementation Steps
 
-**Wave 1** (fully parallel — no dependencies):
-1. **Agent A**: `a2a.types.ts` — add all JSON-RPC + Task types
-2. **Agent B**: `a2a-message.service.ts` — create the new service
-3. **Agent C**: `apps/web/src/lib/api.ts` + `bot-detail-client.tsx` — frontend types + test form UI
+### Step 1: Database + API (backend)
+1. Add `BotTeamMember` model to Prisma schema
+2. Run migration
+3. Create `bot-teams` module with service, controller, DTOs
+4. Add delegation invoke endpoint
+5. Wire into `app.module.ts`
 
-**Wave 2** (depends on Wave 1):
-4. **Agent D**: `a2a.controller.ts` + `a2a.module.ts` + `traces.module.ts` — wire everything together
+### Step 2: Delegation Skill Generator (backend)
+1. Create `DelegationSkillGeneratorService`
+2. Generates SKILL.md content from team member data
+3. Generates delegate.js script (hardcoded template with env var placeholders)
 
-**Wave 3**: Build + test
+### Step 3: Config Injection (backend)
+1. Modify `ConfigGeneratorService` to inject delegation skill config
+2. Modify `LifecycleManagerService` to write skill files to workspace
+
+### Step 4: Frontend (parallel with Steps 2-3)
+1. Add API methods to `api.ts`
+2. Add "Team" tab to bot detail page
+3. CRUD UI for team members
+
+### Step 5: Build + Verify
+1. `pnpm build` passes
+2. Add team member via UI
+3. Verify delegation skill files are generated
+4. Test delegation via bot chat
+
+---
+
+## Key Design Decisions
+
+1. **New model, not routing rules** — `BotTeamMember` is conceptually different from `BotRoutingRule`. Routing rules are a switchboard (Molthub decides). Team members are tools (the bot decides). Keeping them separate avoids confusion.
+
+2. **delegate.js script over MCP server** — A simple Node.js script that the agent runs via `exec` is far simpler than setting up a full MCP server. The agent calls `node delegate.js "Bot B" "do this task"` and gets the response on stdout. Can upgrade to MCP later if needed.
+
+3. **Skill-based injection** — Using OpenClaw's native skill system (SKILL.md in a skills directory) is the cleanest integration point. The skill instructions become part of the agent's context, so it knows about its team without any custom tool UI.
+
+4. **group:runtime required** — The agent needs `exec` tools to run the delegate script. This is automatically added to the config when team members are configured.
+
+5. **Auth via A2A API key** — The delegate script authenticates to Molthub using the bot's existing A2A API key. No new auth mechanism needed.
 
 ---
 
 ## Verification
+
 1. `pnpm build` passes
-2. `curl -X POST http://localhost:4000/a2a/<bot-id> -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":"1","method":"SendMessage","params":{"message":{"messageId":"test-1","role":"user","parts":[{"text":"Hello, who are you?"}]}}}'` → returns JSON-RPC response with Task
-3. Bot detail → A2A tab → type message → send → see response
-4. Traces page shows the A2A task trace
-5. Invalid method → returns JSON-RPC error `-32601`
-6. Missing bot → returns JSON-RPC error with appropriate message
+2. Create two bots (Bot A, Bot B) via the UI
+3. On Bot A's detail page → "Team" tab → Add Bot B as "Marketing Expert"
+4. Verify Bot A's OpenClaw config now includes:
+   - `skills.load.extraDirs` pointing to delegation skill directory
+   - `tools.allow` includes `group:runtime`
+5. Check Bot A's workspace has `skills/molthub-delegation/SKILL.md` and `delegate.js`
+6. Chat with Bot A about a marketing topic → Bot A delegates to Bot B → response comes back
+7. Check traces → delegation trace with A2A child trace visible
+8. Remove Bot B from team → verify skill files are cleaned up on next reconcile

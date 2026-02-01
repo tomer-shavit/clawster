@@ -29,6 +29,9 @@ import {
   Route,
   X,
   Check,
+  Zap,
+  Loader2,
+  Send,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -222,12 +225,14 @@ function RuleCard({
   onEdit,
   onDelete,
   onToggleEnabled,
+  onTest,
 }: {
   rule: BotRoutingRule;
   bots: BotInstance[];
   onEdit: (rule: BotRoutingRule) => void;
   onDelete: (rule: BotRoutingRule) => void;
   onToggleEnabled: (rule: BotRoutingRule) => void;
+  onTest: (rule: BotRoutingRule) => void;
 }) {
   const sourceName = rule.sourceBot?.name ?? rule.sourceBotId;
   const targetName = rule.targetBot?.name ?? rule.targetBotId;
@@ -284,6 +289,15 @@ function RuleCard({
             <Button
               variant="ghost"
               size="icon"
+              onClick={() => onTest(rule)}
+              title="Test delegation"
+              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+            >
+              <Zap className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => onEdit(rule)}
               title="Edit rule"
             >
@@ -317,6 +331,11 @@ export function RoutingRulesClient({
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingRule, setEditingRule] = useState<BotRoutingRule | null>(null);
+  const [testingRule, setTestingRule] = useState<BotRoutingRule | null>(null);
+  const [testMessage, setTestMessage] = useState("");
+  const [testResult, setTestResult] = useState<any>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testLoading, setTestLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -375,6 +394,24 @@ export function RoutingRulesClient({
       await refresh();
     } catch (err) {
       console.error("Failed to toggle rule:", err);
+    }
+  };
+
+  const handleTestDelegation = async () => {
+    if (!testingRule || !testMessage.trim()) return;
+    setTestLoading(true);
+    setTestResult(null);
+    setTestError(null);
+    try {
+      const result = await api.delegateMessage({
+        sourceBotId: testingRule.sourceBotId,
+        message: testMessage.trim(),
+      });
+      setTestResult(result);
+    } catch (err: any) {
+      setTestError(err?.message ?? "Delegation failed");
+    } finally {
+      setTestLoading(false);
     }
   };
 
@@ -474,9 +511,99 @@ export function RoutingRulesClient({
               onEdit={handleEdit}
               onDelete={handleDelete}
               onToggleEnabled={handleToggleEnabled}
+              onTest={(rule) => {
+                setTestingRule(rule);
+                setTestMessage("");
+                setTestResult(null);
+                setTestError(null);
+              }}
             />
           ))}
         </div>
+      )}
+
+      {testingRule && (
+        <Card className="border-blue-200">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Zap className="w-4 h-4 text-blue-600" />
+                Test Delegation
+              </CardTitle>
+              <Button variant="ghost" size="icon" onClick={() => setTestingRule(null)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <CardDescription>
+              {testingRule.sourceBot?.name ?? testingRule.sourceBotId}
+              {" → "}
+              {testingRule.targetBot?.name ?? testingRule.targetBotId}
+              {" · Pattern: "}
+              <code className="font-mono text-xs bg-muted px-1 rounded">{testingRule.triggerPattern}</code>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Type a test message..."
+                value={testMessage}
+                onChange={(e) => setTestMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !testLoading && testMessage.trim()) {
+                    handleTestDelegation();
+                  }
+                }}
+                disabled={testLoading}
+              />
+              <Button
+                onClick={handleTestDelegation}
+                disabled={testLoading || !testMessage.trim()}
+                size="sm"
+              >
+                {testLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+              </Button>
+            </div>
+
+            {testError && (
+              <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-950/20 p-3">
+                <p className="text-sm font-medium text-red-600">Delegation Failed</p>
+                <p className="text-sm text-red-500 mt-1">{testError}</p>
+              </div>
+            )}
+
+            {testResult && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <Badge className="bg-green-100 text-green-800">
+                    {testResult.delegated ? "Delegated" : "Not Delegated"}
+                  </Badge>
+                  {testResult.targetBotName && (
+                    <span className="text-muted-foreground">
+                      → {testResult.targetBotName}
+                    </span>
+                  )}
+                </div>
+                {testResult.response && (
+                  <div className="rounded-md border bg-muted/50 p-3 max-h-48 overflow-auto">
+                    <p className="text-sm whitespace-pre-wrap">{testResult.response}</p>
+                  </div>
+                )}
+                {testResult.traceId && (
+                  <a
+                    href={`/traces/${testResult.traceId}`}
+                    className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"
+                  >
+                    View trace →
+                  </a>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   );

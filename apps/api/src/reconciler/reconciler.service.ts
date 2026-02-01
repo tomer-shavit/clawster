@@ -10,6 +10,7 @@ import type { OpenClawManifest } from "@molthub/core";
 import { ConfigGeneratorService } from "./config-generator.service";
 import { LifecycleManagerService } from "./lifecycle-manager.service";
 import { DriftDetectionService } from "./drift-detection.service";
+import { DelegationSkillWriterService } from "./delegation-skill-writer.service";
 import { OpenClawSecurityAuditService } from "../security/security-audit.service";
 import type { DriftCheckResult } from "./drift-detection.service";
 
@@ -75,6 +76,7 @@ export class ReconcilerService {
     private readonly lifecycleManager: LifecycleManagerService,
     private readonly driftDetection: DriftDetectionService,
     private readonly securityAudit: OpenClawSecurityAuditService,
+    private readonly delegationSkillWriter: DelegationSkillWriterService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -122,6 +124,16 @@ export class ReconcilerService {
       }
       changes.push(`Security audit: ${auditResult.blockers.length} blockers, ${auditResult.warnings.length} warnings`);
 
+      // 2c. Check for team members and inject delegation config into manifest
+      const teamMembers = await prisma.botTeamMember.findMany({
+        where: { ownerBotId: instanceId, enabled: true },
+      });
+
+      if (teamMembers.length > 0) {
+        this.injectDelegationConfig(manifest);
+        changes.push(`Delegation config injected (${teamMembers.length} team members)`);
+      }
+
       // 3. Generate config + hash
       const config = this.configGenerator.generateOpenClawConfig(manifest);
       const desiredHash = this.configGenerator.generateConfigHash(config);
@@ -155,6 +167,27 @@ export class ReconcilerService {
         } else {
           changes.push(`Config updated via ${updateResult.method} (hash=${updateResult.configHash?.slice(0, 12)}...)`);
         }
+      }
+
+      // 5c. Write delegation skill files to bot workspace
+      try {
+        const instanceMeta = (typeof instance.metadata === "string"
+          ? JSON.parse(instance.metadata)
+          : instance.metadata) as Record<string, unknown> | null;
+        const configPath = (instanceMeta?.configPath as string) ?? `/var/openclaw/${instance.name}`;
+        const apiUrl = process.env.MOLTHUB_API_URL || "http://172.17.0.1:4000";
+        const skillResult = await this.delegationSkillWriter.writeDelegationSkills(
+          instanceId,
+          configPath,
+          apiUrl,
+        );
+        if (skillResult.written) {
+          changes.push(`Delegation skills written (${skillResult.memberCount} members)`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Delegation skill write failed for ${instanceId}: ${msg}`);
+        changes.push(`Delegation skill write failed: ${msg}`);
       }
 
       // 6. Health check via Gateway WS
@@ -471,6 +504,46 @@ export class ReconcilerService {
       instance.status === "PENDING" ||
       (!instance.lastReconcileAt && !instance.configHash)
     );
+  }
+
+  /**
+   * Inject delegation-related config into the manifest so the generated
+   * OpenClaw config includes tools.alsoAllow for exec and skills.load.extraDirs
+   * pointing to the delegation skill directory.
+   */
+  private injectDelegationConfig(manifest: OpenClawManifest): void {
+    const cfg = manifest.spec.openclawConfig as Record<string, unknown>;
+
+    // Add group:runtime so the bot can exec the delegation script.
+    // OpenClaw does NOT allow both tools.allow and tools.alsoAllow at the same
+    // time. If the user already has tools.allow, merge into it. Otherwise use
+    // tools.alsoAllow (additive on top of the profile).
+    const tools = (cfg.tools ?? {}) as Record<string, unknown>;
+    const existingAllow = (tools.allow ?? []) as string[];
+    if (existingAllow.length > 0) {
+      // Merge into existing allow list
+      if (!existingAllow.includes("group:runtime")) {
+        tools.allow = [...existingAllow, "group:runtime"];
+      }
+    } else {
+      // Use alsoAllow (additive) — doesn't replace the profile's base allowlist
+      const existingAlsoAllow = (tools.alsoAllow ?? []) as string[];
+      if (!existingAlsoAllow.includes("group:runtime")) {
+        tools.alsoAllow = [...existingAlsoAllow, "group:runtime"];
+      }
+    }
+    cfg.tools = tools;
+
+    // Add skills.load.extraDirs so OpenClaw discovers the delegation skill
+    const skills = (cfg.skills ?? {}) as Record<string, unknown>;
+    const load = (skills.load ?? {}) as Record<string, unknown>;
+    const extraDirs = (load.extraDirs ?? []) as string[];
+    const delegationSkillPath = "/home/node/.openclaw/skills";
+    if (!extraDirs.includes(delegationSkillPath)) {
+      load.extraDirs = [...extraDirs, delegationSkillPath];
+    }
+    skills.load = load;
+    cfg.skills = skills;
   }
 
   private async logEvent(

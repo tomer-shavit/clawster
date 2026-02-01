@@ -263,12 +263,16 @@ export class LifecycleManagerService {
 
       // Full apply with the new config
       const raw = JSON.stringify(config);
+      this.logger.debug(`config.apply sending ${raw.length} bytes (baseHash=${remote.hash?.slice(0, 12)})`);
       const applyResult = await client.configApply({
         raw,
         baseHash: remote.hash,
       });
+      this.logger.debug(`config.apply response: ${JSON.stringify(applyResult)}`);
 
-      if (!applyResult.success) {
+      // The gateway returns { ok: true } on success, not { success: true }
+      const applied = applyResult.ok ?? applyResult.success;
+      if (!applied) {
         const errors = applyResult.validationErrors?.join("; ") ?? "Unknown validation error";
         throw new Error(`config.apply rejected: ${errors}`);
       }

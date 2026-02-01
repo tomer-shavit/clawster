@@ -29,6 +29,7 @@ model Workspace {
   communicationChannels CommunicationChannel[]
   notificationChannels  NotificationChannel[]
   botRoutingRules       BotRoutingRule[]
+  botTeamMembers        BotTeamMember[]
 
   @@index([slug])
 }
@@ -185,6 +186,10 @@ model BotInstance {
 
   // A2A API keys
   a2aApiKeys A2aApiKey[]
+
+  // Team relationships
+  teamMembers    BotTeamMember[] @relation("TeamOwner")
+  memberOfTeams  BotTeamMember[] @relation("TeamMember")
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
@@ -1136,4 +1141,32 @@ model A2aApiKey {
 
   @@index([botInstanceId])
   @@index([keyHash])
+}
+
+// Bot team member: defines delegation relationships between bots
+model BotTeamMember {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // The bot that can delegate (the "team lead")
+  ownerBotId  String
+  ownerBot    BotInstance @relation("TeamOwner", fields: [ownerBotId], references: [id], onDelete: Cascade)
+
+  // The bot that receives delegated tasks (the "team member")
+  memberBotId String
+  memberBot   BotInstance @relation("TeamMember", fields: [memberBotId], references: [id], onDelete: Cascade)
+
+  // What this team member does
+  role        String    // e.g. "Marketing Expert", "DevOps Engineer"
+  description String    // e.g. "Handles marketing strategy, content creation, campaigns"
+
+  enabled     Boolean   @default(true)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([ownerBotId, memberBotId])
+  @@index([ownerBotId])
+  @@index([memberBotId])
 }
