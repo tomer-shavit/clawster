@@ -1152,6 +1152,20 @@ class ApiClient {
     return this.fetch(`/alerts/${alertId}/remediate`, { method: 'POST' });
   }
 
+  async bulkAcknowledgeAlerts(ids: string[], acknowledgedBy?: string): Promise<{ updated: number }> {
+    return this.fetch('/alerts/bulk-acknowledge', {
+      method: 'POST',
+      body: JSON.stringify({ ids, acknowledgedBy }),
+    });
+  }
+
+  async bulkResolveAlerts(ids: string[]): Promise<{ updated: number }> {
+    return this.fetch('/alerts/bulk-resolve', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+  }
+
   async getAlertSummary(): Promise<AlertSummary> {
     return this.fetch('/alerts/summary');
   }
