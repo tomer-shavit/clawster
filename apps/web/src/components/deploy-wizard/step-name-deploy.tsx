@@ -3,10 +3,13 @@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Rocket, Monitor, MessageCircle, Send, Gamepad2, Hash, Brain } from "lucide-react";
+import { Select } from "@/components/ui/select";
+import { Rocket, Monitor, MessageCircle, Send, Gamepad2, Hash, Brain, Layers } from "lucide-react";
 import { ChannelConfig } from "@/components/onboarding/channel-setup-step";
+import { EnvironmentBadge } from "@/components/ui/environment-badge";
 import { Platform } from "./step-platform";
 import { ModelConfig, PROVIDERS } from "./step-model";
+import { type Fleet } from "@/lib/api";
 
 interface StepNameDeployProps {
   botName: string;
@@ -17,6 +20,9 @@ interface StepNameDeployProps {
   deploying: boolean;
   onDeploy: () => void;
   error: string | null;
+  fleets: Fleet[];
+  selectedFleetId: string | null;
+  onFleetSelect: (id: string | null) => void;
 }
 
 const channelIcons: Record<string, React.ReactNode> = {
@@ -44,6 +50,9 @@ export function StepNameDeploy({
   deploying,
   onDeploy,
   error,
+  fleets,
+  selectedFleetId,
+  onFleetSelect,
 }: StepNameDeployProps) {
   const isNameValid = botName.trim().length > 0 && BOT_NAME_REGEX.test(botName.trim());
   const enabledChannels = channels.filter((ch) => ch.config.enabled !== false);
@@ -90,6 +99,31 @@ export function StepNameDeploy({
               <Monitor className="w-4 h-4" />
               {platformLabels[platform]}
             </span>
+          </div>
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-muted-foreground">Fleet</span>
+            {fleets.length === 0 ? (
+              <span className="text-muted-foreground text-sm">Default Fleet (auto-created)</span>
+            ) : fleets.length === 1 ? (
+              <span className="font-medium flex items-center gap-1.5">
+                <Layers className="w-4 h-4" />
+                {fleets[0].name}
+                <EnvironmentBadge environment={fleets[0].environment} />
+              </span>
+            ) : (
+              <Select
+                value={selectedFleetId || ""}
+                onChange={(e) => onFleetSelect(e.target.value || null)}
+                className="w-[200px]"
+              >
+                <option value="">Auto (Default Fleet)</option>
+                {fleets.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name} ({f.environment})
+                  </option>
+                ))}
+              </Select>
+            )}
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Channels</span>

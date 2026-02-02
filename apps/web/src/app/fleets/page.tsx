@@ -3,11 +3,13 @@ export const dynamic = 'force-dynamic';
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { EnvironmentBadge } from "@/components/ui/environment-badge";
 import { api, type Fleet } from "@/lib/api";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Layers, ArrowRight, Wifi, Server } from "lucide-react";
+import { Layers, ArrowRight, Wifi, Server, Plus } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { CreateFleetDialog } from "./create-fleet-dialog";
 
 async function getFleets(): Promise<Fleet[]> {
   try {
@@ -29,6 +31,7 @@ export default async function FleetsPage() {
             Manage your bot fleets
           </p>
         </div>
+        <CreateFleetDialog />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -59,9 +62,10 @@ export default async function FleetsPage() {
               <Card key={fleet.id}>
                 <CardHeader>
                   <CardTitle>{fleet.name}</CardTitle>
-                  <p className="text-sm text-muted-foreground capitalize">
-                    {fleet.environment} &bull; {totalInstances} instances
-                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <EnvironmentBadge environment={fleet.environment} />
+                    <span className="text-sm text-muted-foreground">{totalInstances} instances</span>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground mb-3">

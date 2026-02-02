@@ -136,6 +136,10 @@ export class OnboardingDeployDto {
   @Type(() => ModelConfigDto)
   modelConfig?: ModelConfigDto;
 
+  @IsOptional()
+  @IsString()
+  fleetId?: string;
+
   @ValidateNested()
   @Type(() => DeploymentTargetDto)
   deploymentTarget: DeploymentTargetDto;

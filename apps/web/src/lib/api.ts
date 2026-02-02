@@ -24,6 +24,9 @@ export interface BotInstance {
   ecsServiceArn?: string;
   taskDefinitionArn?: string;
   cloudwatchLogGroup?: string;
+  // Relations
+  fleet?: { id: string; name: string; environment: string };
+  deploymentTarget?: { id: string; name: string; type: string };
   // OpenClaw-native fields
   deploymentType?: string;
   gatewayPort?: number;
@@ -590,9 +593,11 @@ class ApiClient {
   }
 
   // Bot Instances
-  async listBotInstances(fleetId?: string): Promise<BotInstance[]> {
-    const params = fleetId ? `?fleetId=${fleetId}` : '';
-    return this.fetch(`/bot-instances${params}`);
+  async listBotInstances(params?: { fleetId?: string }): Promise<BotInstance[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.fleetId) searchParams.set('fleetId', params.fleetId);
+    const query = searchParams.toString();
+    return this.fetch(`/bot-instances${query ? `?${query}` : ''}`);
   }
 
   async getBotInstance(id: string): Promise<BotInstance> {
@@ -631,7 +636,7 @@ class ApiClient {
   async createFleet(data: {
     name: string;
     environment: string;
-    workspaceId: string;
+    workspaceId?: string;
     description?: string;
     tags?: Record<string, string>;
   }): Promise<Fleet> {
@@ -908,6 +913,7 @@ class ApiClient {
     channels?: Array<{ type: string; config?: Record<string, unknown> }>;
     environment?: string;
     modelConfig?: { provider: string; model: string; apiKey: string };
+    fleetId?: string;
   }): Promise<{ instanceId: string; fleetId: string; status: string }> {
     return this.fetch('/onboarding/deploy', {
       method: 'POST',

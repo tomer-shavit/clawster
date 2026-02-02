@@ -3,7 +3,8 @@ import { IsString, IsOptional, IsObject, IsArray, IsNumber } from "class-validat
 
 export class CreateFleetDto {
   @IsString()
-  workspaceId: string;
+  @IsOptional()
+  workspaceId?: string;
 
   @IsString()
   name: string;
@@ -64,7 +65,8 @@ export class UpdateFleetStatusDto {
 
 export class ListFleetsQueryDto {
   @IsString()
-  workspaceId: string;
+  @IsOptional()
+  workspaceId?: string;
 
   @IsString()
   @IsOptional()

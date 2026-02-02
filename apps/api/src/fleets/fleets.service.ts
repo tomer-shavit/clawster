@@ -5,11 +5,21 @@ import { CreateFleetDto, UpdateFleetDto, ListFleetsQueryDto } from "./fleets.dto
 @Injectable()
 export class FleetService {
   async create(dto: CreateFleetDto): Promise<Fleet> {
+    // Resolve workspaceId — default to first workspace if not provided
+    let workspaceId = dto.workspaceId;
+    if (!workspaceId) {
+      const workspace = await prisma.workspace.findFirst();
+      if (!workspace) {
+        throw new BadRequestException("No workspace found. Deploy a bot first to create a default workspace.");
+      }
+      workspaceId = workspace.id;
+    }
+
     // Check for duplicate name in workspace
     const existing = await prisma.fleet.findFirst({
-      where: { 
-        workspaceId: dto.workspaceId,
-        name: dto.name 
+      where: {
+        workspaceId,
+        name: dto.name
       },
     });
 
@@ -20,7 +30,7 @@ export class FleetService {
     // Create fleet record
     const fleet = await prisma.fleet.create({
       data: {
-        workspaceId: dto.workspaceId,
+        workspaceId,
         name: dto.name,
         environment: dto.environment,
         description: dto.description,
@@ -37,14 +47,17 @@ export class FleetService {
   async findAll(query: ListFleetsQueryDto): Promise<Fleet[]> {
     return prisma.fleet.findMany({
       where: {
-        workspaceId: query.workspaceId,
+        ...(query.workspaceId && { workspaceId: query.workspaceId }),
         ...(query.environment && { environment: query.environment }),
         ...(query.status && { status: query.status }),
       },
       include: {
+        instances: {
+          select: { id: true, status: true, deploymentType: true },
+        },
         _count: {
-          select: { instances: true }
-        }
+          select: { instances: true },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
