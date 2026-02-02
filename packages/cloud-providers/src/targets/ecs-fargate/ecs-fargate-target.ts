@@ -11,12 +11,14 @@ import {
   UpdateServiceCommand,
   ListTasksCommand,
   DescribeTasksCommand,
+  DescribeContainerInstancesCommand,
 } from "@aws-sdk/client-ecs";
 import {
   EC2Client,
   DescribeVpcsCommand,
   DescribeSubnetsCommand,
   DescribeNetworkInterfacesCommand,
+  DescribeInstancesCommand,
 } from "@aws-sdk/client-ec2";
 import {
   SecretsManagerClient,
@@ -473,8 +475,9 @@ export class EcsFargateTarget implements DeploymentTarget {
   }
 
   /**
-   * Single attempt to find a running task's public IP. Returns null if no
-   * running task or public IP is available yet.
+   * Single attempt to find a running task's public IP. For EC2 launch type
+   * with bridge network mode, resolves the EC2 instance's public IP.
+   * Returns null if no running task or public IP is available yet.
    */
   private async resolveTaskPublicIp(): Promise<GatewayEndpoint | null> {
     const listResult = await this.ecsClient.send(
@@ -498,6 +501,37 @@ export class EcsFargateTarget implements DeploymentTarget {
     const task = describeResult.tasks?.[0];
     if (!task) return null;
 
+    // EC2 launch type: resolve the EC2 instance's public IP via container instance
+    if (task.containerInstanceArn) {
+      const ciResult = await this.ecsClient.send(
+        new DescribeContainerInstancesCommand({
+          cluster: this.clusterName,
+          containerInstances: [task.containerInstanceArn],
+        }),
+      );
+
+      const ec2InstanceId = ciResult.containerInstances?.[0]?.ec2InstanceId;
+      if (!ec2InstanceId) return null;
+
+      const instanceResult = await this.ec2Client.send(
+        new DescribeInstancesCommand({
+          InstanceIds: [ec2InstanceId],
+        }),
+      );
+
+      const publicIp =
+        instanceResult.Reservations?.[0]?.Instances?.[0]?.PublicIpAddress;
+
+      if (!publicIp) return null;
+
+      return {
+        host: publicIp,
+        port: this.gatewayPort,
+        protocol: "ws",
+      };
+    }
+
+    // Fallback: awsvpc mode (production tier uses ALB, but just in case)
     const eniAttachment = task.attachments?.find(
       (a) => a.type === "ElasticNetworkInterface",
     );
