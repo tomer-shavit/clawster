@@ -147,6 +147,7 @@ model BotInstance {
   profileName        String?
   openclawVersion     String?
   configHash         String?
+  lastCostSyncDate   String?
 
   // AI Gateway settings
   aiGatewayEnabled  Boolean @default(false)
