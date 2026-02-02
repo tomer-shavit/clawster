@@ -142,19 +142,30 @@ export class CostCollectionService {
     provider: string;
     model: string;
   } {
+    if (!desiredManifest || desiredManifest.trim() === "") {
+      this.logger.warn("Empty desiredManifest provided");
+      return { provider: "unknown", model: "unknown" };
+    }
+
     try {
       const manifest = JSON.parse(desiredManifest);
       const primary =
         manifest?.spec?.openclawConfig?.agents?.defaults?.model?.primary;
       if (typeof primary === "string" && primary.includes("/")) {
         const slashIdx = primary.indexOf("/");
-        return {
-          provider: primary.substring(0, slashIdx),
-          model: primary.substring(slashIdx + 1),
-        };
+        const provider = primary.substring(0, slashIdx).trim();
+        const model = primary.substring(slashIdx + 1).trim();
+
+        if (!provider || !model) {
+          this.logger.warn(`Invalid provider/model format: ${primary}`);
+          return { provider: "unknown", model: "unknown" };
+        }
+
+        return { provider, model };
       }
-    } catch {
-      // ignore parse errors
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      this.logger.warn(`Failed to parse manifest for provider/model: ${message}`);
     }
     return { provider: "unknown", model: "unknown" };
   }

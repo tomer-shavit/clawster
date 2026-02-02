@@ -6,6 +6,7 @@ import {
   Min,
   Max,
   IsArray,
+  ArrayMinSize,
   ArrayMaxSize,
 } from "class-validator";
 import { Type } from "class-transformer";
@@ -87,6 +88,7 @@ export class BulkAlertActionDto {
   @ApiProperty({ description: "Array of alert IDs to act on", type: [String] })
   @IsArray()
   @IsString({ each: true })
+  @ArrayMinSize(1)
   @ArrayMaxSize(200)
   ids: string[];
 

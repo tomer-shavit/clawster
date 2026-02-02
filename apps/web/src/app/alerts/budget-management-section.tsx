@@ -47,9 +47,11 @@ function BudgetForm({
     (initial?.criticalThresholdPct ?? 95).toString(),
   );
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     setSaving(true);
     try {
       await onSave({
@@ -58,6 +60,9 @@ function BudgetForm({
         warnThresholdPct: parseInt(warnPct, 10),
         criticalThresholdPct: parseInt(critPct, 10),
       });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to save budget";
+      setError(message);
     } finally {
       setSaving(false);
     }
@@ -65,6 +70,9 @@ function BudgetForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3 p-4 border rounded-lg bg-muted/30">
+      {error && (
+        <div className="text-sm text-red-500 p-2 bg-red-50 rounded">{error}</div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="text-xs font-medium text-muted-foreground">Name</label>
@@ -221,8 +229,13 @@ export function BudgetManagementSection() {
   };
 
   const handleDelete = async (id: string) => {
-    await api.deleteBudget(id);
-    await fetchBudgets();
+    try {
+      await api.deleteBudget(id);
+      await fetchBudgets();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to delete budget";
+      console.error("Budget delete error:", message);
+    }
   };
 
   return (

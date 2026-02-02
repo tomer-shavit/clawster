@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   Card,
   CardContent,
@@ -188,9 +188,10 @@ export function AlertsList({
     }
   };
 
-  const sortedAlerts = sortAlerts(alerts);
-  const hasActionableAlerts = sortedAlerts.some(
-    (a) => a.status === "ACTIVE" || a.status === "ACKNOWLEDGED",
+  const sortedAlerts = useMemo(() => sortAlerts(alerts), [alerts]);
+  const hasActionableAlerts = useMemo(
+    () => sortedAlerts.some((a) => a.status === "ACTIVE" || a.status === "ACKNOWLEDGED"),
+    [sortedAlerts],
   );
 
   return (

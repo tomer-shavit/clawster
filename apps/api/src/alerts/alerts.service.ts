@@ -127,11 +127,14 @@ export class AlertsService {
   }
 
   /**
-   * Bulk acknowledge multiple alerts.
+   * Bulk acknowledge multiple alerts. Only acts on ACTIVE alerts.
    */
   async bulkAcknowledge(ids: string[], acknowledgedBy?: string) {
     return prisma.healthAlert.updateMany({
-      where: { id: { in: ids } },
+      where: {
+        id: { in: ids },
+        status: "ACTIVE",
+      },
       data: {
         status: "ACKNOWLEDGED",
         acknowledgedAt: new Date(),
@@ -141,11 +144,14 @@ export class AlertsService {
   }
 
   /**
-   * Bulk resolve multiple alerts.
+   * Bulk resolve multiple alerts. Only acts on ACTIVE or ACKNOWLEDGED alerts.
    */
   async bulkResolve(ids: string[]) {
     return prisma.healthAlert.updateMany({
-      where: { id: { in: ids } },
+      where: {
+        id: { in: ids },
+        status: { in: ["ACTIVE", "ACKNOWLEDGED"] },
+      },
       data: {
         status: "RESOLVED",
         resolvedAt: new Date(),
