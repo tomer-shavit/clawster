@@ -5,11 +5,21 @@ import { CreateFleetDto, UpdateFleetDto, ListFleetsQueryDto } from "./fleets.dto
 @Injectable()
 export class FleetService {
   async create(dto: CreateFleetDto): Promise<Fleet> {
+    // Resolve workspaceId — default to first workspace if not provided
+    let workspaceId = dto.workspaceId;
+    if (!workspaceId) {
+      const workspace = await prisma.workspace.findFirst();
+      if (!workspace) {
+        throw new BadRequestException("No workspace found. Deploy a bot first to create a default workspace.");
+      }
+      workspaceId = workspace.id;
+    }
+
     // Check for duplicate name in workspace
     const existing = await prisma.fleet.findFirst({
-      where: { 
-        workspaceId: dto.workspaceId,
-        name: dto.name 
+      where: {
+        workspaceId,
+        name: dto.name
       },
     });
 
@@ -20,13 +30,12 @@ export class FleetService {
     // Create fleet record
     const fleet = await prisma.fleet.create({
       data: {
-        workspaceId: dto.workspaceId,
+        workspaceId,
         name: dto.name,
         environment: dto.environment,
         description: dto.description,
         status: "ACTIVE",
         tags: JSON.stringify(dto.tags || {}),
-        privateSubnetIds: JSON.stringify(dto.privateSubnetIds || []),
         enforcedPolicyPackIds: JSON.stringify(dto.enforcedPolicyPackIds || []),
       },
     });
@@ -37,14 +46,17 @@ export class FleetService {
   async findAll(query: ListFleetsQueryDto): Promise<Fleet[]> {
     return prisma.fleet.findMany({
       where: {
-        workspaceId: query.workspaceId,
+        ...(query.workspaceId && { workspaceId: query.workspaceId }),
         ...(query.environment && { environment: query.environment }),
         ...(query.status && { status: query.status }),
       },
       include: {
+        instances: {
+          select: { id: true, status: true, deploymentType: true },
+        },
         _count: {
-          select: { instances: true }
-        }
+          select: { instances: true },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -60,7 +72,18 @@ export class FleetService {
             name: true,
             status: true,
             health: true,
+            deploymentType: true,
+            gatewayPort: true,
+            runningSince: true,
+            lastHealthCheckAt: true,
             createdAt: true,
+            gatewayConnection: {
+              select: {
+                host: true,
+                port: true,
+                status: true,
+              },
+            },
           },
           orderBy: { createdAt: "desc" },
         },
@@ -136,6 +159,101 @@ export class FleetService {
     };
   }
 
+  async promote(id: string, targetEnvironment: string): Promise<{ fleet: Fleet; botsReconciling: number }> {
+    const fleet = await this.findOne(id);
+
+    // Validate environment transition
+    const validTransitions: Record<string, string> = {
+      dev: "staging",
+      staging: "prod",
+    };
+
+    const expectedTarget = validTransitions[fleet.environment];
+    if (!expectedTarget) {
+      throw new BadRequestException(
+        `Fleet is already in '${fleet.environment}' environment and cannot be promoted further`
+      );
+    }
+
+    if (targetEnvironment !== expectedTarget) {
+      throw new BadRequestException(
+        `Fleet in '${fleet.environment}' can only be promoted to '${expectedTarget}', not '${targetEnvironment}'`
+      );
+    }
+
+    // Update fleet environment
+    const updatedFleet = await prisma.fleet.update({
+      where: { id },
+      data: { environment: targetEnvironment },
+    });
+
+    // Update all bot instances' manifests and trigger reconciliation
+    const instances = await prisma.botInstance.findMany({
+      where: { fleetId: id },
+    });
+
+    let botsReconciling = 0;
+
+    for (const instance of instances) {
+      try {
+        const manifest = typeof instance.desiredManifest === "string"
+          ? JSON.parse(instance.desiredManifest)
+          : instance.desiredManifest;
+
+        // Update environment in manifest metadata
+        if (manifest?.metadata) {
+          manifest.metadata.environment = targetEnvironment;
+        }
+
+        await prisma.botInstance.update({
+          where: { id: instance.id },
+          data: {
+            desiredManifest: JSON.stringify(manifest),
+            status: instance.status === "RUNNING" || instance.status === "DEGRADED"
+              ? "PENDING"
+              : instance.status,
+          },
+        });
+
+        if (instance.status === "RUNNING" || instance.status === "DEGRADED") {
+          botsReconciling++;
+        }
+      } catch {
+        // Skip instances with invalid manifests
+      }
+    }
+
+    return { fleet: updatedFleet, botsReconciling };
+  }
+
+  async reconcileAll(id: string): Promise<{ queued: number; skipped: number }> {
+    const fleet = await this.findOne(id);
+
+    const instances = await prisma.botInstance.findMany({
+      where: { fleetId: id },
+      select: { id: true, name: true, status: true },
+    });
+
+    let queued = 0;
+    let skipped = 0;
+
+    for (const instance of instances) {
+      // Skip instances already being reconciled or in CREATING state
+      if (instance.status === "RECONCILING" || instance.status === "CREATING") {
+        skipped++;
+        continue;
+      }
+
+      await prisma.botInstance.update({
+        where: { id: instance.id },
+        data: { status: "PENDING" },
+      });
+      queued++;
+    }
+
+    return { queued, skipped };
+  }
+
   async remove(id: string): Promise<void> {
     const fleet = await this.findOne(id);
 
@@ -147,6 +265,12 @@ export class FleetService {
     if (instanceCount > 0) {
       throw new BadRequestException(
         `Cannot delete fleet with ${instanceCount} instances. Move or delete instances first.`
+      );
+    }
+
+    if (fleet.environment === "prod") {
+      throw new BadRequestException(
+        "Cannot delete a production fleet. Demote or move instances first."
       );
     }
 

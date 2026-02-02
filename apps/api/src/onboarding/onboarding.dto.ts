@@ -55,18 +55,6 @@ class DeploymentTargetDto {
   certificateArn?: string;
 
   @IsOptional()
-  @IsArray()
-  subnetIds?: string[];
-
-  @IsOptional()
-  @IsString()
-  securityGroupId?: string;
-
-  @IsOptional()
-  @IsString()
-  executionRoleArn?: string;
-
-  @IsOptional()
   @IsString()
   containerName?: string;
 
@@ -135,6 +123,10 @@ export class OnboardingDeployDto {
   @ValidateNested()
   @Type(() => ModelConfigDto)
   modelConfig?: ModelConfigDto;
+
+  @IsOptional()
+  @IsString()
+  fleetId?: string;
 
   @ValidateNested()
   @Type(() => DeploymentTargetDto)

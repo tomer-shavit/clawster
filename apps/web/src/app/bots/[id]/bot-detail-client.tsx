@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, HealthIndicator } from "@/components/ui/status-badge";
+import { EnvironmentBadge } from "@/components/ui/environment-badge";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { TimeDisplay, DurationDisplay } from "@/components/ui/time-display";
 import {
@@ -904,6 +905,15 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
+                  {bot.fleet && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Fleet</span>
+                      <Link href={`/fleets/${bot.fleet.id}`} className="flex items-center gap-1.5 hover:underline">
+                        <span className="font-medium">{bot.fleet.name}</span>
+                        <EnvironmentBadge environment={bot.fleet.environment} />
+                      </Link>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Deployment Type</span>
                     <Badge variant="outline">{bot.deploymentType || "local"}</Badge>

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { ChannelConfig } from "@/components/onboarding/channel-setup-step";
-import { api } from "@/lib/api";
+import { api, type Fleet } from "@/lib/api";
 import { StepPlatform, Platform } from "./step-platform";
 import { AwsConfig } from "./aws-config-panel";
 import { StepChannels } from "./step-channels";
@@ -43,6 +43,19 @@ export function DeployWizard({ isFirstTime }: DeployWizardProps) {
   const [deploying, setDeploying] = useState(false);
   const [deployedInstanceId, setDeployedInstanceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fleets, setFleets] = useState<Fleet[]>([]);
+  const [selectedFleetId, setSelectedFleetId] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.listFleets().then((result) => {
+      setFleets(result);
+      if (result.length === 1) {
+        setSelectedFleetId(result[0].id);
+      }
+    }).catch(() => {
+      // Fleets are optional — if loading fails, the backend will auto-create one
+    });
+  }, []);
 
   const canProceed = useCallback((): boolean => {
     switch (currentStep) {
@@ -103,6 +116,7 @@ export function DeployWizard({ isFirstTime }: DeployWizardProps) {
         modelConfig: modelConfig && modelConfig.apiKey
           ? { provider: modelConfig.provider, model: modelConfig.model, apiKey: modelConfig.apiKey }
           : undefined,
+        fleetId: selectedFleetId || undefined,
       });
 
       setDeployedInstanceId(result.instanceId);
@@ -225,6 +239,9 @@ export function DeployWizard({ isFirstTime }: DeployWizardProps) {
             deploying={deploying}
             onDeploy={handleDeploy}
             error={error}
+            fleets={fleets}
+            selectedFleetId={selectedFleetId}
+            onFleetSelect={setSelectedFleetId}
           />
         )}
 

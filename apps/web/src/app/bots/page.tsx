@@ -1,33 +1,61 @@
 export const dynamic = 'force-dynamic';
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, type BotInstance } from "@/lib/api";
-import { StatusBadge, HealthIndicator } from "@/components/ui/status-badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { api, type BotInstance, type Fleet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from "@/components/ui/table";
-import { TimeDisplay } from "@/components/ui/time-display";
 import Link from "next/link";
-import { Bot, ArrowRight, Rocket } from "lucide-react";
+import { Bot, Rocket, Activity, AlertTriangle, HeartPulse } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { BotsListClient } from "./bots-list-client";
 
 async function getBots(): Promise<BotInstance[]> {
   try {
     return await api.listBotInstances();
-  } catch (error) {
+  } catch {
     return [];
   }
 }
 
+async function getFleets(): Promise<Fleet[]> {
+  try {
+    return await api.listFleets();
+  } catch {
+    return [];
+  }
+}
+
+interface SummaryCardProps {
+  label: string;
+  count: number;
+  icon: React.ReactNode;
+  color: string;
+}
+
+function SummaryCard({ label, count, icon, color }: SummaryCardProps) {
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">{label}</p>
+            <p className={`text-3xl font-bold ${color}`}>{count}</p>
+          </div>
+          <div className={`p-3 rounded-full bg-muted`}>
+            {icon}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default async function BotsPage() {
-  const bots = await getBots();
+  const [bots, fleets] = await Promise.all([getBots(), getFleets()]);
+
+  const runningCount = bots.filter((b) => b.status === "RUNNING").length;
+  const errorCount = bots.filter((b) => b.status === "ERROR" || b.status === "DEGRADED").length;
+  const unhealthyCount = bots.filter((b) => b.health === "UNHEALTHY" || b.health === "DEGRADED").length;
 
   return (
     <DashboardLayout>
@@ -38,71 +66,55 @@ export default async function BotsPage() {
             Manage your bot instances
           </p>
         </div>
-        <Button>
-          <Bot className="w-4 h-4 mr-2" />
-          New Bot
-        </Button>
+        <Link href="/bots/new">
+          <Button>
+            <Bot className="w-4 h-4 mr-2" />
+            New Bot
+          </Button>
+        </Link>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>All Bot Instances</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Health</TableHead>
-                <TableHead>Uptime</TableHead>
-                <TableHead>Last Health Check</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {bots.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="p-0">
-                    <EmptyState
-                      icon={Rocket}
-                      title="No bots deployed yet"
-                      description="Deploy your first OpenClaw agent to get started."
-                      action={{ label: "Deploy a Bot", href: "/bots/new" }}
-                    />
-                  </TableCell>
-                </TableRow>
-              ) : (
-                bots.map((bot) => (
-                  <TableRow key={bot.id}>
-                    <TableCell className="font-medium">{bot.name}</TableCell>
-                    <TableCell><StatusBadge status={bot.status} /></TableCell>
-                    <TableCell><HealthIndicator health={bot.health} /></TableCell>
-                    <TableCell>
-                      {(() => { const s = bot.runningSince ? Math.max(0, Math.floor((Date.now() - new Date(bot.runningSince).getTime()) / 1000)) : 0; return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`; })()}
-                    </TableCell>
-                    <TableCell>
-                      {bot.lastHealthCheckAt ? (
-                        <TimeDisplay date={bot.lastHealthCheckAt} />
-                      ) : (
-                        <span className="text-muted-foreground">Never</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Link href={`/bots/${bot.id}`}>
-                        <Button variant="ghost" size="sm">
-                          View
-                          <ArrowRight className="w-4 h-4 ml-1" />
-                        </Button>
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4 mb-6">
+        <SummaryCard
+          label="Total"
+          count={bots.length}
+          icon={<Bot className="w-5 h-5 text-muted-foreground" />}
+          color="text-foreground"
+        />
+        <SummaryCard
+          label="Running"
+          count={runningCount}
+          icon={<Activity className="w-5 h-5 text-green-600" />}
+          color="text-green-600"
+        />
+        <SummaryCard
+          label="Errors"
+          count={errorCount}
+          icon={<AlertTriangle className="w-5 h-5 text-red-600" />}
+          color="text-red-600"
+        />
+        <SummaryCard
+          label="Unhealthy"
+          count={unhealthyCount}
+          icon={<HeartPulse className="w-5 h-5 text-amber-600" />}
+          color="text-amber-600"
+        />
+      </div>
+
+      {bots.length === 0 ? (
+        <Card>
+          <CardContent className="p-0">
+            <EmptyState
+              icon={Rocket}
+              title="No bots deployed yet"
+              description="Deploy your first OpenClaw agent to get started."
+              action={{ label: "Deploy a Bot", href: "/bots/new" }}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <BotsListClient initialBots={bots} fleets={fleets} />
+      )}
     </DashboardLayout>
   );
 }

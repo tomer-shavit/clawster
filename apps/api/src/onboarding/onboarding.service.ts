@@ -129,18 +129,32 @@ export class OnboardingService {
 
     // 3. Get or create fleet
     const env = dto.environment || "dev";
-    let fleet = await prisma.fleet.findFirst({
-      where: { workspaceId: workspace.id },
-    });
-    if (!fleet) {
-      fleet = await prisma.fleet.create({
-        data: {
-          workspaceId: workspace.id,
-          name: "Default Fleet",
-          environment: env as "dev" | "staging" | "prod",
-          status: "ACTIVE",
-        },
+    let fleet;
+    if (dto.fleetId) {
+      fleet = await prisma.fleet.findUnique({
+        where: { id: dto.fleetId },
       });
+      if (!fleet) {
+        throw new BadRequestException(`Fleet not found: ${dto.fleetId}`);
+      }
+      if (fleet.workspaceId !== workspace.id) {
+        throw new BadRequestException(`Fleet does not belong to this workspace`);
+      }
+    } else {
+      fleet = await prisma.fleet.findFirst({
+        where: { workspaceId: workspace.id },
+        orderBy: { createdAt: "asc" },
+      });
+      if (!fleet) {
+        fleet = await prisma.fleet.create({
+          data: {
+            workspaceId: workspace.id,
+            name: "Default Fleet",
+            environment: env as "dev" | "staging" | "prod",
+            status: "ACTIVE",
+          },
+        });
+      }
     }
 
     // 4. Generate config from template

@@ -3,7 +3,8 @@ import { IsString, IsOptional, IsObject, IsArray, IsNumber } from "class-validat
 
 export class CreateFleetDto {
   @IsString()
-  workspaceId: string;
+  @IsOptional()
+  workspaceId?: string;
 
   @IsString()
   name: string;
@@ -18,11 +19,6 @@ export class CreateFleetDto {
   @IsObject()
   @IsOptional()
   tags?: Record<string, string>;
-
-  @IsArray()
-  @IsString({ each: true })
-  @IsOptional()
-  privateSubnetIds?: string[];
 
   @IsString()
   @IsOptional()
@@ -64,7 +60,8 @@ export class UpdateFleetStatusDto {
 
 export class ListFleetsQueryDto {
   @IsString()
-  workspaceId: string;
+  @IsOptional()
+  workspaceId?: string;
 
   @IsString()
   @IsOptional()
@@ -73,4 +70,9 @@ export class ListFleetsQueryDto {
   @IsString()
   @IsOptional()
   status?: string;
+}
+
+export class PromoteFleetDto {
+  @IsString()
+  targetEnvironment: string;
 }
