@@ -62,6 +62,8 @@ export function DeployWizard({ isFirstTime }: DeployWizardProps) {
       case 0: {
         if (!selectedPlatform) return false;
         if (selectedPlatform === "aws") {
+          // Either saved credential or manual entry
+          if (awsConfig.savedCredentialId) return true;
           return !!awsConfig.accessKeyId && !!awsConfig.secretAccessKey && !!awsConfig.region;
         }
         return true;
@@ -100,11 +102,45 @@ export function DeployWizard({ isFirstTime }: DeployWizardProps) {
     setDeploying(true);
     setError(null);
     try {
+      // Save credentials for future use if requested
+      if (selectedPlatform === "aws" && awsConfig.saveForFuture?.save && awsConfig.saveForFuture.name) {
+        try {
+          await api.saveCredential({
+            name: awsConfig.saveForFuture.name,
+            type: "aws-account",
+            credentials: {
+              accessKeyId: awsConfig.accessKeyId,
+              secretAccessKey: awsConfig.secretAccessKey,
+              region: awsConfig.region,
+            },
+          });
+        } catch {
+          // Save failure should not block deployment
+        }
+      }
+
+      if (modelConfig?.saveForFuture?.save && modelConfig.saveForFuture.name && modelConfig.apiKey) {
+        try {
+          await api.saveCredential({
+            name: modelConfig.saveForFuture.name,
+            type: "api-key",
+            credentials: {
+              provider: modelConfig.provider,
+              apiKey: modelConfig.apiKey,
+            },
+          });
+        } catch {
+          // Save failure should not block deployment
+        }
+      }
+
       const result = await api.deployOnboarding({
         botName: botName.trim(),
         deploymentTarget: selectedPlatform === "aws"
           ? { type: "ecs-fargate", ...awsConfig }
           : { type: selectedPlatform },
+        ...(awsConfig.savedCredentialId ? { awsCredentialId: awsConfig.savedCredentialId } : {}),
+        ...(modelConfig?.savedCredentialId ? { modelCredentialId: modelConfig.savedCredentialId } : {}),
         channels: channelConfigs.filter((ch) => ch.config.enabled !== false).length > 0
           ? channelConfigs
               .filter((ch) => ch.config.enabled !== false)

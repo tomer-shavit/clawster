@@ -139,6 +139,14 @@ export class OnboardingDeployDto {
   @IsString()
   fleetId?: string;
 
+  @IsOptional()
+  @IsString()
+  awsCredentialId?: string;
+
+  @IsOptional()
+  @IsString()
+  modelCredentialId?: string;
+
   @ValidateNested()
   @Type(() => DeploymentTargetDto)
   deploymentTarget: DeploymentTargetDto;
