@@ -1,0 +1,19 @@
+ARG BASE_IMAGE=openclaw:local
+FROM ${BASE_IMAGE}
+
+USER root
+
+# Install Docker CLI (not the daemon — only the client for sandbox containers).
+# The daemon runs on the host; we mount /var/run/docker.sock at runtime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# Entrypoint wrapper: fix Docker socket permissions, then exec as node user.
+# The mounted socket may have any GID from the host, so we chmod it at startup.
+# Note: COPY --chmod requires BuildKit which may not be available; use RUN chmod instead.
+COPY entrypoint-sandbox.sh /usr/local/bin/entrypoint-sandbox.sh
+RUN chmod 755 /usr/local/bin/entrypoint-sandbox.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-sandbox.sh"]
+CMD ["openclaw", "gateway", "--port", "18789", "--allow-unconfigured"]
