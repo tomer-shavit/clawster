@@ -6,12 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Brain, Key, ArrowRight, Info } from "lucide-react";
+import { Brain, Key, ArrowRight, Info, CheckCircle } from "lucide-react";
+import { SavedCredentialSelector } from "./saved-credential-selector";
+import { SaveCredentialCheckbox } from "./save-credential-checkbox";
 
 export interface ModelConfig {
   provider: string;
   model: string;
   apiKey: string;
+  savedCredentialId?: string;
+  saveForFuture?: { save: boolean; name: string };
 }
 
 export const PROVIDERS = [
@@ -82,6 +86,7 @@ export function StepModel({
   onSkip,
 }: StepModelProps) {
   const selectedProvider = PROVIDERS.find((p) => p.id === modelConfig?.provider) ?? null;
+  const [useManual, setUseManual] = useState(!modelConfig?.savedCredentialId);
 
   function handleProviderSelect(providerId: string) {
     const provider = PROVIDERS.find((p) => p.id === providerId);
@@ -152,6 +157,25 @@ export function StepModel({
       </div>
 
       {selectedProvider && (
+        <SavedCredentialSelector
+          type="api-key"
+          selectedId={modelConfig?.savedCredentialId ?? null}
+          onSelect={(id) => {
+            if (modelConfig) {
+              onModelConfigChange({ ...modelConfig, savedCredentialId: id });
+            }
+            setUseManual(false);
+          }}
+          onManual={() => {
+            if (modelConfig) {
+              onModelConfigChange({ ...modelConfig, savedCredentialId: undefined });
+            }
+            setUseManual(true);
+          }}
+        />
+      )}
+
+      {selectedProvider && (
         <div className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Model</label>
@@ -167,23 +191,41 @@ export function StepModel({
             </Select>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium flex items-center gap-1.5">
-              <Key className="w-3.5 h-3.5" />
-              API Key
-            </label>
-            <Input
-              type="password"
-              placeholder={selectedProvider.placeholder}
-              value={modelConfig?.apiKey ?? ""}
-              onChange={(e) => handleApiKeyChange(e.target.value)}
-            />
-          </div>
+          {useManual ? (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5" />
+                  API Key
+                </label>
+                <Input
+                  type="password"
+                  placeholder={selectedProvider.placeholder}
+                  value={modelConfig?.apiKey ?? ""}
+                  onChange={(e) => handleApiKeyChange(e.target.value)}
+                />
+              </div>
 
-          <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md p-3">
-            <Info className="w-4 h-4 mt-0.5 shrink-0" />
-            <p>Your API key is stored securely and passed directly to the OpenClaw container.</p>
-          </div>
+              <SaveCredentialCheckbox
+                value={modelConfig?.saveForFuture ?? { save: false, name: "" }}
+                onChange={(val) => {
+                  if (modelConfig) {
+                    onModelConfigChange({ ...modelConfig, saveForFuture: val });
+                  }
+                }}
+              />
+
+              <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md p-3">
+                <Info className="w-4 h-4 mt-0.5 shrink-0" />
+                <p>Your API key is stored securely and passed directly to the OpenClaw container.</p>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md p-3">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              <span>Using saved API key credentials.</span>
+            </div>
+          )}
         </div>
       )}
     </div>

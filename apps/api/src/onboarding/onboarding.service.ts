@@ -7,6 +7,7 @@ import {
   getBuiltinTemplate,
 } from "../templates/builtin-templates";
 import { OnboardingPreviewDto, OnboardingDeployDto } from "./onboarding.dto";
+import { CredentialVaultService } from "../connectors/credential-vault.service";
 import { randomBytes } from "crypto";
 import * as os from "os";
 import * as path from "path";
@@ -18,6 +19,7 @@ export class OnboardingService {
   constructor(
     private readonly reconciler: ReconcilerService,
     private readonly configGenerator: ConfigGeneratorService,
+    private readonly credentialVault: CredentialVaultService,
   ) {}
 
   /** Check if any bot instances exist */
@@ -115,6 +117,31 @@ export class OnboardingService {
       workspace = await prisma.workspace.create({
         data: { name: "Default Workspace", slug: "default" },
       });
+    }
+
+    // Resolve saved AWS credentials if provided
+    if (dto.awsCredentialId) {
+      const awsCreds = await this.credentialVault.resolve(dto.awsCredentialId, userId, workspace.id);
+      if (!dto.deploymentTarget) {
+        dto.deploymentTarget = { type: "ecs-fargate" } as any;
+      }
+      dto.deploymentTarget.accessKeyId = awsCreds.accessKeyId as string;
+      dto.deploymentTarget.secretAccessKey = awsCreds.secretAccessKey as string;
+      dto.deploymentTarget.region = (awsCreds.region as string) || dto.deploymentTarget.region;
+      this.logger.debug(`Resolved saved AWS credential for deploy`);
+    }
+
+    // Resolve saved model API key if provided
+    if (dto.modelCredentialId) {
+      const modelCreds = await this.credentialVault.resolve(dto.modelCredentialId, userId, workspace.id);
+      if (!dto.modelConfig) {
+        dto.modelConfig = { provider: modelCreds.provider as string, model: "", apiKey: "" } as any;
+      }
+      dto.modelConfig.apiKey = modelCreds.apiKey as string;
+      if (modelCreds.provider) {
+        dto.modelConfig.provider = modelCreds.provider as string;
+      }
+      this.logger.debug(`Resolved saved model credential for deploy`);
     }
 
     // 2b. Check for duplicate bot name

@@ -926,6 +926,8 @@ class ApiClient {
     environment?: string;
     modelConfig?: { provider: string; model: string; apiKey: string };
     fleetId?: string;
+    awsCredentialId?: string;
+    modelCredentialId?: string;
   }): Promise<{ instanceId: string; fleetId: string; status: string }> {
     return this.fetch('/onboarding/deploy', {
       method: 'POST',
@@ -952,6 +954,32 @@ class ApiClient {
     steps: Array<{ name: string; status: string }>;
   }> {
     return this.fetch(`/onboarding/deploy/${instanceId}/status`);
+  }
+
+  // ============================================
+  // Credential Vault
+  // ============================================
+
+  async saveCredential(data: {
+    name: string;
+    type: 'aws-account' | 'api-key';
+    credentials: Record<string, unknown>;
+  }): Promise<{ id: string; name: string; type: string; maskedConfig: Record<string, string>; createdAt: string }> {
+    return this.fetch('/credential-vault', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listSavedCredentials(type?: string): Promise<Array<{ id: string; name: string; type: string; maskedConfig: Record<string, string>; createdAt: string }>> {
+    const params = new URLSearchParams();
+    if (type) params.set('type', type);
+    const qs = params.toString();
+    return this.fetch(`/credential-vault${qs ? `?${qs}` : ''}`);
+  }
+
+  async deleteSavedCredential(id: string): Promise<void> {
+    return this.fetch(`/credential-vault/${id}`, { method: 'DELETE' });
   }
 
   async getProvisioningStatus(instanceId: string): Promise<{
