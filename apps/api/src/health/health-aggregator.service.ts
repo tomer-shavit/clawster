@@ -212,7 +212,7 @@ export class HealthAggregatorService {
     for (const snap of latestSnapshots) {
       if (!snap?.data) continue;
       const healthData = JSON.parse(snap.data as string) as GatewayHealthSnapshot;
-      if (!healthData.channels) continue;
+      if (!Array.isArray(healthData.channels)) continue;
 
       for (const ch of healthData.channels) {
         const key = `${ch.type}:${ch.name}`;

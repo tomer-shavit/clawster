@@ -29,10 +29,6 @@ export default async function FleetsPage() {
             Manage your bot fleets
           </p>
         </div>
-        <Button>
-          <Layers className="w-4 h-4 mr-2" />
-          New Fleet
-        </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -42,8 +38,8 @@ export default async function FleetsPage() {
               <EmptyState
                 icon={Layers}
                 title="No fleets yet"
-                description="Fleets let you group and manage bots together. Create one to organize your agents."
-                action={{ label: "Create a Fleet", href: "/fleets/new" }}
+                description="Fleets let you group and manage bots together. Deploy a bot to get started."
+                action={{ label: "Deploy a Bot", href: "/bots/new" }}
               />
             </CardContent>
           </Card>

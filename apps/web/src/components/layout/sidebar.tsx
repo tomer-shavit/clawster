@@ -10,8 +10,6 @@ import {
   Activity,
   History,
   Layers,
-  Shield,
-  Plug,
   ChevronDown,
   Menu,
   X,
@@ -52,15 +50,12 @@ const allNavItems: NavItem[] = [
     icon: <Settings className="w-4 h-4" />,
     children: [
       { label: "Profiles", href: "/profiles" },
-      { label: "Overlays", href: "/overlays" },
       { label: "Templates", href: "/templates" },
     ]
   },
   { label: "Traces", href: "/traces", icon: <Activity className="w-4 h-4" /> },
   { label: "Change Sets", href: "/changesets", icon: <FileText className="w-4 h-4" /> },
   { label: "Audit Log", href: "/audit", icon: <History className="w-4 h-4" /> },
-  { label: "Policies", href: "/policies", icon: <Shield className="w-4 h-4" /> },
-  { label: "Connectors", href: "/connectors", icon: <Plug className="w-4 h-4" /> },
 ];
 
 

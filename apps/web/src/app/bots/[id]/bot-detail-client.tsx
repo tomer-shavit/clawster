@@ -619,11 +619,11 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
       {/* Header */}
       <div className="mb-6">
         <Link
-          href={bot.fleetId ? `/fleets/${bot.fleetId}` : "/"}
+          href="/bots"
           className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to Fleet
+          Back to Bots
         </Link>
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
