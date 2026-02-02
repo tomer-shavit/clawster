@@ -44,7 +44,7 @@ export function generateSimpleTemplate(
         `npm install -g openclaw@latest`,
         `mkdir -p ~/.openclaw`,
         `if [ -n "$OPENCLAW_CONFIG" ]; then printenv OPENCLAW_CONFIG > ~/.openclaw/openclaw.json; fi`,
-        `chmod 666 /var/run/docker.sock 2>/dev/null || true`,
+        `chmod 660 /var/run/docker.sock 2>/dev/null || true`,
         `exec openclaw gateway --port ${gatewayPort} --allow-unconfigured`,
       ].join(" && ")]
     : undefined;
@@ -344,7 +344,7 @@ export function generateSimpleTemplate(
           Family: { "Fn::Sub": `clawster-${botName}` },
           Cpu: String(cpu),
           Memory: String(memory),
-          NetworkMode: "awsvpc",
+          NetworkMode: "bridge",
           RequiresCompatibilities: ["EC2"],
           ExecutionRoleArn: { "Fn::GetAtt": ["TaskExecutionRole", "Arn"] },
           TaskRoleArn: { "Fn::GetAtt": ["TaskRole", "Arn"] },
@@ -423,13 +423,6 @@ export function generateSimpleTemplate(
               Weight: 1,
             },
           ],
-          NetworkConfiguration: {
-            AwsvpcConfiguration: {
-              Subnets: { Ref: "SubnetIds" },
-              SecurityGroups: [{ Ref: "SecurityGroup" }],
-              AssignPublicIp: "ENABLED",
-            },
-          },
           Tags: [tag],
         },
       },
