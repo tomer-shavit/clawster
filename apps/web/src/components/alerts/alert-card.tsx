@@ -81,9 +81,12 @@ function statusBadgeVariant(
 interface AlertCardProps {
   alert: HealthAlert;
   onUpdate?: () => void;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
-export function AlertCard({ alert, onUpdate }: AlertCardProps) {
+export function AlertCard({ alert, onUpdate, selectable, selected, onToggleSelect }: AlertCardProps) {
   const [loading, setLoading] = useState<string | null>(null);
 
   const handleAction = async (
@@ -114,10 +117,18 @@ export function AlertCard({ alert, onUpdate }: AlertCardProps) {
   };
 
   return (
-    <Card className="hover:shadow-md transition-shadow">
+    <Card className={`hover:shadow-md transition-shadow ${selected ? "ring-2 ring-primary" : ""}`}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
+            {selectable && (
+              <input
+                type="checkbox"
+                checked={selected ?? false}
+                onChange={() => onToggleSelect?.(alert.id)}
+                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+              />
+            )}
             <span
               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${severityColor(alert.severity)}`}
             >
