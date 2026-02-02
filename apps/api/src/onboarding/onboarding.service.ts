@@ -266,6 +266,7 @@ export class OnboardingService {
             secretAccessKey: dto.deploymentTarget?.secretAccessKey,
             tier: dto.deploymentTarget?.tier || "simple",
             certificateArn: dto.deploymentTarget?.certificateArn,
+            allowedCidr: dto.deploymentTarget?.allowedCidr,
           }
         : {
             containerName:

@@ -56,6 +56,14 @@ class DeploymentTargetDto {
 
   @IsOptional()
   @IsString()
+  @Matches(/^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/, {
+    message:
+      "allowedCidr must be a valid CIDR block (e.g., 203.0.113.0/24)",
+  })
+  allowedCidr?: string;
+
+  @IsOptional()
+  @IsString()
   containerName?: string;
 
   @IsOptional()
