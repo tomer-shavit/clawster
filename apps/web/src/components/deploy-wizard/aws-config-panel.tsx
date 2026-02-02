@@ -8,6 +8,8 @@ import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { CheckCircle, XCircle, Loader2, DollarSign, Shield } from "lucide-react";
 import { api } from "@/lib/api";
+import { SavedCredentialSelector } from "./saved-credential-selector";
+import { SaveCredentialCheckbox } from "./save-credential-checkbox";
 
 export interface AwsConfig {
   accessKeyId: string;
@@ -15,6 +17,8 @@ export interface AwsConfig {
   region: string;
   tier: "simple" | "production";
   certificateArn?: string;
+  savedCredentialId?: string;
+  saveForFuture?: { save: boolean; name: string };
 }
 
 interface AwsConfigPanelProps {
@@ -55,6 +59,7 @@ export function AwsConfigPanel({ config, onChange }: AwsConfigPanelProps) {
     accountId?: string;
     error?: string;
   } | null>(null);
+  const [useManual, setUseManual] = useState(!config.savedCredentialId);
 
   const update = (partial: Partial<AwsConfig>) => {
     onChange({ ...config, ...partial });
@@ -86,42 +91,103 @@ export function AwsConfigPanel({ config, onChange }: AwsConfigPanelProps) {
 
   return (
     <div className="mt-6 space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <label htmlFor="aws-access-key" className="text-sm font-medium">AWS Access Key ID</label>
-          <Input
-            id="aws-access-key"
-            placeholder="AKIA..."
-            value={config.accessKeyId}
-            onChange={(e) => update({ accessKeyId: e.target.value })}
-          />
-        </div>
-        <div className="space-y-2">
-          <label htmlFor="aws-secret-key" className="text-sm font-medium">AWS Secret Access Key</label>
-          <Input
-            id="aws-secret-key"
-            type="password"
-            placeholder="Secret access key"
-            value={config.secretAccessKey}
-            onChange={(e) => update({ secretAccessKey: e.target.value })}
-          />
-        </div>
-      </div>
+      <SavedCredentialSelector
+        type="aws-account"
+        selectedId={config.savedCredentialId ?? null}
+        onSelect={(id) => {
+          onChange({ ...config, savedCredentialId: id });
+          setUseManual(false);
+          setValidationResult(null);
+        }}
+        onManual={() => {
+          onChange({ ...config, savedCredentialId: undefined });
+          setUseManual(true);
+        }}
+      />
 
-      <div className="space-y-2">
-        <label htmlFor="aws-region" className="text-sm font-medium">Region</label>
-        <Select
-          id="aws-region"
-          value={config.region}
-          onChange={(e) => update({ region: e.target.value })}
-        >
-          {REGIONS.map((region) => (
-            <option key={region.value} value={region.value}>
-              {region.label}
-            </option>
-          ))}
-        </Select>
-      </div>
+      {useManual && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label htmlFor="aws-access-key" className="text-sm font-medium">AWS Access Key ID</label>
+              <Input
+                id="aws-access-key"
+                placeholder="AKIA..."
+                value={config.accessKeyId}
+                onChange={(e) => update({ accessKeyId: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="aws-secret-key" className="text-sm font-medium">AWS Secret Access Key</label>
+              <Input
+                id="aws-secret-key"
+                type="password"
+                placeholder="Secret access key"
+                value={config.secretAccessKey}
+                onChange={(e) => update({ secretAccessKey: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="aws-region" className="text-sm font-medium">Region</label>
+            <Select
+              id="aws-region"
+              value={config.region}
+              onChange={(e) => update({ region: e.target.value })}
+            >
+              {REGIONS.map((region) => (
+                <option key={region.value} value={region.value}>
+                  {region.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              onClick={handleValidate}
+              disabled={validating || !config.accessKeyId || !config.secretAccessKey}
+            >
+              {validating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Validate Credentials
+            </Button>
+
+            {validationResult && (
+              <div className="flex items-center gap-2 text-sm">
+                {validationResult.valid ? (
+                  <>
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                    <span className="text-green-600">
+                      Valid — Account {validationResult.accountId}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-4 h-4 text-red-600" />
+                    <span className="text-red-600">
+                      {validationResult.error || "Invalid credentials"}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          <SaveCredentialCheckbox
+            value={config.saveForFuture ?? { save: false, name: "" }}
+            onChange={(val) => onChange({ ...config, saveForFuture: val })}
+          />
+        </>
+      )}
+
+      {!useManual && config.savedCredentialId && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md p-3">
+          <CheckCircle className="w-4 h-4 text-green-600" />
+          <span>Using saved AWS credentials. Tier and other options remain configurable below.</span>
+        </div>
+      )}
 
       <div className="space-y-2">
         <label className="text-sm font-medium">Deployment Tier</label>
@@ -167,37 +233,6 @@ export function AwsConfigPanel({ config, onChange }: AwsConfigPanelProps) {
           </p>
         </div>
       )}
-
-      <div className="flex items-center gap-4">
-        <Button
-          variant="outline"
-          onClick={handleValidate}
-          disabled={validating || !config.accessKeyId || !config.secretAccessKey}
-        >
-          {validating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-          Validate Credentials
-        </Button>
-
-        {validationResult && (
-          <div className="flex items-center gap-2 text-sm">
-            {validationResult.valid ? (
-              <>
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                <span className="text-green-600">
-                  Valid — Account {validationResult.accountId}
-                </span>
-              </>
-            ) : (
-              <>
-                <XCircle className="w-4 h-4 text-red-600" />
-                <span className="text-red-600">
-                  {validationResult.error || "Invalid credentials"}
-                </span>
-              </>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
