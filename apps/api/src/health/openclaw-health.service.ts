@@ -22,6 +22,13 @@ const CONCURRENCY_LIMIT = 10;
 /** Timeout for a single health poll (ms). */
 const POLL_TIMEOUT_MS = 10_000;
 
+/**
+ * After this many consecutive health-check failures, verify whether the
+ * Docker container still exists and update bot status accordingly.
+ * 5 failures × 30 s poll interval ≈ 2.5 minutes of unreachability.
+ */
+const CONTAINER_CHECK_THRESHOLD = 5;
+
 export interface StoredHealthSnapshot {
   id: string;
   instanceId: string;
@@ -349,7 +356,7 @@ export class OpenClawHealthService {
 
     // Update bot instance
     try {
-      await prisma.botInstance.update({
+      const updated = await prisma.botInstance.update({
         where: { id: instanceId },
         data: {
           health: "UNHEALTHY",
@@ -358,8 +365,66 @@ export class OpenClawHealthService {
           errorCount: { increment: 1 },
         },
       });
+
+      // After enough consecutive failures, check if the container still exists
+      if (
+        updated.errorCount >= CONTAINER_CHECK_THRESHOLD &&
+        updated.status === "RUNNING"
+      ) {
+        await this.verifyContainerExists(updated);
+      }
     } catch {
       // instance may have been deleted
+    }
+  }
+
+  /**
+   * Shell out to `docker inspect` to check whether the container is still
+   * present. If not, transition the bot from RUNNING → STOPPED.
+   */
+  private async verifyContainerExists(
+    instance: { id: string; name: string; errorCount: number },
+  ): Promise<void> {
+    const containerName = `openclaw-${instance.name}`;
+    try {
+      const { execSync } = await import("child_process");
+      const output = execSync(
+        `docker inspect --format "{{.State.Status}}" ${containerName} 2>/dev/null`,
+        { encoding: "utf-8", timeout: 5_000 },
+      ).trim();
+
+      if (output === "running") {
+        this.logger.debug(
+          `Container ${containerName} is running; gateway may be temporarily unreachable`,
+        );
+        return;
+      }
+
+      // Container exists but is not running
+      this.logger.warn(
+        `Container ${containerName} state is "${output}" — marking instance ${instance.id} as STOPPED`,
+      );
+      await prisma.botInstance.update({
+        where: { id: instance.id },
+        data: {
+          status: "STOPPED",
+          runningSince: null,
+          lastError: `Container is ${output}`,
+        },
+      });
+    } catch {
+      // docker inspect failed — container doesn't exist
+      this.logger.warn(
+        `Container ${containerName} not found after ${instance.errorCount} health failures — marking instance ${instance.id} as STOPPED`,
+      );
+      await prisma.botInstance.update({
+        where: { id: instance.id },
+        data: {
+          status: "STOPPED",
+          runningSince: null,
+          lastError: "Container no longer running",
+        },
+      });
     }
   }
 }

@@ -30,7 +30,7 @@ Please note that this project follows a [Code of Conduct](CODE_OF_CONDUCT.md). B
 
 - **Node.js** 18+
 - **pnpm** 8.15+ (`npm install -g pnpm`)
-- **Docker & Docker Compose** (for PostgreSQL and Redis)
+- **Docker** (optional, for OpenClaw Gateway deployment)
 
 ### Getting Started
 
@@ -39,7 +39,7 @@ git clone https://github.com/tomer-shavit/clawster.git
 cd clawster
 pnpm install
 cp .env.example .env
-pnpm dev:setup    # Starts PostgreSQL + Redis, runs migrations
+pnpm dev:setup    # Initializes SQLite database, runs migrations
 pnpm dev          # Starts API (port 4000) and Web UI (port 3000)
 ```
 
@@ -52,7 +52,7 @@ clawster/
 │   └── web/              # Next.js frontend (port 3000)
 ├── packages/
 │   ├── core/             # Zod schemas, shared types, PolicyEngine
-│   ├── database/         # Prisma schema + PostgreSQL client
+│   ├── database/         # Prisma schema + SQLite client
 │   ├── adapters-aws/     # AWS SDK integrations
 │   ├── cloud-providers/  # Deployment provider abstractions
 │   ├── gateway-client/   # OpenClaw Gateway client library

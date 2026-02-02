@@ -3,6 +3,7 @@ import { Cron, CronExpression } from "@nestjs/schedule";
 import { prisma } from "@clawster/database";
 import { DriftDetectionService } from "./drift-detection.service";
 import { ReconcilerService } from "./reconciler.service";
+import { LifecycleManagerService } from "./lifecycle-manager.service";
 
 @Injectable()
 export class ReconcilerScheduler {
@@ -11,6 +12,7 @@ export class ReconcilerScheduler {
   constructor(
     private readonly driftDetection: DriftDetectionService,
     private readonly reconciler: ReconcilerService,
+    private readonly lifecycleManager: LifecycleManagerService,
   ) {}
 
   /**
@@ -114,6 +116,67 @@ export class ReconcilerScheduler {
       }
     } catch (error) {
       this.logger.error(`Pending instance check failed: ${error}`);
+    }
+  }
+
+  /**
+   * Detect orphaned "RUNNING" instances whose containers no longer exist.
+   * Safety net that catches anything the health poller missed.
+   * Runs every 5 minutes, only checks instances with 10+ consecutive errors.
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async checkOrphanedRunningInstances(): Promise<void> {
+    try {
+      const orphanCandidates = await prisma.botInstance.findMany({
+        where: {
+          status: "RUNNING",
+          errorCount: { gte: 10 },
+        },
+      });
+
+      if (orphanCandidates.length === 0) return;
+
+      this.logger.debug(
+        `Checking ${orphanCandidates.length} potentially orphaned RUNNING instances`,
+      );
+
+      for (const instance of orphanCandidates) {
+        try {
+          const status = await this.lifecycleManager.getStatus(instance);
+
+          if (status.infraState === "not-installed") {
+            this.logger.warn(
+              `Instance ${instance.id} (${instance.name}) container not found — marking as STOPPED`,
+            );
+            await prisma.botInstance.update({
+              where: { id: instance.id },
+              data: {
+                status: "STOPPED",
+                runningSince: null,
+                lastError: "Container no longer running",
+              },
+            });
+          } else if (status.infraState === "error") {
+            this.logger.warn(
+              `Instance ${instance.id} (${instance.name}) container in error state — marking as ERROR`,
+            );
+            await prisma.botInstance.update({
+              where: { id: instance.id },
+              data: {
+                status: "ERROR",
+                runningSince: null,
+                lastError: "Container in error state",
+              },
+            });
+          }
+        } catch (err) {
+          this.logger.error(
+            `Failed to check orphaned instance ${instance.id}: ${err}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Orphaned instance check failed: ${error}`);
     }
   }
 

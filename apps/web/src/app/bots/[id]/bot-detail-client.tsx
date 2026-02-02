@@ -1110,7 +1110,7 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
 
         {/* Dashboard Tab */}
         <TabsContent active={activeTab === "dashboard"} className="mt-6">
-          {bot.status === "RUNNING" ? (() => {
+          {bot.status === "RUNNING" && bot.health !== "UNHEALTHY" ? (() => {
             const gatewayPort = bot.gatewayPort || 18789;
             const gatewayConfig = openclawConfig?.gateway as Record<string, unknown> | undefined;
             const gatewayAuth = gatewayConfig?.auth as Record<string, unknown> | undefined;
@@ -1153,8 +1153,24 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
             );
           })() : (
             <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                Bot must be running to access the OpenClaw Dashboard.
+              <CardContent className="py-12 text-center">
+                {bot.status === "RUNNING" && bot.health === "UNHEALTHY" ? (
+                  <div className="space-y-3">
+                    <AlertCircle className="w-10 h-10 mx-auto text-amber-500" />
+                    <p className="font-medium">Gateway Unreachable</p>
+                    <p className="text-sm text-muted-foreground">
+                      The bot&apos;s gateway is not responding.
+                      {bot.errorCount > 0 && ` (${bot.errorCount} consecutive errors)`}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Check if the Docker container is still running, or try clicking <strong>Reconcile</strong> above.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">
+                    Bot must be running and healthy to access the OpenClaw Dashboard.
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}

@@ -17,7 +17,7 @@ clawster/
 │   └── web/                  # Next.js 14 frontend (port 3000)
 ├── packages/
 │   ├── core/                 # Zod schemas, types, PolicyEngine, state-sync, AI gateway
-│   ├── database/             # Prisma 5.8.1 + PostgreSQL, 40+ models
+│   ├── database/             # Prisma 5.8.1 + SQLite, 40+ models
 │   ├── adapters-aws/         # ECS, Secrets Manager, CloudWatch, Token Rotation
 │   ├── cloud-providers/      # 6 providers + 7 deployment targets
 │   ├── gateway-client/       # WebSocket-based OpenClaw Gateway protocol client
@@ -285,7 +285,7 @@ dashboard, bot-flow, fleet-flow, multi-bot-flow, onboarding-flow, alerts-flow, c
 
 ## Infrastructure
 
-- Docker Compose: PostgreSQL 16 + Redis 7
+- Docker Compose: SQLite (embedded, no container needed)
 - Terraform: VPC, ALB, ECS Cluster, RDS, ElastiCache, IAM, S3
 - CI/CD: GitHub Actions (CI, Build, Release, Docker)
 - Multi-stage Docker builds with non-root users

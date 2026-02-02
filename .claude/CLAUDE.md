@@ -171,7 +171,7 @@ clawster/
 │   └── web/          # Next.js frontend (port 3000)
 ├── packages/
 │   ├── core/         # Zod schemas, types, PolicyEngine
-│   ├── database/     # Prisma + PostgreSQL
+│   ├── database/     # Prisma + SQLite
 │   ├── adapters-aws/ # AWS SDK integrations
 │   ├── cloud-providers/ # Deployment providers
 │   └── cli/          # CLI tool
@@ -181,7 +181,7 @@ clawster/
 
 ## Tech Stack
 
-- **Backend**: NestJS 10.3, TypeScript, Prisma 5.8, PostgreSQL
+- **Backend**: NestJS 10.3, TypeScript, Prisma 5.8, SQLite
 - **Frontend**: Next.js 14, Tailwind CSS, shadcn/ui, Recharts
 - **Schemas**: Zod for validation
 - **Monorepo**: pnpm + Turborepo

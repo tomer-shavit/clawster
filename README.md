@@ -69,7 +69,7 @@ Open-source, self-hosted control plane for managing fleets of OpenClaw instances
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Web UI    │────▶│  NestJS API │────▶│  PostgreSQL │
+│   Web UI    │────▶│  NestJS API │────▶│   SQLite    │
 │  (Next.js)  │     │             │     │   (Prisma)  │
 │  + React    │     │             │     │             │
 └─────────────┘     └──────┬──────┘     └─────────────┘
@@ -94,7 +94,7 @@ Open-source, self-hosted control plane for managing fleets of OpenClaw instances
 | `@clawster/api` | NestJS REST API -- fleet management, reconciler, audit, traces |
 | `@clawster/web` | Next.js dashboard -- health views, config management, trace viewer |
 | `@clawster/core` | Shared Zod schemas, TypeScript types, Policy Engine |
-| `@clawster/database` | Prisma schema and PostgreSQL client |
+| `@clawster/database` | Prisma schema and SQLite client |
 | `@clawster/adapters-aws` | AWS ECS, Secrets Manager, CloudWatch integrations |
 | `@clawster/cloud-providers` | Multi-cloud deployment providers |
 | `@clawster/gateway-client` | OpenClaw Gateway WebSocket client |
@@ -117,18 +117,11 @@ cd clawster
 pnpm install
 ```
 
-### 2. Start Database (Required)
+### 2. Initialize Database
 
-The Web UI requires the API, and the API requires PostgreSQL:
+The project uses SQLite (no Docker required):
 
 ```bash
-# Start PostgreSQL in Docker
-pnpm dev:setup
-```
-
-Or manually:
-```bash
-docker-compose up -d postgres
 pnpm db:generate
 pnpm db:push
 ```
@@ -308,7 +301,7 @@ clawster/
 
 ```bash
 # Database
-DATABASE_URL=postgresql://user:pass@localhost:5432/clawster
+DATABASE_URL=file:./dev.db
 
 # AWS
 AWS_REGION=us-east-1
@@ -333,7 +326,7 @@ NEXT_PUBLIC_API_URL=http://localhost:4000
 
 ### Backend
 - **Framework**: NestJS (Node.js)
-- **Database**: PostgreSQL with Prisma ORM
+- **Database**: SQLite with Prisma ORM
 - **API**: REST with OpenAPI/Swagger docs
 - **Scheduling**: Built-in cron for reconciliation
 
