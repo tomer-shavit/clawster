@@ -13,6 +13,7 @@ import { api, type AlertSummary, type HealthAlert } from "@/lib/api";
 import { AlertTriangle, Bell, CheckCircle, ShieldAlert } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AlertsList } from "./alerts-list";
+import { BudgetManagementSection } from "./budget-management-section";
 
 // ---------------------------------------------------------------------------
 // Server-side data fetching
@@ -152,6 +153,11 @@ export default async function AlertsPage({
 
       {/* Summary Cards */}
       <SummaryCards summary={summary} />
+
+      {/* Budget Management */}
+      <div className="mb-6">
+        <BudgetManagementSection />
+      </div>
 
       {/* Empty state when no alerts */}
       {alertsResult.total === 0 && (summary?.total ?? 0) === 0 ? (
