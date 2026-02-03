@@ -462,17 +462,17 @@ export class LifecycleManagerService {
    */
   private resolveDeploymentType(instance: BotInstance): string {
     const typeStr = instance.deploymentType ?? "LOCAL";
-    const typeMap: Record<string, string> = { LOCAL: "local", DOCKER: "docker", KUBERNETES: "kubernetes", ECS_EC2: "ecs-ec2", CLOUDFLARE_WORKERS: "cloudflare-workers" };
+    const typeMap: Record<string, string> = { LOCAL: "local", DOCKER: "docker", KUBERNETES: "kubernetes", ECS_EC2: "ecs-ec2", ACI: "aci", CLOUDFLARE_WORKERS: "cloudflare-workers" };
     return typeMap[typeStr] ?? "docker";
   }
 
   private getInstallStepId(deploymentType: string): string {
-    const stepMap: Record<string, string> = { docker: "build_image", local: "install_openclaw", kubernetes: "generate_manifests", "ecs-ec2": "create_task_definition", "cloudflare-workers": "generate_wrangler_config" };
+    const stepMap: Record<string, string> = { docker: "build_image", local: "install_openclaw", kubernetes: "generate_manifests", "ecs-ec2": "create_task_definition", aci: "create_container_group", "cloudflare-workers": "generate_wrangler_config" };
     return stepMap[deploymentType] ?? "build_image";
   }
 
   private getStartStepId(deploymentType: string): string {
-    const stepMap: Record<string, string> = { docker: "start_container", local: "start_service", kubernetes: "apply_deployment", "ecs-ec2": "create_service", "cloudflare-workers": "deploy_worker" };
+    const stepMap: Record<string, string> = { docker: "start_container", local: "start_service", kubernetes: "apply_deployment", "ecs-ec2": "create_service", aci: "start_container_group", "cloudflare-workers": "deploy_worker" };
     return stepMap[deploymentType] ?? "start_container";
   }
 
@@ -517,8 +517,25 @@ export class LifecycleManagerService {
           region: (instanceMeta?.region as string) ?? (instanceMeta?.awsRegion as string) ?? "us-east-1",
           accessKeyId: (instanceMeta?.accessKeyId as string) ?? (instanceMeta?.awsAccessKeyId as string) ?? "",
           secretAccessKey: (instanceMeta?.secretAccessKey as string) ?? (instanceMeta?.awsSecretAccessKey as string) ?? "",
-          tier: (instanceMeta?.tier as "simple" | "production") ?? "simple",
           certificateArn: instanceMeta?.certificateArn as string | undefined,
+          cpu: instanceMeta?.cpu as number | undefined,
+          memory: instanceMeta?.memory as number | undefined,
+          image: instanceMeta?.image as string | undefined,
+          profileName: instance.profileName ?? instance.name,
+        },
+      },
+      ACI: {
+        type: "aci",
+        aci: {
+          subscriptionId: (instanceMeta?.subscriptionId as string) ?? (instanceMeta?.azureSubscriptionId as string) ?? "",
+          resourceGroup: (instanceMeta?.resourceGroup as string) ?? (instanceMeta?.azureResourceGroup as string) ?? "",
+          region: (instanceMeta?.region as string) ?? (instanceMeta?.azureRegion as string) ?? "eastus",
+          clientId: instanceMeta?.clientId as string | undefined,
+          clientSecret: instanceMeta?.clientSecret as string | undefined,
+          tenantId: instanceMeta?.tenantId as string | undefined,
+          keyVaultName: instanceMeta?.keyVaultName as string | undefined,
+          logAnalyticsWorkspaceId: instanceMeta?.logAnalyticsWorkspaceId as string | undefined,
+          logAnalyticsWorkspaceKey: instanceMeta?.logAnalyticsWorkspaceKey as string | undefined,
           cpu: instanceMeta?.cpu as number | undefined,
           memory: instanceMeta?.memory as number | undefined,
           image: instanceMeta?.image as string | undefined,
@@ -583,8 +600,26 @@ export class LifecycleManagerService {
             region: (cfg.region as string) ?? "us-east-1",
             accessKeyId: (cfg.accessKeyId as string) ?? "",
             secretAccessKey: (cfg.secretAccessKey as string) ?? "",
-            tier: (cfg.tier as "simple" | "production") ?? "simple",
             certificateArn: cfg.certificateArn as string | undefined,
+            cpu: cfg.cpu as number | undefined,
+            memory: cfg.memory as number | undefined,
+            image: cfg.image as string | undefined,
+            profileName: instance?.profileName ?? instance?.name,
+          },
+        };
+      case "ACI":
+        return {
+          type: "aci",
+          aci: {
+            subscriptionId: (cfg.subscriptionId as string) ?? "",
+            resourceGroup: (cfg.resourceGroup as string) ?? "",
+            region: (cfg.region as string) ?? "eastus",
+            clientId: cfg.clientId as string | undefined,
+            clientSecret: cfg.clientSecret as string | undefined,
+            tenantId: cfg.tenantId as string | undefined,
+            keyVaultName: cfg.keyVaultName as string | undefined,
+            logAnalyticsWorkspaceId: cfg.logAnalyticsWorkspaceId as string | undefined,
+            logAnalyticsWorkspaceKey: cfg.logAnalyticsWorkspaceKey as string | undefined,
             cpu: cfg.cpu as number | undefined,
             memory: cfg.memory as number | undefined,
             image: cfg.image as string | undefined,

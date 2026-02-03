@@ -349,6 +349,9 @@ importers:
       '@azure/arm-containerinstance':
         specifier: ^9.1.0
         version: 9.1.0
+      '@azure/arm-network':
+        specifier: ^33.0.0
+        version: 33.5.0
       '@azure/arm-resources':
         specifier: ^5.2.0
         version: 5.2.0
@@ -1839,6 +1842,21 @@ packages:
     engines: {node: '>=14.0.0'}
     dependencies:
       '@azure/abort-controller': 1.1.0
+      '@azure/core-auth': 1.10.1
+      '@azure/core-client': 1.10.1
+      '@azure/core-lro': 2.7.2
+      '@azure/core-paging': 1.6.2
+      '@azure/core-rest-pipeline': 1.22.2
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@azure/arm-network@33.5.0:
+    resolution: {integrity: sha512-wXD34p4/J2kZrkWylabtxLzrea5TK2m9NRwYtBLCvgQXN5NFTQohHgOFhoi/7DgV6w1qaM+qGz9mo5HRxpU70w==}
+    engines: {node: '>=18.0.0'}
+    dependencies:
+      '@azure/abort-controller': 2.1.2
       '@azure/core-auth': 1.10.1
       '@azure/core-client': 1.10.1
       '@azure/core-lro': 2.7.2

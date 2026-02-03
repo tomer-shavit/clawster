@@ -18,9 +18,9 @@ export { KubernetesTarget, KubernetesManifests } from "./targets/kubernetes/kube
 export { EcsEc2Target } from "./targets/ecs-ec2/ecs-ec2-target";
 export type { EcsEc2Config } from "./targets/ecs-ec2/ecs-ec2-config";
 export { pushImageToEcr } from "./targets/ecs-ec2/ecr-push";
+export { AciTarget } from "./targets/aci/aci-target";
+export type { AciConfig } from "./targets/aci/aci-config";
 export type { EcrPushOptions, EcrPushResult } from "./targets/ecs-ec2/ecr-push";
-export { generateSimpleTemplate } from "./targets/ecs-ec2/templates/simple";
-export type { SimpleTemplateParams } from "./targets/ecs-ec2/templates/simple";
 export { generateProductionTemplate } from "./targets/ecs-ec2/templates/production";
 export type { ProductionTemplateParams } from "./targets/ecs-ec2/templates/production";
 export {

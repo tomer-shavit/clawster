@@ -1,6 +1,10 @@
 /**
  * Configuration for AWS ECS EC2 deployment targets.
  *
+ * SECURITY: All deployments use VPC + ALB architecture.
+ * Containers are NEVER exposed directly to the internet.
+ * External access (for webhooks) is handled through the Application Load Balancer.
+ *
  * Provides all settings needed to deploy an OpenClaw gateway instance
  * on AWS ECS with EC2 launch type via CloudFormation.
  * EC2 launch type enables Docker socket mounting for sandbox isolation.
@@ -12,9 +16,7 @@ export interface EcsEc2Config {
   accessKeyId: string;
   /** AWS secret access key for SDK authentication */
   secretAccessKey: string;
-  /** Deployment tier: "simple" (public IP) or "production" (VPC + ALB) */
-  tier: "simple" | "production";
-  /** ACM certificate ARN for HTTPS (production tier only) */
+  /** ACM certificate ARN for HTTPS (recommended for production) */
   certificateArn?: string;
   /** CPU units for the ECS task (default: 1024) */
   cpu?: number;
@@ -24,6 +26,6 @@ export interface EcsEc2Config {
   image?: string;
   /** Bot/profile name — used to derive resource names on re-instantiation */
   profileName?: string;
-  /** CIDR block for security group ingress (e.g. "203.0.113.0/24"). Defaults to "0.0.0.0/0" */
-  allowedCidr?: string;
+  /** CIDR blocks for ALB security group ingress. Defaults to ["0.0.0.0/0"] for webhook access */
+  allowedCidr?: string[];
 }

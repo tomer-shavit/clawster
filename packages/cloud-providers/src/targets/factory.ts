@@ -8,6 +8,7 @@ import { RemoteVMTarget } from "./remote-vm/remote-vm-target";
 import { DockerContainerTarget } from "./docker/docker-target";
 import { KubernetesTarget } from "./kubernetes/kubernetes-target";
 import { EcsEc2Target } from "./ecs-ec2/ecs-ec2-target";
+import { AciTarget } from "./aci/aci-target";
 import { CloudflareWorkersTarget } from "./cloudflare-workers/cloudflare-workers-target";
 
 /**
@@ -52,6 +53,12 @@ export class DeploymentTargetFactory {
           throw new Error("ECS EC2 target requires 'ecs' configuration");
         }
         return new EcsEc2Target(config.ecs);
+
+      case "aci":
+        if (!config.aci) {
+          throw new Error("ACI target requires 'aci' configuration");
+        }
+        return new AciTarget(config.aci);
 
       case "cloudflare-workers":
         if (!config.cloudflare) {
@@ -129,8 +136,8 @@ export class DeploymentTargetFactory {
       {
         type: DeploymentTargetType.ACI,
         name: "Azure Container Instances",
-        description: "Deploy on Azure Container Instances",
-        status: "coming_soon",
+        description: "Deploy on Azure Container Instances (serverless containers)",
+        status: "ready",
       },
       {
         type: DeploymentTargetType.CLOUDFLARE_WORKERS,
@@ -151,6 +158,7 @@ export class DeploymentTargetFactory {
       DeploymentTargetType.DOCKER,
       DeploymentTargetType.KUBERNETES,
       DeploymentTargetType.ECS_EC2,
+      DeploymentTargetType.ACI,
       DeploymentTargetType.CLOUDFLARE_WORKERS,
     ].includes(type);
   }

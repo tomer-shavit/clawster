@@ -9,17 +9,7 @@ import {
   ECSClient,
   DescribeServicesCommand,
   UpdateServiceCommand,
-  ListTasksCommand,
-  DescribeTasksCommand,
-  DescribeContainerInstancesCommand,
 } from "@aws-sdk/client-ecs";
-import {
-  EC2Client,
-  DescribeVpcsCommand,
-  DescribeSubnetsCommand,
-  DescribeNetworkInterfacesCommand,
-  DescribeInstancesCommand,
-} from "@aws-sdk/client-ec2";
 import {
   SecretsManagerClient,
   CreateSecretCommand,
@@ -44,7 +34,6 @@ import {
   GatewayEndpoint,
 } from "../../interface/deployment-target";
 import type { EcsEc2Config } from "./ecs-ec2-config";
-import { generateSimpleTemplate } from "./templates/simple";
 import { generateProductionTemplate } from "./templates/production";
 
 
@@ -52,17 +41,17 @@ const DEFAULT_CPU = 1024;
 const DEFAULT_MEMORY = 2048;
 const STACK_POLL_INTERVAL_MS = 10_000;
 const STACK_TIMEOUT_MS = 600_000; // 10 minutes
-const ENDPOINT_POLL_INTERVAL_MS = 10_000;
-const ENDPOINT_TIMEOUT_MS = 300_000; // 5 minutes
 
 /**
  * EcsEc2Target manages an OpenClaw gateway instance running
  * on AWS ECS with EC2 launch type via CloudFormation.
  *
+ * SECURITY: All deployments use VPC + ALB architecture.
+ * Containers are NEVER exposed directly to the internet.
+ * External access (for webhooks from Telegram, WhatsApp, etc.) goes through ALB.
+ *
  * Uses AWS SDK v3 for all cloud operations. EC2 launch type enables
- * Docker socket mounting for sandbox isolation. Simple tier deploys
- * directly into the default VPC; Production tier creates a full
- * VPC with ALB via CloudFormation.
+ * Docker socket mounting for sandbox isolation.
  */
 export class EcsEc2Target implements DeploymentTarget {
   readonly type = DeploymentTargetType.ECS_EC2;
@@ -73,7 +62,6 @@ export class EcsEc2Target implements DeploymentTarget {
 
   private readonly cfnClient: CloudFormationClient;
   private readonly ecsClient: ECSClient;
-  private readonly ec2Client: EC2Client;
   private readonly smClient: SecretsManagerClient;
   private readonly cwlClient: CloudWatchLogsClient;
 
@@ -109,7 +97,6 @@ export class EcsEc2Target implements DeploymentTarget {
 
     this.cfnClient = new CloudFormationClient({ region, credentials });
     this.ecsClient = new ECSClient({ region, credentials });
-    this.ec2Client = new EC2Client({ region, credentials });
     this.smClient = new SecretsManagerClient({ region, credentials });
     this.cwlClient = new CloudWatchLogsClient({ region, credentials });
   }
@@ -135,8 +122,8 @@ export class EcsEc2Target implements DeploymentTarget {
       // 2. Create the config secret in Secrets Manager (empty initially, configure() fills it)
       await this.ensureSecret(this.secretName, "{}");
 
-      // 3. Generate CloudFormation template
-      const templateParams = {
+      // 3. Generate CloudFormation template (always uses secure VPC + ALB architecture)
+      const template = generateProductionTemplate({
         botName: profileName,
         gatewayPort: this.gatewayPort,
         imageUri,
@@ -146,33 +133,10 @@ export class EcsEc2Target implements DeploymentTarget {
         gatewayAuthToken: options.gatewayAuthToken ?? "",
         containerEnv: options.containerEnv ?? {},
         allowedCidr: this.config.allowedCidr,
-      };
+        certificateArn: this.config.certificateArn,
+      });
 
-      const template =
-        this.config.tier === "production"
-          ? generateProductionTemplate({
-              ...templateParams,
-              certificateArn: this.config.certificateArn,
-            })
-          : generateSimpleTemplate(templateParams);
-
-      // 4. For simple tier, look up default VPC and subnets
-      const cfParams: Array<{
-        ParameterKey: string;
-        ParameterValue: string;
-      }> = [];
-      if (this.config.tier === "simple") {
-        const { vpcId, subnetIds } = await this.getDefaultVpcAndSubnets();
-        cfParams.push(
-          { ParameterKey: "VpcId", ParameterValue: vpcId },
-          {
-            ParameterKey: "SubnetIds",
-            ParameterValue: subnetIds.join(","),
-          },
-        );
-      }
-
-      // 5. Deploy CloudFormation stack (create or update if it already exists)
+      // 4. Deploy CloudFormation stack (create or update if it already exists)
       const stackExists = await this.stackExists();
 
       if (stackExists) {
@@ -181,7 +145,6 @@ export class EcsEc2Target implements DeploymentTarget {
             new UpdateStackCommand({
               StackName: this.stackName,
               TemplateBody: JSON.stringify(template),
-              Parameters: cfParams.length > 0 ? cfParams : undefined,
               Capabilities: ["CAPABILITY_NAMED_IAM"],
             }),
           );
@@ -202,7 +165,6 @@ export class EcsEc2Target implements DeploymentTarget {
           new CreateStackCommand({
             StackName: this.stackName,
             TemplateBody: JSON.stringify(template),
-            Parameters: cfParams.length > 0 ? cfParams : undefined,
             Capabilities: ["CAPABILITY_NAMED_IAM"],
             Tags: [{ Key: "clawster:bot", Value: profileName }],
           }),
@@ -213,7 +175,7 @@ export class EcsEc2Target implements DeploymentTarget {
       return {
         success: true,
         instanceId: this.serviceName,
-        message: `ECS Fargate stack "${this.stackName}" created (${this.config.tier} tier)`,
+        message: `ECS EC2 stack "${this.stackName}" created (VPC + ALB, secure)`,
         serviceName: this.serviceName,
       };
     } catch (error) {
@@ -442,122 +404,16 @@ export class EcsEc2Target implements DeploymentTarget {
   // ------------------------------------------------------------------
 
   async getEndpoint(): Promise<GatewayEndpoint> {
-    // For production tier, return the ALB DNS name
-    if (this.config.tier === "production") {
-      const outputs = await this.getStackOutputs();
-      const albDns = outputs["AlbDnsName"];
-      if (!albDns) {
-        throw new Error("ALB DNS name not found in stack outputs");
-      }
-      return {
-        host: albDns,
-        port: this.config.certificateArn ? 443 : 80,
-        protocol: this.config.certificateArn ? "wss" : "ws",
-      };
+    // Always return the ALB DNS name (secure architecture)
+    const outputs = await this.getStackOutputs();
+    const albDns = outputs["AlbDnsName"];
+    if (!albDns) {
+      throw new Error("ALB DNS name not found in stack outputs");
     }
-
-    // For simple tier, poll until a running task has a public IP.
-    // After start() sets desiredCount=1, ECS needs time to schedule the task,
-    // pull the image, and assign a public IP to the ENI.
-    const deadline = Date.now() + ENDPOINT_TIMEOUT_MS;
-    let lastError: string = "No running tasks found for service";
-
-    while (Date.now() < deadline) {
-      try {
-        const resolved = await this.resolveTaskPublicIp();
-        if (resolved) return resolved;
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : String(error);
-      }
-
-      await new Promise((r) => setTimeout(r, ENDPOINT_POLL_INTERVAL_MS));
-    }
-
-    throw new Error(`Failed to resolve ECS Fargate endpoint: ${lastError}`);
-  }
-
-  /**
-   * Single attempt to find a running task's public IP. For EC2 launch type
-   * with bridge network mode, resolves the EC2 instance's public IP.
-   * Returns null if no running task or public IP is available yet.
-   */
-  private async resolveTaskPublicIp(): Promise<GatewayEndpoint | null> {
-    const listResult = await this.ecsClient.send(
-      new ListTasksCommand({
-        cluster: this.clusterName,
-        serviceName: this.serviceName,
-        desiredStatus: "RUNNING",
-      }),
-    );
-
-    const taskArns = listResult.taskArns ?? [];
-    if (taskArns.length === 0) return null;
-
-    const describeResult = await this.ecsClient.send(
-      new DescribeTasksCommand({
-        cluster: this.clusterName,
-        tasks: [taskArns[0]],
-      }),
-    );
-
-    const task = describeResult.tasks?.[0];
-    if (!task) return null;
-
-    // EC2 launch type: resolve the EC2 instance's public IP via container instance
-    if (task.containerInstanceArn) {
-      const ciResult = await this.ecsClient.send(
-        new DescribeContainerInstancesCommand({
-          cluster: this.clusterName,
-          containerInstances: [task.containerInstanceArn],
-        }),
-      );
-
-      const ec2InstanceId = ciResult.containerInstances?.[0]?.ec2InstanceId;
-      if (!ec2InstanceId) return null;
-
-      const instanceResult = await this.ec2Client.send(
-        new DescribeInstancesCommand({
-          InstanceIds: [ec2InstanceId],
-        }),
-      );
-
-      const publicIp =
-        instanceResult.Reservations?.[0]?.Instances?.[0]?.PublicIpAddress;
-
-      if (!publicIp) return null;
-
-      return {
-        host: publicIp,
-        port: this.gatewayPort,
-        protocol: "ws",
-      };
-    }
-
-    // Fallback: awsvpc mode (production tier uses ALB, but just in case)
-    const eniAttachment = task.attachments?.find(
-      (a) => a.type === "ElasticNetworkInterface",
-    );
-    const eniDetail = eniAttachment?.details?.find(
-      (d) => d.name === "networkInterfaceId",
-    );
-
-    if (!eniDetail?.value) return null;
-
-    const eniResult = await this.ec2Client.send(
-      new DescribeNetworkInterfacesCommand({
-        NetworkInterfaceIds: [eniDetail.value],
-      }),
-    );
-
-    const publicIp =
-      eniResult.NetworkInterfaces?.[0]?.Association?.PublicIp;
-
-    if (!publicIp) return null;
-
     return {
-      host: publicIp,
-      port: this.gatewayPort,
-      protocol: "ws",
+      host: albDns,
+      port: this.config.certificateArn ? 443 : 80,
+      protocol: this.config.certificateArn ? "wss" : "ws",
     };
   }
 
@@ -625,43 +481,6 @@ export class EcsEc2Target implements DeploymentTarget {
         throw error;
       }
     }
-  }
-
-  private async getDefaultVpcAndSubnets(): Promise<{
-    vpcId: string;
-    subnetIds: string[];
-  }> {
-    const vpcsResult = await this.ec2Client.send(
-      new DescribeVpcsCommand({
-        Filters: [{ Name: "isDefault", Values: ["true"] }],
-      }),
-    );
-
-    const vpc = vpcsResult.Vpcs?.[0];
-    if (!vpc?.VpcId) {
-      throw new Error(
-        "No default VPC found in this region. Create a VPC or use the production tier.",
-      );
-    }
-
-    const subnetsResult = await this.ec2Client.send(
-      new DescribeSubnetsCommand({
-        Filters: [
-          { Name: "vpc-id", Values: [vpc.VpcId] },
-          { Name: "default-for-az", Values: ["true"] },
-        ],
-      }),
-    );
-
-    const subnetIds = (subnetsResult.Subnets ?? [])
-      .map((s) => s.SubnetId)
-      .filter((id): id is string => Boolean(id));
-
-    if (subnetIds.length === 0) {
-      throw new Error("No default subnets found in the default VPC.");
-    }
-
-    return { vpcId: vpc.VpcId, subnetIds };
   }
 
   private async stackExists(): Promise<boolean> {

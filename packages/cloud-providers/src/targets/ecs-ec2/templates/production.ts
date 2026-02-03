@@ -18,6 +18,8 @@ export interface ProductionTemplateParams {
   gatewayAuthToken: string;
   containerEnv?: Record<string, string>;
   certificateArn?: string;
+  /** CIDR blocks allowed to access the ALB. Defaults to ["0.0.0.0/0"] for webhook access. */
+  allowedCidr?: string[];
 }
 
 export function generateProductionTemplate(
@@ -33,6 +35,7 @@ export function generateProductionTemplate(
     gatewayAuthToken,
     containerEnv = {},
     certificateArn,
+    allowedCidr = ["0.0.0.0/0"], // Default allows webhooks from anywhere
   } = params;
 
   // When using a public base image, install OpenClaw + Docker CLI at container
@@ -479,7 +482,7 @@ export function generateProductionTemplate(
       // Security Groups
       // ================================================================
 
-      // ALB Security Group — allows inbound HTTP/HTTPS from the internet
+      // ALB Security Group — allows inbound HTTP/HTTPS from allowed CIDRs
       AlbSecurityGroup: {
         Type: "AWS::EC2::SecurityGroup",
         Properties: {
@@ -488,20 +491,22 @@ export function generateProductionTemplate(
           },
           VpcId: { Ref: "Vpc" },
           SecurityGroupIngress: [
-            {
+            // Allow HTTP from each allowed CIDR
+            ...allowedCidr.map((cidr) => ({
               IpProtocol: "tcp",
               FromPort: 80,
               ToPort: 80,
-              CidrIp: "0.0.0.0/0",
-              Description: "HTTP",
-            },
-            {
+              CidrIp: cidr,
+              Description: `HTTP from ${cidr}`,
+            })),
+            // Allow HTTPS from each allowed CIDR
+            ...allowedCidr.map((cidr) => ({
               IpProtocol: "tcp",
               FromPort: 443,
               ToPort: 443,
-              CidrIp: "0.0.0.0/0",
-              Description: "HTTPS",
-            },
+              CidrIp: cidr,
+              Description: `HTTPS from ${cidr}`,
+            })),
           ],
           SecurityGroupEgress: [
             {
