@@ -51,11 +51,14 @@ const MAX_CLIENT_LOG_LINES = 1000;
 const POLL_INTERVAL_MS = 3000;
 
 export function useProvisioningEvents(
-  instanceId: string,
+  instanceId: string | null | undefined,
 ): UseProvisioningEventsResult {
   const [progress, setProgress] = useState<ProvisioningProgress | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [logs, setLogs] = useState<ProvisioningLogEntry[]>([]);
+
+  // Early return if no instanceId - don't subscribe to anything
+  const shouldSubscribe = !!instanceId;
   const socketRef = useRef<unknown>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectAttempts = useRef(0);
@@ -63,7 +66,7 @@ export function useProvisioningEvents(
 
   // ---- Polling fallback ----
   const startPolling = useCallback(() => {
-    if (pollIntervalRef.current) return;
+    if (!instanceId || pollIntervalRef.current) return;
 
     const poll = async () => {
       try {
@@ -101,6 +104,11 @@ export function useProvisioningEvents(
 
   // ---- WebSocket connection ----
   useEffect(() => {
+    // Don't subscribe if no instanceId
+    if (!shouldSubscribe || !instanceId) {
+      return;
+    }
+
     mountedRef.current = true;
     let socket: { on: Function; emit: Function; disconnect: Function; connected: boolean } | null = null;
 
@@ -205,7 +213,16 @@ export function useProvisioningEvents(
       }
       socketRef.current = null;
     };
-  }, [instanceId, startPolling, stopPolling]);
+  }, [instanceId, shouldSubscribe, startPolling, stopPolling]);
+
+  // Reset state when instanceId becomes null
+  useEffect(() => {
+    if (!shouldSubscribe) {
+      setProgress(null);
+      setIsConnected(false);
+      // Don't clear logs - keep them visible after operation completes
+    }
+  }, [shouldSubscribe]);
 
   return { progress, isConnected, logs };
 }

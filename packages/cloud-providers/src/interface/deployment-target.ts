@@ -190,6 +190,22 @@ export interface DeploymentTarget {
    * Optional — not all targets support streaming.
    */
   setLogCallback?(cb: (line: string, stream: "stdout" | "stderr") => void): void;
+
+  /**
+   * Update resource allocation for a running deployment.
+   * For ECS: Updates task definition and service.
+   * For GCE: Stops VM, resizes machine type/disk, restarts.
+   * For Azure: Deallocates VM, resizes, restarts.
+   * Optional — not all targets support resource updates.
+   */
+  updateResources?(spec: ResourceSpec): Promise<ResourceUpdateResult>;
+
+  /**
+   * Get current resource allocation.
+   * Returns the current CPU, memory, and disk configuration.
+   * Optional — not all targets support resource queries.
+   */
+  getResources?(): Promise<ResourceSpec>;
 }
 
 // ── Configuration types for specific targets ──
@@ -290,9 +306,25 @@ export interface CloudflareWorkersConfig {
 import type { EcsEc2Config } from "../targets/ecs-ec2/ecs-ec2-config";
 import type { AzureVmConfig } from "../targets/azure-vm/azure-vm-config";
 import type { GceConfig } from "../targets/gce/gce-config";
+import type { ResourceSpec, ResourceUpdateResult } from "./resource-spec";
 export type { EcsEc2Config } from "../targets/ecs-ec2/ecs-ec2-config";
 export type { AzureVmConfig } from "../targets/azure-vm/azure-vm-config";
 export type { GceConfig } from "../targets/gce/gce-config";
+export type {
+  ResourceSpec,
+  ResourceUpdateResult,
+  ResourceTier,
+  TierSpec,
+  TierDisplayInfo,
+} from "./resource-spec";
+export {
+  ECS_TIER_SPECS,
+  GCE_TIER_SPECS,
+  AZURE_TIER_SPECS,
+  TIER_DISPLAY_INFO,
+  getTierSpec,
+  specToTier,
+} from "./resource-spec";
 
 export type DeploymentTargetConfig =
   | { type: "local" }

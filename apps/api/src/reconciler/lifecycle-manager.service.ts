@@ -388,6 +388,15 @@ export class LifecycleManagerService {
 
       // Tear down via deployment target
       const target = await this.resolveTarget(instance);
+
+      // Wire streaming log callback if the target supports it
+      if (target.setLogCallback) {
+        target.setLogCallback((line, stream) => {
+          // Use a generic "destroy" step for log attribution
+          this.provisioningEvents.emitLog(instance.id, "destroy", stream, line);
+        });
+      }
+
       await target.destroy();
     } catch (error) {
       this.logger.warn(`Deployment target teardown error for ${instance.id}: ${error}`);
@@ -449,6 +458,91 @@ export class LifecycleManagerService {
     }
 
     return result;
+  }
+
+  // ------------------------------------------------------------------
+  // Resource updates — CPU, memory, disk size changes
+  // ------------------------------------------------------------------
+
+  /**
+   * Update resource allocation for a running instance.
+   * Delegates to the deployment target's updateResources() method.
+   */
+  async updateResources(
+    instance: BotInstance,
+    spec: { cpu: number; memory: number; dataDiskSizeGb?: number },
+  ): Promise<{ success: boolean; message: string; requiresRestart: boolean }> {
+    this.logger.log(`Updating resources for instance ${instance.id}: cpu=${spec.cpu}, memory=${spec.memory}, disk=${spec.dataDiskSizeGb ?? "unchanged"}`);
+
+    const deploymentType = this.resolveDeploymentType(instance);
+
+    // Start resource update tracking with step progress
+    this.provisioningEvents.startResourceUpdate(instance.id, deploymentType);
+
+    // Track current step for log attribution
+    let currentStepId = "validate_resources";
+
+    try {
+      this.provisioningEvents.updateStep(instance.id, "validate_resources", "in_progress");
+      const target = await this.resolveTarget(instance);
+
+      // Check if the target supports resource updates
+      if (!target.updateResources) {
+        this.provisioningEvents.updateStep(instance.id, "validate_resources", "error", `Deployment type "${instance.deploymentType}" does not support resource updates`);
+        this.provisioningEvents.failProvisioning(instance.id, `Deployment target type "${instance.deploymentType}" does not support resource updates`);
+        return {
+          success: false,
+          message: `Deployment target type "${instance.deploymentType}" does not support resource updates`,
+          requiresRestart: false,
+        };
+      }
+
+      // Wire streaming log callback if the target supports it
+      if (target.setLogCallback) {
+        target.setLogCallback((line, stream) => {
+          this.provisioningEvents.emitLog(instance.id, currentStepId, stream, line);
+        });
+      }
+
+      this.provisioningEvents.updateStep(instance.id, "validate_resources", "completed");
+
+      // Step 2: Apply resource changes (universal step - logs show detailed provider progress)
+      currentStepId = "apply_changes";
+      this.provisioningEvents.updateStep(instance.id, "apply_changes", "in_progress");
+
+      const result = await target.updateResources(spec);
+
+      if (result.success) {
+        this.provisioningEvents.updateStep(instance.id, "apply_changes", "completed");
+
+        // Step 3: Verify completion
+        currentStepId = "verify_completion";
+        this.provisioningEvents.updateStep(instance.id, "verify_completion", "in_progress");
+        this.provisioningEvents.updateStep(instance.id, "verify_completion", "completed");
+
+        // Mark provisioning complete
+        this.provisioningEvents.completeProvisioning(instance.id);
+        this.logger.log(
+          `Resource update completed for ${instance.id}: ${result.message}` +
+            (result.requiresRestart ? ` (restart required, ~${result.estimatedDowntime}s downtime)` : "")
+        );
+      } else {
+        this.provisioningEvents.updateStep(instance.id, "apply_changes", "error", result.message);
+        this.provisioningEvents.failProvisioning(instance.id, result.message);
+        this.logger.error(`Resource update failed for ${instance.id}: ${result.message}`);
+      }
+
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.provisioningEvents.failProvisioning(instance.id, message);
+      this.logger.error(`Resource update failed for ${instance.id}: ${message}`);
+      return {
+        success: false,
+        message,
+        requiresRestart: false,
+      };
+    }
   }
 
   // ------------------------------------------------------------------

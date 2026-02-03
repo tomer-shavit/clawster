@@ -11,7 +11,15 @@ import {
   GatewayClient,
 } from "@clawster/gateway-client";
 import type { GatewayConnectionOptions } from "@clawster/gateway-client";
-import { CreateBotInstanceDto, UpdateBotInstanceDto, UpdateAiGatewaySettingsDto, ListBotInstancesQueryDto } from "./bot-instances.dto";
+import {
+  CreateBotInstanceDto,
+  UpdateBotInstanceDto,
+  UpdateAiGatewaySettingsDto,
+  ListBotInstancesQueryDto,
+  UpdateBotResourcesDto,
+  BotResourcesResponseDto,
+  ResourceTier,
+} from "./bot-instances.dto";
 import { BulkActionType, BulkActionResultItem } from "./bot-compare.dto";
 import { ReconcilerService } from "../reconciler/reconciler.service";
 
@@ -583,5 +591,158 @@ export class BotInstancesService {
 
   private redactSensitiveFields<T extends BotInstance>(instance: T): T {
     return { ...instance, aiGatewayApiKey: null };
+  }
+
+  /**
+   * Get current resource allocation for a bot instance.
+   */
+  async getResources(instanceId: string): Promise<BotResourcesResponseDto> {
+    const instance = await prisma.botInstance.findUnique({
+      where: { id: instanceId },
+      include: { deploymentTarget: true },
+    });
+
+    if (!instance) {
+      throw new NotFoundException(`Bot instance ${instanceId} not found`);
+    }
+
+    const deploymentType = instance.deploymentTarget?.type ?? "docker";
+
+    // Parse metadata to get stored resource info
+    const metadata = JSON.parse(instance.metadata || "{}") as Record<string, unknown>;
+
+    // Default values based on deployment type
+    const defaultSpec = this.getDefaultResourceSpec(deploymentType);
+
+    return {
+      tier: (metadata.resourceTier as ResourceTier) ?? "standard",
+      cpu: (metadata.cpu as number) ?? defaultSpec.cpu,
+      memory: (metadata.memory as number) ?? defaultSpec.memory,
+      dataDiskSizeGb: metadata.dataDiskSizeGb as number | undefined,
+      deploymentType,
+    };
+  }
+
+  /**
+   * Update resource allocation for a bot instance.
+   * Routes the update through the reconciler to the appropriate deployment target.
+   */
+  async updateResources(
+    instanceId: string,
+    dto: UpdateBotResourcesDto
+  ): Promise<{ success: boolean; message: string; requiresRestart?: boolean }> {
+    const instance = await prisma.botInstance.findUnique({
+      where: { id: instanceId },
+      include: { deploymentTarget: true },
+    });
+
+    if (!instance) {
+      throw new NotFoundException(`Bot instance ${instanceId} not found`);
+    }
+
+    const deploymentType = instance.deploymentTarget?.type ?? "docker";
+
+    // Validate that the deployment type supports resource updates
+    const supportedTypes = ["ecs-ec2", "gce", "azure-vm"];
+    if (!supportedTypes.includes(deploymentType)) {
+      throw new BadRequestException(
+        `Resource updates are not supported for deployment type "${deploymentType}". ` +
+        `Supported types: ${supportedTypes.join(", ")}`
+      );
+    }
+
+    // Convert tier to resource spec
+    const spec = this.tierToResourceSpec(dto, deploymentType);
+
+    // Route through reconciler to update resources
+    const result = await this.reconciler.updateResources(instanceId, spec);
+
+    if (result.success) {
+      // Persist the new resource config to metadata
+      const metadata = JSON.parse(instance.metadata || "{}") as Record<string, unknown>;
+      await prisma.botInstance.update({
+        where: { id: instanceId },
+        data: {
+          metadata: JSON.stringify({
+            ...metadata,
+            resourceTier: dto.tier,
+            cpu: spec.cpu,
+            memory: spec.memory,
+            dataDiskSizeGb: spec.dataDiskSizeGb,
+          }),
+        },
+      });
+    }
+
+    return {
+      success: result.success,
+      message: result.message,
+      requiresRestart: result.requiresRestart,
+    };
+  }
+
+  /**
+   * Convert a resource tier + custom values to a ResourceSpec.
+   */
+  private tierToResourceSpec(
+    dto: UpdateBotResourcesDto,
+    deploymentType: string
+  ): { cpu: number; memory: number; dataDiskSizeGb?: number } {
+    // If custom tier, use the provided values
+    if (dto.tier === "custom") {
+      if (!dto.cpu || !dto.memory) {
+        throw new BadRequestException(
+          "Custom tier requires both cpu and memory values"
+        );
+      }
+      return {
+        cpu: dto.cpu,
+        memory: dto.memory,
+        dataDiskSizeGb: dto.dataDiskSizeGb,
+      };
+    }
+
+    // Map tier to spec based on deployment type
+    const tierSpecs: Record<string, Record<Exclude<ResourceTier, "custom">, { cpu: number; memory: number; dataDiskSizeGb: number }>> = {
+      "ecs-ec2": {
+        light: { cpu: 512, memory: 1024, dataDiskSizeGb: 5 },
+        standard: { cpu: 1024, memory: 2048, dataDiskSizeGb: 10 },
+        performance: { cpu: 2048, memory: 4096, dataDiskSizeGb: 20 },
+      },
+      gce: {
+        light: { cpu: 256, memory: 1024, dataDiskSizeGb: 5 },
+        standard: { cpu: 2048, memory: 2048, dataDiskSizeGb: 10 },
+        performance: { cpu: 2048, memory: 4096, dataDiskSizeGb: 20 },
+      },
+      "azure-vm": {
+        light: { cpu: 1024, memory: 1024, dataDiskSizeGb: 5 },
+        standard: { cpu: 2048, memory: 2048, dataDiskSizeGb: 10 },
+        performance: { cpu: 2048, memory: 4096, dataDiskSizeGb: 20 },
+      },
+    };
+
+    const providerSpecs = tierSpecs[deploymentType] ?? tierSpecs["ecs-ec2"];
+    const spec = providerSpecs[dto.tier];
+
+    return {
+      ...spec,
+      dataDiskSizeGb: dto.dataDiskSizeGb ?? spec.dataDiskSizeGb,
+    };
+  }
+
+  /**
+   * Get default resource spec for a deployment type.
+   */
+  private getDefaultResourceSpec(deploymentType: string): { cpu: number; memory: number } {
+    switch (deploymentType) {
+      case "ecs-ec2":
+        return { cpu: 1024, memory: 2048 };
+      case "gce":
+        return { cpu: 2048, memory: 2048 }; // e2-small equivalent
+      case "azure-vm":
+        return { cpu: 2048, memory: 2048 }; // Standard_B2s equivalent
+      default:
+        return { cpu: 1024, memory: 2048 };
+    }
   }
 }

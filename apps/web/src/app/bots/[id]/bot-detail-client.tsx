@@ -33,6 +33,7 @@ import { JustDeployedBanner } from "@/components/dashboard/just-deployed-banner"
 import { EvolutionBanner, type EvolutionBannerData } from "@/components/openclaw/evolution-banner";
 import { LiveSkills } from "@/components/openclaw/live-skills";
 import { EvolutionDiff } from "@/components/openclaw/evolution-diff";
+import { ResourceManagement } from "@/components/openclaw/resource-management";
 import { api, type BotInstance, type Trace, type TraceStats, type ChangeSet, type DeploymentEvent, type AgentEvolutionSnapshot, type TokenUsageSummary, type AgentCard, type A2aJsonRpcResponse, type A2aApiKeyInfo, type A2aTaskInfo, type BotTeamMember } from "@/lib/api";
 import { PairingTab } from "@/components/pairing/pairing-tab";
 import Link from "next/link";
@@ -73,6 +74,7 @@ import {
   ChevronRight,
   Filter,
   Users,
+  Server,
 } from "lucide-react";
 
 interface BotDetailClientProps {
@@ -827,6 +829,10 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
           <TabsTrigger active={activeTab === "a2a"} onClick={() => setActiveTab("a2a")}>
             <Network className="w-4 h-4 mr-1.5" />
             A2A
+          </TabsTrigger>
+          <TabsTrigger active={activeTab === "resources"} onClick={() => setActiveTab("resources")}>
+            <Server className="w-4 h-4 mr-1.5" />
+            Resources
           </TabsTrigger>
           <TabsTrigger active={activeTab === "team"} onClick={() => setActiveTab("team")}>
             <Users className="w-4 h-4 mr-1.5" />
@@ -1888,6 +1894,10 @@ export function BotDetailClient({ bot, traces = [], metrics = null, changeSets =
               </Card>
             </div>
           ) : null}
+        </TabsContent>
+        {/* Resources Tab */}
+        <TabsContent active={activeTab === "resources"} className="mt-6">
+          <ResourceManagement bot={bot} />
         </TabsContent>
         {/* Team Tab */}
         <TabsContent active={activeTab === "team"} className="mt-6">

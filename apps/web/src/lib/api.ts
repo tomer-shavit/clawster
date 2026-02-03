@@ -56,6 +56,29 @@ export interface AiGatewaySettings {
   gatewayApiKey?: string;
 }
 
+export type ResourceTier = 'light' | 'standard' | 'performance' | 'custom';
+
+export interface BotResourcesResponse {
+  tier: ResourceTier;
+  cpu: number;
+  memory: number;
+  dataDiskSizeGb?: number;
+  deploymentType: string;
+}
+
+export interface UpdateBotResourcesPayload {
+  tier: ResourceTier;
+  cpu?: number;
+  memory?: number;
+  dataDiskSizeGb?: number;
+}
+
+export interface BotResourcesUpdateResult {
+  success: boolean;
+  message: string;
+  requiresRestart?: boolean;
+}
+
 export interface InstanceHealth {
   overall: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
   components: Array<{
@@ -1265,6 +1288,18 @@ class ApiClient {
     return this.fetch(`/bot-instances/${instanceId}/ai-gateway`, {
       method: 'PATCH',
       body: JSON.stringify(settings),
+    });
+  }
+
+  // Resources
+  async getBotResources(instanceId: string): Promise<BotResourcesResponse> {
+    return this.fetch(`/bot-instances/${instanceId}/resources`);
+  }
+
+  async updateBotResources(instanceId: string, dto: UpdateBotResourcesPayload): Promise<BotResourcesUpdateResult> {
+    return this.fetch(`/bot-instances/${instanceId}/resources`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
     });
   }
 

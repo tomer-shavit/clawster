@@ -21,6 +21,8 @@ import {
   ListBotInstancesQueryDto,
   ChatMessageDto,
   PatchConfigDto,
+  UpdateBotResourcesDto,
+  BotResourcesResponseDto,
 } from "./bot-instances.dto";
 import { CompareBotsDto, BulkActionDto, BulkActionResultItem } from "./bot-compare.dto";
 import { OpenClawHealthService } from "../health/openclaw-health.service";
@@ -150,6 +152,19 @@ export class BotInstancesController {
   async getUsage(@Param("id") id: string) {
     const usage = await this.openClawHealthService.getUsage(id);
     return usage ?? { totals: null, daily: [] };
+  }
+
+  @Get(":id/resources")
+  async getResources(@Param("id") id: string): Promise<BotResourcesResponseDto> {
+    return this.botInstancesService.getResources(id);
+  }
+
+  @Patch(":id/resources")
+  async updateResources(
+    @Param("id") id: string,
+    @Body() dto: UpdateBotResourcesDto,
+  ): Promise<{ success: boolean; message: string; requiresRestart?: boolean }> {
+    return this.botInstancesService.updateResources(id, dto);
   }
 
   @Delete(":id")

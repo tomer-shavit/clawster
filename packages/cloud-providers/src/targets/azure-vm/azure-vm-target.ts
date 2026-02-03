@@ -14,6 +14,8 @@ import {
   DeploymentLogOptions,
   GatewayEndpoint,
 } from "../../interface/deployment-target";
+import type { ResourceSpec, ResourceUpdateResult } from "../../interface/resource-spec";
+import { AZURE_TIER_SPECS } from "../../interface/resource-spec";
 import type { AzureVmConfig } from "./azure-vm-config";
 
 const DEFAULT_VM_SIZE = "Standard_B2s";
@@ -70,6 +72,9 @@ export class AzureVmTarget implements DeploymentTarget {
   private appGatewayPublicIp = "";
   private appGatewayFqdn = "";
 
+  /** Log callback for streaming progress to the UI */
+  private onLog?: (line: string, stream: "stdout" | "stderr") => void;
+
   constructor(config: AzureVmConfig) {
     this.config = config;
     this.vmSize = config.vmSize ?? DEFAULT_VM_SIZE;
@@ -114,6 +119,26 @@ export class AzureVmTarget implements DeploymentTarget {
     }
   }
 
+  // ------------------------------------------------------------------
+  // Log streaming
+  // ------------------------------------------------------------------
+
+  setLogCallback(cb: (line: string, stream: "stdout" | "stderr") => void): void {
+    this.onLog = cb;
+  }
+
+  /**
+   * Emit a log line to the streaming callback (if registered).
+   * Used to provide real-time feedback during long-running operations.
+   */
+  private log(message: string, stream: "stdout" | "stderr" = "stdout"): void {
+    this.onLog?.(message, stream);
+  }
+
+  // ------------------------------------------------------------------
+  // Resource name helpers
+  // ------------------------------------------------------------------
+
   private deriveResourceNames(profileName: string): void {
     const sanitized = this.sanitizeName(profileName);
     this.vmName = `clawster-${sanitized}`;
@@ -156,29 +181,50 @@ export class AzureVmTarget implements DeploymentTarget {
     this.gatewayPort = options.port;
     this.deriveResourceNames(profileName);
 
+    this.log(`Starting Azure VM installation for ${profileName}`);
+    this.log(`Region: ${this.config.region}, VM Size: ${this.vmSize}`);
+
     try {
       // 1. Set up VNet infrastructure
+      this.log(`[1/6] Setting up network infrastructure...`);
       await this.ensureNetworkInfrastructure();
+      this.log(`Network infrastructure ready`);
 
       // 2. Set up Application Gateway for secure external access
+      this.log(`[2/6] Setting up Application Gateway...`);
       await this.ensureApplicationGateway();
+      this.log(`Application Gateway ready`);
 
       // 3. Create data disk for persistent storage
+      this.log(`[3/6] Creating data disk: ${this.dataDiskName} (${this.dataDiskSizeGb}GB)`);
       await this.ensureDataDisk();
+      this.log(`Data disk ready`);
 
       // 4. Store initial empty config in Key Vault if available
       if (this.keyVaultClient) {
+        this.log(`[4/6] Storing config in Key Vault: ${this.secretName}`);
         await this.ensureSecret(this.secretName, "{}");
+        this.log(`Key Vault secret created`);
+      } else {
+        this.log(`[4/6] Key Vault not configured (skipped)`);
       }
 
       // 5. Create VM with Docker and startup script
+      this.log(`[5/6] Creating VM: ${this.vmName}`);
       await this.createVm(options);
+      this.log(`VM created`);
 
       // 6. Update Application Gateway backend with VM's private IP
+      this.log(`[6/6] Updating Application Gateway backend...`);
       const vmPrivateIp = await this.getVmPrivateIp();
       if (vmPrivateIp) {
         await this.updateAppGatewayBackend(vmPrivateIp);
+        this.log(`Application Gateway backend updated with IP: ${vmPrivateIp}`);
+      } else {
+        this.log(`Could not determine VM private IP`, "stderr");
       }
+
+      this.log(`Azure VM installation complete!`);
 
       const externalAccess = this.appGatewayFqdn
         ? ` External access via: http://${this.appGatewayFqdn}`
@@ -191,10 +237,12 @@ export class AzureVmTarget implements DeploymentTarget {
         serviceName: this.vmName,
       };
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.log(`Azure VM install failed: ${errorMsg}`, "stderr");
       return {
         success: false,
         instanceId: this.vmName,
-        message: `Azure VM install failed: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Azure VM install failed: ${errorMsg}`,
       };
     }
   }
@@ -205,12 +253,15 @@ export class AzureVmTarget implements DeploymentTarget {
 
   private async ensureNetworkInfrastructure(): Promise<void> {
     // 1. Create or get VNet
+    this.log(`  Creating/verifying VNet: ${this.vnetName}`);
     await this.ensureVNet();
 
     // 2. Create or get NSG with secure rules
+    this.log(`  Creating/verifying NSG: ${this.nsgName}`);
     await this.ensureNSG();
 
     // 3. Create or get subnet for VM
+    this.log(`  Creating/verifying subnet: ${this.subnetName}`);
     await this.ensureVmSubnet();
   }
 
@@ -400,8 +451,13 @@ export class AzureVmTarget implements DeploymentTarget {
   // ------------------------------------------------------------------
 
   private async ensureApplicationGateway(): Promise<void> {
+    this.log(`  Creating/verifying App Gateway subnet: ${this.appGatewaySubnetName}`);
     await this.ensureAppGatewaySubnet();
+
+    this.log(`  Creating/verifying App Gateway public IP: ${this.appGatewayPublicIpName}`);
     await this.ensureAppGatewayPublicIp();
+
+    this.log(`  Creating/verifying Application Gateway: ${this.appGatewayName}`);
     await this.createApplicationGateway();
   }
 
@@ -615,8 +671,8 @@ export class AzureVmTarget implements DeploymentTarget {
         this.appGatewayName,
         appGw
       );
-    } catch (error) {
-      console.warn(`Failed to update Application Gateway backend: ${error}`);
+    } catch {
+      // Ignore Application Gateway backend update failures - the backend may not exist yet
     }
   }
 
@@ -856,6 +912,8 @@ final_message: "OpenClaw gateway started on port ${this.gatewayPort}"
     const profileName = config.profileName;
     this.gatewayPort = config.gatewayPort;
 
+    this.log(`Configuring Azure VM: ${profileName}`);
+
     if (!this.vmName) {
       this.deriveResourceNames(profileName);
     }
@@ -904,12 +962,15 @@ final_message: "OpenClaw gateway started on port ${this.gatewayPort}"
     try {
       // Store config in Key Vault if available
       if (this.keyVaultClient) {
+        this.log(`Storing config in Key Vault: ${this.secretName}`);
         await this.ensureSecret(this.secretName, configData);
+        this.log(`Key Vault secret updated`);
       }
 
       // For Azure VM, we need to use Run Command to update the config
       // This runs a script on the VM to write the config and restart the container
       // Use base64 encoding to safely pass JSON through shell without injection risk
+      this.log(`Executing Run Command on VM: ${this.vmName}`);
       const base64Config = Buffer.from(configData).toString("base64");
       await this.computeClient.virtualMachines.beginRunCommandAndWait(
         this.config.resourceGroup,
@@ -922,6 +983,7 @@ final_message: "OpenClaw gateway started on port ${this.gatewayPort}"
           ],
         }
       );
+      this.log(`Configuration applied and container restarted`);
 
       return {
         success: true,
@@ -929,9 +991,11 @@ final_message: "OpenClaw gateway started on port ${this.gatewayPort}"
         requiresRestart: false, // Already restarted via Run Command
       };
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.log(`Configuration failed: ${errorMsg}`, "stderr");
       return {
         success: false,
-        message: `Failed to configure: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to configure: ${errorMsg}`,
         requiresRestart: false,
       };
     }
@@ -942,10 +1006,12 @@ final_message: "OpenClaw gateway started on port ${this.gatewayPort}"
   // ------------------------------------------------------------------
 
   async start(): Promise<void> {
+    this.log(`Starting VM: ${this.vmName}`);
     await this.computeClient.virtualMachines.beginStartAndWait(
       this.config.resourceGroup,
       this.vmName
     );
+    this.log(`VM started`);
   }
 
   // ------------------------------------------------------------------
@@ -953,10 +1019,12 @@ final_message: "OpenClaw gateway started on port ${this.gatewayPort}"
   // ------------------------------------------------------------------
 
   async stop(): Promise<void> {
+    this.log(`Deallocating VM: ${this.vmName}`);
     await this.computeClient.virtualMachines.beginDeallocateAndWait(
       this.config.resourceGroup,
       this.vmName
     );
+    this.log(`VM deallocated`);
   }
 
   // ------------------------------------------------------------------
@@ -964,10 +1032,12 @@ final_message: "OpenClaw gateway started on port ${this.gatewayPort}"
   // ------------------------------------------------------------------
 
   async restart(): Promise<void> {
+    this.log(`Restarting VM: ${this.vmName}`);
     await this.computeClient.virtualMachines.beginRestartAndWait(
       this.config.resourceGroup,
       this.vmName
     );
+    this.log(`VM restarted`);
   }
 
   // ------------------------------------------------------------------
@@ -1122,87 +1192,107 @@ final_message: "OpenClaw gateway started on port ${this.gatewayPort}"
   // ------------------------------------------------------------------
 
   async destroy(): Promise<void> {
+    this.log(`Destroying Azure resources for: ${this.vmName}`);
+
     // 1. Delete VM
+    this.log(`[1/8] Deleting VM: ${this.vmName}`);
     try {
       await this.computeClient.virtualMachines.beginDeleteAndWait(
         this.config.resourceGroup,
         this.vmName
       );
+      this.log(`VM deleted`);
     } catch {
-      // VM may not exist
+      this.log(`VM not found (skipped)`);
     }
 
     // 2. Delete NIC
+    this.log(`[2/8] Deleting NIC: ${this.nicName}`);
     try {
       await this.networkClient.networkInterfaces.beginDeleteAndWait(
         this.config.resourceGroup,
         this.nicName
       );
+      this.log(`NIC deleted`);
     } catch {
-      // NIC may not exist
+      this.log(`NIC not found (skipped)`);
     }
 
     // 3. Delete data disk
+    this.log(`[3/8] Deleting data disk: ${this.dataDiskName}`);
     try {
       await this.computeClient.disks.beginDeleteAndWait(
         this.config.resourceGroup,
         this.dataDiskName
       );
+      this.log(`Data disk deleted`);
     } catch {
-      // Disk may not exist
+      this.log(`Data disk not found (skipped)`);
     }
 
     // 4. Delete OS disk
+    this.log(`[4/8] Deleting OS disk: ${this.vmName}-osdisk`);
     try {
       await this.computeClient.disks.beginDeleteAndWait(
         this.config.resourceGroup,
         `${this.vmName}-osdisk`
       );
+      this.log(`OS disk deleted`);
     } catch {
-      // OS disk may not exist
+      this.log(`OS disk not found (skipped)`);
     }
 
     // 5. Delete Key Vault secrets if configured
     if (this.keyVaultClient) {
+      this.log(`[5/8] Deleting Key Vault secret: ${this.secretName}`);
       try {
         await this.keyVaultClient.beginDeleteSecret(this.secretName);
+        this.log(`Key Vault secret deleted`);
       } catch {
-        // Secret may not exist
+        this.log(`Key Vault secret not found (skipped)`);
       }
+    } else {
+      this.log(`[5/8] Key Vault not configured (skipped)`);
     }
 
     // 6. Delete Application Gateway
+    this.log(`[6/8] Deleting Application Gateway: ${this.appGatewayName}`);
     try {
       await this.networkClient.applicationGateways.beginDeleteAndWait(
         this.config.resourceGroup,
         this.appGatewayName
       );
+      this.log(`Application Gateway deleted`);
     } catch {
-      // App Gateway may not exist
+      this.log(`Application Gateway not found (skipped)`);
     }
 
     // 7. Delete public IP
+    this.log(`[7/8] Deleting public IP: ${this.appGatewayPublicIpName}`);
     try {
       await this.networkClient.publicIPAddresses.beginDeleteAndWait(
         this.config.resourceGroup,
         this.appGatewayPublicIpName
       );
+      this.log(`Public IP deleted`);
     } catch {
-      // Public IP may not exist
+      this.log(`Public IP not found (skipped)`);
     }
 
     // 8. Delete App Gateway subnet
+    this.log(`[8/8] Deleting App Gateway subnet: ${this.appGatewaySubnetName}`);
     try {
       await this.networkClient.subnets.beginDeleteAndWait(
         this.config.resourceGroup,
         this.vnetName,
         this.appGatewaySubnetName
       );
+      this.log(`App Gateway subnet deleted`);
     } catch {
-      // Subnet may not exist
+      this.log(`App Gateway subnet not found (skipped)`);
     }
 
-    // Note: VNet, VM subnet, and NSG are NOT deleted to allow reuse
+    this.log(`Azure resources destroyed (VNet/NSG preserved for reuse)`);
   }
 
   // ------------------------------------------------------------------
@@ -1214,8 +1304,175 @@ final_message: "OpenClaw gateway started on port ${this.gatewayPort}"
 
     try {
       await this.keyVaultClient.setSecret(name, value);
+    } catch {
+      // Secret storage failures are non-fatal - the config may still work
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // updateResources
+  // ------------------------------------------------------------------
+
+  async updateResources(spec: ResourceSpec): Promise<ResourceUpdateResult> {
+    this.log(`Starting resource update for VM: ${this.vmName}`);
+
+    try {
+      // Azure VM resource updates require:
+      // 1. Deallocate the VM (fully release compute resources)
+      // 2. Change VM size
+      // 3. Optionally resize data disk (only if larger)
+      // 4. Start the VM
+
+      // Validate disk size - cloud providers don't support shrinking disks
+      if (spec.dataDiskSizeGb && spec.dataDiskSizeGb < this.dataDiskSizeGb) {
+        this.log(`Disk shrink not supported: ${this.dataDiskSizeGb}GB -> ${spec.dataDiskSizeGb}GB`, "stderr");
+        return {
+          success: false,
+          message: `Disk cannot be shrunk. Current size: ${this.dataDiskSizeGb}GB, requested: ${spec.dataDiskSizeGb}GB. Cloud providers only support expanding disks.`,
+          requiresRestart: false,
+        };
+      }
+
+      // Determine target VM size from spec
+      const targetVmSize = this.specToVmSize(spec);
+      this.log(`Target VM size: ${targetVmSize}`);
+
+      // 1. Deallocate VM
+      this.log(`[1/4] Deallocating VM: ${this.vmName}`);
+      await this.computeClient.virtualMachines.beginDeallocateAndWait(
+        this.config.resourceGroup,
+        this.vmName
+      );
+      this.log(`VM deallocated`);
+
+      // 2. Change VM size
+      this.log(`[2/4] Changing VM size to: ${targetVmSize}`);
+      await this.computeClient.virtualMachines.beginUpdateAndWait(
+        this.config.resourceGroup,
+        this.vmName,
+        {
+          hardwareProfile: {
+            vmSize: targetVmSize,
+          },
+        }
+      );
+      this.log(`VM size changed`);
+
+      // 3. Resize data disk if requested and larger than current
+      if (spec.dataDiskSizeGb && spec.dataDiskSizeGb > this.dataDiskSizeGb) {
+        this.log(`[3/4] Resizing data disk: ${this.dataDiskSizeGb}GB -> ${spec.dataDiskSizeGb}GB`);
+        await this.computeClient.disks.beginUpdateAndWait(
+          this.config.resourceGroup,
+          this.dataDiskName,
+          {
+            diskSizeGB: spec.dataDiskSizeGb,
+          }
+        );
+        this.log(`Disk resized to ${spec.dataDiskSizeGb}GB`);
+      } else {
+        this.log(`[3/4] Disk resize skipped (no change needed)`);
+      }
+
+      // 4. Start VM
+      this.log(`[4/4] Starting VM`);
+      await this.computeClient.virtualMachines.beginStartAndWait(
+        this.config.resourceGroup,
+        this.vmName
+      );
+      this.log(`VM started`);
+
+      this.log(`Resource update complete!`);
+
+      return {
+        success: true,
+        message: `Azure VM resources updated to ${targetVmSize}${spec.dataDiskSizeGb ? `, ${spec.dataDiskSizeGb}GB disk` : ""}`,
+        requiresRestart: true,
+        estimatedDowntime: 90,
+      };
     } catch (error) {
-      console.warn(`Failed to store secret in Key Vault: ${error}`);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.log(`Resource update failed: ${errorMsg}`, "stderr");
+
+      // Try to start VM again if we deallocated it
+      this.log(`Attempting to recover by starting VM...`);
+      try {
+        await this.computeClient.virtualMachines.beginStartAndWait(
+          this.config.resourceGroup,
+          this.vmName
+        );
+        this.log(`VM recovery started`);
+      } catch {
+        this.log(`VM recovery failed - manual intervention may be required`, "stderr");
+      }
+
+      return {
+        success: false,
+        message: `Failed to update resources: ${errorMsg}`,
+        requiresRestart: false,
+      };
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // getResources
+  // ------------------------------------------------------------------
+
+  async getResources(): Promise<ResourceSpec> {
+    // Get current VM to read size
+    const vm = await this.computeClient.virtualMachines.get(
+      this.config.resourceGroup,
+      this.vmName
+    );
+
+    const vmSize = vm.hardwareProfile?.vmSize ?? this.vmSize;
+
+    // Get disk size
+    const disk = await this.computeClient.disks.get(
+      this.config.resourceGroup,
+      this.dataDiskName
+    );
+
+    const diskSizeGb = disk.diskSizeGB ?? this.dataDiskSizeGb;
+
+    // Convert VM size to ResourceSpec
+    return this.vmSizeToSpec(vmSize, diskSizeGb);
+  }
+
+  // ------------------------------------------------------------------
+  // Resource spec conversion helpers
+  // ------------------------------------------------------------------
+
+  private specToVmSize(spec: ResourceSpec): string {
+    // Find matching tier or use custom VM size logic
+    for (const [, tierSpec] of Object.entries(AZURE_TIER_SPECS)) {
+      if (spec.cpu === tierSpec.cpu && spec.memory === tierSpec.memory) {
+        return tierSpec.vmSize ?? "Standard_B2s";
+      }
+    }
+
+    // For custom specs, map to closest Azure VM size
+    // Azure B-series: Standard_B1s (1 vCPU, 1GB), Standard_B2s (2 vCPU, 4GB)
+    // Azure D-series: Standard_D2s_v3 (2 vCPU, 8GB)
+    if (spec.memory >= 4096) {
+      return "Standard_D2s_v3";
+    } else if (spec.cpu >= 2048 || spec.memory >= 2048) {
+      return "Standard_B2s";
+    }
+    return "Standard_B1s";
+  }
+
+  private vmSizeToSpec(vmSize: string, dataDiskSizeGb: number): ResourceSpec {
+    // Map Azure VM sizes to ResourceSpec
+    switch (vmSize) {
+      case "Standard_B1s":
+        return { cpu: 1024, memory: 1024, dataDiskSizeGb };
+      case "Standard_B2s":
+        return { cpu: 2048, memory: 2048, dataDiskSizeGb };
+      case "Standard_D2s_v3":
+        return { cpu: 2048, memory: 4096, dataDiskSizeGb };
+      default:
+        // For unknown sizes, return default
+        return { cpu: 1024, memory: 2048, dataDiskSizeGb };
     }
   }
 }

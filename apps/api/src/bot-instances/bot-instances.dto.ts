@@ -6,7 +6,11 @@ import {
   IsArray,
   IsBoolean,
   IsUrl,
-  MaxLength
+  MaxLength,
+  IsNumber,
+  IsIn,
+  Min,
+  Max,
 } from "class-validator";
 // BotStatus, BotHealth, Environment were enums, now plain strings after SQLite migration
 
@@ -146,4 +150,72 @@ export class ListBotInstancesQueryDto {
   @IsString()
   @IsOptional()
   templateId?: string;
+}
+
+/**
+ * Resource tier for bot instances.
+ * Maps to provider-specific configurations.
+ */
+export type ResourceTier = "light" | "standard" | "performance" | "custom";
+
+/**
+ * DTO for updating bot instance resources.
+ * Supports both tier-based selection and custom resource specification.
+ */
+export class UpdateBotResourcesDto {
+  @IsIn(["light", "standard", "performance", "custom"])
+  tier: ResourceTier;
+
+  /**
+   * CPU allocation in provider-specific units.
+   * For ECS: CPU units (256-4096).
+   * Only required when tier is "custom".
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(256)
+  @Max(4096)
+  cpu?: number;
+
+  /**
+   * Memory allocation in MiB.
+   * For ECS: Memory in MiB (512-30720).
+   * Only required when tier is "custom".
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(512)
+  @Max(30720)
+  memory?: number;
+
+  /**
+   * Data disk size in GB.
+   * For VM-based targets (GCE, Azure VM).
+   * Only supports increasing the disk size.
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(5)
+  @Max(100)
+  dataDiskSizeGb?: number;
+}
+
+/**
+ * Response DTO for current bot resources.
+ */
+export class BotResourcesResponseDto {
+  /** Current tier (or "custom" if not matching a predefined tier) */
+  tier: ResourceTier;
+
+  /** CPU allocation in provider-specific units */
+  cpu: number;
+
+  /** Memory allocation in MiB */
+  memory: number;
+
+  /** Data disk size in GB (for VM-based targets) */
+  dataDiskSizeGb?: number;
+
+  /** Deployment type for context */
+  deploymentType: string;
 }

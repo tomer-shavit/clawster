@@ -472,6 +472,21 @@ export class ReconcilerService {
   }
 
   // ------------------------------------------------------------------
+  // Resource updates — delegated to lifecycle manager
+  // ------------------------------------------------------------------
+
+  async updateResources(
+    instanceId: string,
+    spec: { cpu: number; memory: number; dataDiskSizeGb?: number }
+  ): Promise<{ success: boolean; message: string; requiresRestart: boolean }> {
+    const instance = await prisma.botInstance.findUniqueOrThrow({
+      where: { id: instanceId },
+    });
+
+    return this.lifecycleManager.updateResources(instance, spec);
+  }
+
+  // ------------------------------------------------------------------
   // Helpers
   // ------------------------------------------------------------------
 
