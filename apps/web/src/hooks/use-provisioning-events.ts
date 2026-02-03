@@ -119,9 +119,13 @@ export function useProvisioningEvents(
       try {
         const { io } = await import("socket.io-client");
 
+        // Get auth token for WebSocket authentication
+        const token = api.getToken();
+
         socket = io(`${API_URL}/provisioning`, {
           transports: ["websocket", "polling"],
           reconnection: false, // We handle reconnection manually
+          auth: token ? { token } : undefined,
         });
         socketRef.current = socket;
 

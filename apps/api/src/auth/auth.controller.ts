@@ -1,6 +1,7 @@
 import { Controller, Post, Body, Get, UseGuards, Request } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from "@nestjs/swagger";
-import { IsString, MinLength, MaxLength, IsOptional, IsIn } from "class-validator";
+import { Throttle } from "@nestjs/throttler";
+import { IsString, MinLength, MaxLength } from "class-validator";
 import { AuthService, LoginCredentials, RegisterCredentials } from "./auth.service";
 import { JwtAuthGuard } from "./jwt-auth.guard";
 import { Public } from "./public.decorator";
@@ -28,9 +29,8 @@ class RegisterDto {
   @MaxLength(128)
   password!: string;
 
-  @IsOptional()
-  @IsIn(["ADMIN", "OPERATOR", "VIEWER"])
-  role?: "ADMIN" | "OPERATOR" | "VIEWER";
+  // Role is NOT allowed in public registration - always defaults to VIEWER
+  // Admin users can promote roles via a separate admin endpoint
 }
 
 class AuthResponse {
@@ -50,20 +50,28 @@ export class AuthController {
 
   @Public()
   @Post("login")
+  @Throttle({ default: { ttl: 60000, limit: 10 } }) // Rate limit: 10 login attempts per minute
   @ApiOperation({ summary: "Login with username and password" })
   @ApiResponse({ status: 200, description: "Login successful", type: AuthResponse })
   @ApiResponse({ status: 401, description: "Invalid credentials" })
+  @ApiResponse({ status: 429, description: "Too many login attempts" })
   async login(@Body() credentials: LoginDto): Promise<AuthResponse> {
     return this.authService.login(credentials);
   }
 
   @Public()
   @Post("register")
+  @Throttle({ default: { ttl: 60000, limit: 5 } }) // Stricter rate limit: 5 registrations per minute
   @ApiOperation({ summary: "Register a new user" })
   @ApiResponse({ status: 201, description: "User created", type: AuthResponse })
   @ApiResponse({ status: 400, description: "Username already exists" })
+  @ApiResponse({ status: 429, description: "Too many registration attempts" })
   async register(@Body() credentials: RegisterDto): Promise<AuthResponse> {
-    const result = await this.authService.register(credentials);
+    // Public registration always creates VIEWER role - no privilege escalation
+    const result = await this.authService.register({
+      ...credentials,
+      role: "VIEWER",
+    });
     // Auto-login after registration
     return this.authService.login({
       username: credentials.username,

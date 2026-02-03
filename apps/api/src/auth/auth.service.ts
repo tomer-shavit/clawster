@@ -98,7 +98,7 @@ export class AuthService {
       data: {
         username: credentials.username,
         passwordHash,
-        role: credentials.role || "OPERATOR",
+        role: credentials.role || "VIEWER",
         isActive: true,
       },
     });

@@ -8,7 +8,12 @@ import {
   MessageBody,
 } from "@nestjs/websockets";
 import { Logger } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
 import { Server, Socket } from "socket.io";
+import {
+  createWsAuthMiddleware,
+  AuthenticatedSocket,
+} from "../common/ws-auth.middleware";
 import { prisma } from "@clawster/database";
 import {
   GatewayClient,
@@ -50,7 +55,10 @@ const STREAM_TIMEOUT_MS = 10_000;
 
 @WebSocketGateway({
   namespace: "/logs",
-  cors: { origin: "*" },
+  cors: {
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    credentials: true,
+  },
 })
 export class LogStreamingGateway implements OnGatewayInit, OnGatewayDisconnect {
   @WebSocketServer()
@@ -70,10 +78,14 @@ export class LogStreamingGateway implements OnGatewayInit, OnGatewayDisconnect {
    */
   private readonly socketSubscriptions = new Map<string, Set<string>>();
 
+  constructor(private readonly jwtService: JwtService) {}
+
   // ---- Lifecycle -----------------------------------------------------------
 
-  afterInit(): void {
-    this.logger.log("Log streaming WebSocket gateway initialized");
+  afterInit(server: Server): void {
+    // Add JWT authentication middleware
+    server.use(createWsAuthMiddleware(this.jwtService));
+    this.logger.log("Log streaming WebSocket gateway initialized with auth");
   }
 
   handleDisconnect(client: Socket): void {

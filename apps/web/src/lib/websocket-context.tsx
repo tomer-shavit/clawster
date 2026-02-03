@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import { api } from './api';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 
@@ -75,7 +76,10 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const connectWs = useCallback((instanceId: string) => {
     const conn = connectionsRef.current.get(instanceId);
     if (!conn) return;
-    const url = `${WS_URL}/logs?instanceId=${encodeURIComponent(instanceId)}`;
+    // Include auth token in query string for WebSocket authentication
+    const token = api.getToken();
+    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+    const url = `${WS_URL}/logs?instanceId=${encodeURIComponent(instanceId)}${tokenParam}`;
     updateStatus(instanceId, conn.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
     let ws: WebSocket;
     try { ws = new WebSocket(url); } catch { scheduleReconnect(instanceId); return; }
