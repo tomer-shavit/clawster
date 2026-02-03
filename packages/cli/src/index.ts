@@ -6,6 +6,7 @@ import { bootstrap } from "./commands/bootstrap";
 import { status } from "./commands/status";
 import { doctor } from "./commands/doctor";
 import { createUser, login, listUsers, deleteUser } from "./commands/auth";
+import { setup } from "./commands/setup";
 import { CLAWSTER_VERSION } from "@clawster/core";
 
 const program = new Command();
@@ -14,6 +15,17 @@ program
   .name("clawster")
   .description("Clawster CLI - Control plane for OpenClaw instances")
   .version(CLAWSTER_VERSION);
+
+// Setup command - primary entry point for new users
+program
+  .command("setup")
+  .description("Set up Clawster for local development (environment, database, admin user)")
+  .option("--skip-start", "Don't start development servers after setup")
+  .option("--skip-open", "Don't open browser after setup")
+  .option("--non-interactive", "Use defaults without prompting")
+  .option("-u, --username <username>", "Admin username (default: admin)")
+  .option("-p, --password <password>", "Admin password (prompted if not provided)")
+  .action(setup);
 
 // Bootstrap command
 program

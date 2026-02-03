@@ -117,9 +117,43 @@ This step is automatic — the implementing agent triggers it as part of the nor
 
 ---
 
+## Step 5.5: Runtime Validation (MANDATORY)
+
+**After code review passes and BEFORE marking the feature complete**, you MUST validate that the code actually works:
+
+1. **Build the affected packages:**
+   ```bash
+   pnpm --filter <package-name> build
+   ```
+   The build must succeed with no errors.
+
+2. **Run the code in a realistic scenario:**
+   - For CLI commands: Execute the command with real arguments and verify output
+   - For API endpoints: Start the server and test with curl or a real HTTP request
+   - For frontend components: Verify the build completes and the component renders
+   - For library code: Write and run a quick integration test or use an existing test
+
+3. **Verify the happy path works end-to-end:**
+   - Don't just verify "it compiles" — verify "it works"
+   - Test with realistic inputs, not just edge cases
+   - If the feature has multiple steps, test the full flow
+
+4. **Test idempotent/re-run scenarios if applicable:**
+   - Can the command be run twice without errors?
+   - Does it handle "already exists" cases gracefully?
+
+5. **If validation fails:**
+   - Fix the issue immediately
+   - Re-run the validation
+   - Do NOT proceed until the feature works correctly
+
+**Why this step is mandatory:** Code that compiles but doesn't run correctly wastes time and damages trust. A feature is not "done" until it has been validated to work in the actual runtime environment.
+
+---
+
 ## Step 6: Verify Against Docs and Spec
 
-After implementation, tests, and code review pass:
+After implementation, tests, code review, and **runtime validation** pass:
 
 1. Re-read the relevant docs in `.claude/docs/`
 2. Re-read the original feature requirements
@@ -154,6 +188,7 @@ Once everything passes verification:
 - **Never skip planning.** Use `EnterPlanMode` for non-trivial work.
 - **Never skip tests.** E2E tests are required for completion.
 - **Never skip code review.** The review agent runs automatically after tests pass — do not skip it or ask the user first.
+- **Never skip runtime validation.** Build AND run the code to verify it works — "it compiles" is not enough. Test with realistic inputs and verify the happy path end-to-end.
 - **Never skip verification.** Re-read docs after implementation.
 - **ALWAYS prefer parallel execution.** This is a core principle. When multiple tool calls, agents, file reads, or searches are independent, launch them ALL concurrently in a single message. Never do sequentially what can be done in parallel. This applies to every step: reading docs, exploring code, researching OpenClaw, implementing features, running tests, and spawning review agents.
 - **One PR per feature/fix** pushed to `master` via `gh pr create`.

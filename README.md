@@ -106,56 +106,56 @@ Open-source, self-hosted control plane for managing fleets of OpenClaw instances
 
 - Node.js 18+
 - pnpm (`npm install -g pnpm`)
-- Docker & Docker Compose
-- AWS CLI configured (for deployment)
+- Docker (optional, for deploying OpenClaw instances)
 
-### 1. Clone and Install
+### Setup
 
 ```bash
+# Clone and install
 git clone https://github.com/tomer-shavit/clawster.git
 cd clawster
 pnpm install
+
+# Run the setup wizard
+pnpm cli setup
 ```
 
-### 2. Initialize Database
+The setup wizard will:
+1. Check prerequisites
+2. Create environment configuration (auto-generates JWT secret)
+3. Initialize the database
+4. Create an admin user
+5. Start the development servers
+6. Open your browser to http://localhost:3000
 
-The project uses SQLite (no Docker required):
+For non-interactive setup (CI/scripts):
+```bash
+pnpm cli setup --non-interactive -u admin -p yourpassword --skip-start --skip-open
+```
+
+### Manual Setup (Alternative)
+
+If you prefer manual control:
 
 ```bash
+# 1. Initialize database
 pnpm db:generate
 pnpm db:push
-```
 
-### 3. Start Development Servers
+# 2. Start servers (in separate terminals)
+pnpm --filter @clawster/api dev   # API: http://localhost:4000
+pnpm --filter @clawster/web dev   # UI: http://localhost:3000
 
-**Terminal 1 - Start API:**
-```bash
-pnpm --filter @clawster/api dev
-# API will be available at http://localhost:4000
-```
-
-**Terminal 2 - Start Web UI:**
-```bash
-pnpm --filter @clawster/web dev
-# UI will be available at http://localhost:3000
-```
-
-Or run both with:
-```bash
+# Or both at once:
 pnpm dev
 ```
 
-### 4. Configure Environment
+### Bootstrap AWS Infrastructure (Optional)
+
+For cloud deployments:
 
 ```bash
-cp .env.example .env
-# Edit .env with your AWS credentials and settings
-```
-
-### 5. Bootstrap AWS Infrastructure
-
-```bash
-pnpm cli bootstrap --region us-east-1
+pnpm cli init --region us-east-1
 ```
 
 Visit http://localhost:3000

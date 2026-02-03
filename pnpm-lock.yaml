@@ -264,6 +264,9 @@ importers:
       '@clawster/core':
         specifier: workspace:*
         version: link:../core
+      '@clawster/database':
+        specifier: workspace:*
+        version: link:../database
       bcrypt:
         specifier: ^5.1.1
         version: 5.1.1
@@ -285,6 +288,9 @@ importers:
       jsonwebtoken:
         specifier: ^9.0.2
         version: 9.0.3
+      open:
+        specifier: ^10.0.0
+        version: 10.2.0
       ora:
         specifier: ^8.0.1
         version: 8.2.0
