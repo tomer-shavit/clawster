@@ -1,17 +1,23 @@
-import { ServicesClient, RevisionsClient } from "@google-cloud/run";
-import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
-import { Logging } from "@google-cloud/logging";
 import {
+  InstancesClient,
+  DisksClient,
   NetworksClient,
+  SubnetworksClient,
+  FirewallsClient,
   GlobalAddressesClient,
   BackendServicesClient,
   UrlMapsClient,
   TargetHttpProxiesClient,
   TargetHttpsProxiesClient,
   GlobalForwardingRulesClient,
-  RegionNetworkEndpointGroupsClient,
+  InstanceGroupsClient,
   SecurityPoliciesClient,
+  GlobalOperationsClient,
+  ZoneOperationsClient,
+  RegionOperationsClient,
 } from "@google-cloud/compute";
+import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
+import { Logging } from "@google-cloud/logging";
 import {
   DeploymentTarget,
   DeploymentTargetType,
@@ -23,62 +29,67 @@ import {
   DeploymentLogOptions,
   GatewayEndpoint,
 } from "../../interface/deployment-target";
-import type { CloudRunConfig } from "./cloud-run-config";
+import type { GceConfig } from "./gce-config";
 
-const DEFAULT_CPU = "1";
-const DEFAULT_MEMORY = "2Gi";
-const DEFAULT_MAX_INSTANCES = 1;
-const DEFAULT_MIN_INSTANCES = 0;
-const DEFAULT_VPC_CONNECTOR_IP_RANGE = "10.8.0.0/28";
+const DEFAULT_MACHINE_TYPE = "e2-small";
+const DEFAULT_BOOT_DISK_SIZE_GB = 20;
+const DEFAULT_DATA_DISK_SIZE_GB = 10;
 const OPERATION_POLL_INTERVAL_MS = 5_000;
 const OPERATION_TIMEOUT_MS = 600_000; // 10 minutes
 
 /**
- * CloudRunTarget manages an OpenClaw gateway instance running on
- * Google Cloud Run.
+ * GceTarget manages an OpenClaw gateway instance running on
+ * Google Compute Engine VM.
  *
- * SECURITY: All deployments use VPC + External Load Balancer architecture.
- * Cloud Run services use INTERNAL_LOAD_BALANCER ingress - they are NEVER
- * exposed directly to the internet via their default Cloud Run URL.
- * External access (for webhooks from Telegram, WhatsApp, etc.) goes through
- * the External Application Load Balancer.
+ * ARCHITECTURE: VM-based deployment with full Docker support.
+ * Unlike Cloud Run, Compute Engine provides:
+ * - Persistent Disk for WhatsApp sessions (survives restarts)
+ * - Full Docker daemon access for sandbox mode (Docker-in-Docker)
+ * - No cold starts - VM is always running
+ * - State survives VM restarts
  *
- * Architecture:
- *   Internet → External LB → Serverless NEG → Cloud Run (internal-only)
- *                                                    ↓
- *                                              VPC Connector (egress)
+ * Security:
+ *   Internet -> External LB -> Instance Group NEG -> GCE VM (firewall-protected)
+ *                                                       |
+ *                                                 Persistent Disk
  */
-export class CloudRunTarget implements DeploymentTarget {
-  readonly type = DeploymentTargetType.CLOUD_RUN;
+export class GceTarget implements DeploymentTarget {
+  readonly type = DeploymentTargetType.GCE;
 
-  private readonly config: CloudRunConfig;
-  private readonly cpu: string;
-  private readonly memory: string;
-  private readonly maxInstances: number;
-  private readonly minInstances: number;
+  private readonly config: GceConfig;
+  private readonly machineType: string;
+  private readonly bootDiskSizeGb: number;
+  private readonly dataDiskSizeGb: number;
 
   // GCP clients
-  private readonly runClient: ServicesClient;
-  private readonly revisionsClient: RevisionsClient;
-  private readonly secretClient: SecretManagerServiceClient;
-  private readonly logging: Logging;
+  private readonly instancesClient: InstancesClient;
+  private readonly disksClient: DisksClient;
   private readonly networksClient: NetworksClient;
+  private readonly subnetworksClient: SubnetworksClient;
+  private readonly firewallsClient: FirewallsClient;
   private readonly addressesClient: GlobalAddressesClient;
   private readonly backendServicesClient: BackendServicesClient;
   private readonly urlMapsClient: UrlMapsClient;
   private readonly httpProxiesClient: TargetHttpProxiesClient;
   private readonly httpsProxiesClient: TargetHttpsProxiesClient;
   private readonly forwardingRulesClient: GlobalForwardingRulesClient;
-  private readonly negClient: RegionNetworkEndpointGroupsClient;
+  private readonly instanceGroupsClient: InstanceGroupsClient;
   private readonly securityPoliciesClient: SecurityPoliciesClient;
+  private readonly globalOperationsClient: GlobalOperationsClient;
+  private readonly zoneOperationsClient: ZoneOperationsClient;
+  private readonly regionOperationsClient: RegionOperationsClient;
+  private readonly secretClient: SecretManagerServiceClient;
+  private readonly logging: Logging;
 
-  /** Derived resource names — set during install */
-  private serviceName = "";
+  /** Derived resource names - set during install */
+  private instanceName = "";
+  private dataDiskName = "";
   private secretName = "";
   private vpcNetworkName = "";
-  private vpcConnectorName = "";
+  private subnetName = "";
+  private firewallName = "";
   private externalIpName = "";
-  private negName = "";
+  private instanceGroupName = "";
   private backendServiceName = "";
   private urlMapName = "";
   private httpProxyName = "";
@@ -90,12 +101,11 @@ export class CloudRunTarget implements DeploymentTarget {
   /** Cached external IP for getEndpoint */
   private cachedExternalIp = "";
 
-  constructor(config: CloudRunConfig) {
+  constructor(config: GceConfig) {
     this.config = config;
-    this.cpu = config.cpu ?? DEFAULT_CPU;
-    this.memory = config.memory ?? DEFAULT_MEMORY;
-    this.maxInstances = config.maxInstances ?? DEFAULT_MAX_INSTANCES;
-    this.minInstances = config.minInstances ?? DEFAULT_MIN_INSTANCES;
+    this.machineType = config.machineType ?? DEFAULT_MACHINE_TYPE;
+    this.bootDiskSizeGb = config.bootDiskSizeGb ?? DEFAULT_BOOT_DISK_SIZE_GB;
+    this.dataDiskSizeGb = config.dataDiskSizeGb ?? DEFAULT_DATA_DISK_SIZE_GB;
 
     // GCP client options
     const clientOptions = config.keyFilePath
@@ -103,22 +113,27 @@ export class CloudRunTarget implements DeploymentTarget {
       : {};
 
     // Initialize GCP clients
-    this.runClient = new ServicesClient(clientOptions);
-    this.revisionsClient = new RevisionsClient(clientOptions);
-    this.secretClient = new SecretManagerServiceClient(clientOptions);
-    this.logging = new Logging({
-      projectId: config.projectId,
-      ...clientOptions,
-    });
+    this.instancesClient = new InstancesClient(clientOptions);
+    this.disksClient = new DisksClient(clientOptions);
     this.networksClient = new NetworksClient(clientOptions);
+    this.subnetworksClient = new SubnetworksClient(clientOptions);
+    this.firewallsClient = new FirewallsClient(clientOptions);
     this.addressesClient = new GlobalAddressesClient(clientOptions);
     this.backendServicesClient = new BackendServicesClient(clientOptions);
     this.urlMapsClient = new UrlMapsClient(clientOptions);
     this.httpProxiesClient = new TargetHttpProxiesClient(clientOptions);
     this.httpsProxiesClient = new TargetHttpsProxiesClient(clientOptions);
     this.forwardingRulesClient = new GlobalForwardingRulesClient(clientOptions);
-    this.negClient = new RegionNetworkEndpointGroupsClient(clientOptions);
+    this.instanceGroupsClient = new InstanceGroupsClient(clientOptions);
     this.securityPoliciesClient = new SecurityPoliciesClient(clientOptions);
+    this.globalOperationsClient = new GlobalOperationsClient(clientOptions);
+    this.zoneOperationsClient = new ZoneOperationsClient(clientOptions);
+    this.regionOperationsClient = new RegionOperationsClient(clientOptions);
+    this.secretClient = new SecretManagerServiceClient(clientOptions);
+    this.logging = new Logging({
+      projectId: config.projectId,
+      ...clientOptions,
+    });
 
     // Derive resource names from profileName if available (for re-instantiation)
     if (config.profileName) {
@@ -128,12 +143,14 @@ export class CloudRunTarget implements DeploymentTarget {
 
   private deriveResourceNames(profileName: string): void {
     const sanitized = this.sanitizeName(profileName);
-    this.serviceName = `clawster-${sanitized}`;
+    this.instanceName = `clawster-${sanitized}`;
+    this.dataDiskName = `clawster-data-${sanitized}`;
     this.secretName = `clawster-${sanitized}-config`;
     this.vpcNetworkName = this.config.vpcNetworkName ?? `clawster-vpc-${sanitized}`;
-    this.vpcConnectorName = this.config.vpcConnectorName ?? `clawster-connector-${sanitized}`;
+    this.subnetName = this.config.subnetName ?? `clawster-subnet-${sanitized}`;
+    this.firewallName = `clawster-fw-${sanitized}`;
     this.externalIpName = this.config.externalIpName ?? `clawster-ip-${sanitized}`;
-    this.negName = `clawster-neg-${sanitized}`;
+    this.instanceGroupName = `clawster-ig-${sanitized}`;
     this.backendServiceName = `clawster-backend-${sanitized}`;
     this.urlMapName = `clawster-urlmap-${sanitized}`;
     this.httpProxyName = `clawster-http-proxy-${sanitized}`;
@@ -157,6 +174,12 @@ export class CloudRunTarget implements DeploymentTarget {
       .slice(0, 63);
   }
 
+  /** Extract region from zone (e.g., "us-central1-a" -> "us-central1") */
+  private get region(): string {
+    const parts = this.config.zone.split("-");
+    return parts.slice(0, -1).join("-");
+  }
+
   // ------------------------------------------------------------------
   // install
   // ------------------------------------------------------------------
@@ -173,46 +196,52 @@ export class CloudRunTarget implements DeploymentTarget {
       // 2. Create VPC Network (if it doesn't exist)
       await this.ensureVpcNetwork();
 
-      // 3. Create Serverless VPC Access Connector
-      await this.ensureVpcConnector();
+      // 3. Create Subnet
+      await this.ensureSubnet();
 
-      // 4. Reserve external IP address
+      // 4. Create Firewall rules
+      await this.ensureFirewall();
+
+      // 5. Reserve external IP address
       await this.ensureExternalIp();
 
-      // 5. Create Cloud Run service with INTERNAL_LOAD_BALANCER ingress
-      await this.createCloudRunService(options);
+      // 6. Create Persistent Disk for data
+      await this.ensureDataDisk();
 
-      // 6. Create Serverless NEG pointing to Cloud Run service
-      await this.ensureServerlessNeg();
+      // 7. Create VM instance with Container-Optimized OS
+      await this.createVmInstance(options);
 
-      // 7. Create Cloud Armor security policy (if allowedCidr configured)
+      // 8. Create unmanaged instance group for load balancer
+      await this.ensureInstanceGroup();
+
+      // 9. Create Cloud Armor security policy (if allowedCidr configured)
       if (this.config.allowedCidr && this.config.allowedCidr.length > 0) {
         await this.ensureSecurityPolicy();
       }
 
-      // 8. Create Backend Service with NEG
+      // 10. Create Backend Service with instance group
       await this.ensureBackendService();
 
-      // 9. Create URL Map
+      // 11. Create URL Map
       await this.ensureUrlMap();
 
-      // 10. Create HTTP(S) Proxy
+      // 12. Create HTTP(S) Proxy
       await this.ensureHttpProxy();
 
-      // 11. Create Forwarding Rule
+      // 13. Create Forwarding Rule
       await this.ensureForwardingRule();
 
       return {
         success: true,
-        instanceId: this.serviceName,
-        message: `Cloud Run service "${this.serviceName}" created (VPC + External LB, secure) in ${this.config.region}`,
-        serviceName: this.serviceName,
+        instanceId: this.instanceName,
+        message: `GCE VM "${this.instanceName}" created (VPC + External LB, persistent disk) in ${this.config.zone}`,
+        serviceName: this.instanceName,
       };
     } catch (error) {
       return {
         success: false,
-        instanceId: this.serviceName,
-        message: `Cloud Run install failed: ${error instanceof Error ? error.message : String(error)}`,
+        instanceId: this.instanceName,
+        message: `GCE install failed: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
   }
@@ -232,7 +261,7 @@ export class CloudRunTarget implements DeploymentTarget {
     // Apply the same config transformations as other deployment targets
     const raw = { ...config.config } as Record<string, unknown>;
 
-    // gateway.bind = "lan" — Cloud Run containers MUST bind to 0.0.0.0
+    // gateway.bind = "lan" - container MUST bind to 0.0.0.0
     if (raw.gateway && typeof raw.gateway === "object") {
       const gw = { ...(raw.gateway as Record<string, unknown>) };
       gw.bind = "lan";
@@ -258,7 +287,7 @@ export class CloudRunTarget implements DeploymentTarget {
       delete raw.sandbox;
     }
 
-    // channels.*.enabled is not valid — presence means active
+    // channels.*.enabled is not valid - presence means active
     if (raw.channels && typeof raw.channels === "object") {
       for (const [key, value] of Object.entries(raw.channels as Record<string, unknown>)) {
         if (value && typeof value === "object" && "enabled" in (value as Record<string, unknown>)) {
@@ -271,15 +300,15 @@ export class CloudRunTarget implements DeploymentTarget {
     const configData = JSON.stringify(raw, null, 2);
 
     try {
-      // Store config in Secret Manager
+      // Store config in Secret Manager (backup)
       await this.ensureSecret(this.secretName, configData);
 
-      // Update Cloud Run service to trigger new revision with updated config
-      await this.updateCloudRunServiceEnv(configData);
+      // Update VM instance metadata with new config
+      await this.updateVmMetadata(configData);
 
       return {
         success: true,
-        message: `Configuration stored in Secret Manager as "${this.secretName}"`,
+        message: `Configuration stored in Secret Manager as "${this.secretName}" and applied to VM metadata`,
         requiresRestart: true,
       };
     } catch (error) {
@@ -296,29 +325,13 @@ export class CloudRunTarget implements DeploymentTarget {
   // ------------------------------------------------------------------
 
   async start(): Promise<void> {
-    // Set minInstances to 1 to ensure the service is running
-    const servicePath = this.runClient.servicePath(
-      this.config.projectId,
-      this.config.region,
-      this.serviceName
-    );
-
-    const [service] = await this.runClient.getService({ name: servicePath });
-    if (!service.template) {
-      throw new Error("Service template not found");
-    }
-
-    service.template.scaling = {
-      ...service.template.scaling,
-      minInstanceCount: 1,
-    };
-
-    const [operation] = await this.runClient.updateService({
-      service,
-      allowMissing: false,
+    const [operation] = await this.instancesClient.start({
+      project: this.config.projectId,
+      zone: this.config.zone,
+      instance: this.instanceName,
     });
 
-    await this.waitForOperation(operation);
+    await this.waitForZoneOperation(operation);
   }
 
   // ------------------------------------------------------------------
@@ -326,30 +339,13 @@ export class CloudRunTarget implements DeploymentTarget {
   // ------------------------------------------------------------------
 
   async stop(): Promise<void> {
-    // Set minInstances to 0 and maxInstances to 0 to stop the service
-    const servicePath = this.runClient.servicePath(
-      this.config.projectId,
-      this.config.region,
-      this.serviceName
-    );
-
-    const [service] = await this.runClient.getService({ name: servicePath });
-    if (!service.template) {
-      throw new Error("Service template not found");
-    }
-
-    service.template.scaling = {
-      ...service.template.scaling,
-      minInstanceCount: 0,
-      maxInstanceCount: 0,
-    };
-
-    const [operation] = await this.runClient.updateService({
-      service,
-      allowMissing: false,
+    const [operation] = await this.instancesClient.stop({
+      project: this.config.projectId,
+      zone: this.config.zone,
+      instance: this.instanceName,
     });
 
-    await this.waitForOperation(operation);
+    await this.waitForZoneOperation(operation);
   }
 
   // ------------------------------------------------------------------
@@ -357,37 +353,13 @@ export class CloudRunTarget implements DeploymentTarget {
   // ------------------------------------------------------------------
 
   async restart(): Promise<void> {
-    // Force a new revision by updating the service with a revision suffix
-    const servicePath = this.runClient.servicePath(
-      this.config.projectId,
-      this.config.region,
-      this.serviceName
-    );
-
-    const [service] = await this.runClient.getService({ name: servicePath });
-    if (!service.template) {
-      throw new Error("Service template not found");
-    }
-
-    // Add/update an annotation to force a new revision
-    service.template.annotations = {
-      ...service.template.annotations,
-      "clawster/restart-timestamp": new Date().toISOString(),
-    };
-
-    // Ensure the service is running
-    service.template.scaling = {
-      ...service.template.scaling,
-      minInstanceCount: 1,
-      maxInstanceCount: this.maxInstances,
-    };
-
-    const [operation] = await this.runClient.updateService({
-      service,
-      allowMissing: false,
+    const [operation] = await this.instancesClient.reset({
+      project: this.config.projectId,
+      zone: this.config.zone,
+      instance: this.instanceName,
     });
 
-    await this.waitForOperation(operation);
+    await this.waitForZoneOperation(operation);
   }
 
   // ------------------------------------------------------------------
@@ -396,40 +368,33 @@ export class CloudRunTarget implements DeploymentTarget {
 
   async getStatus(): Promise<TargetStatus> {
     try {
-      const servicePath = this.runClient.servicePath(
-        this.config.projectId,
-        this.config.region,
-        this.serviceName
-      );
-
-      const [service] = await this.runClient.getService({ name: servicePath });
-
-      // Check the Ready condition
-      const conditions = service.conditions ?? [];
-      const readyCondition = conditions.find((c) => c.type === "Ready");
+      const [instance] = await this.instancesClient.get({
+        project: this.config.projectId,
+        zone: this.config.zone,
+        instance: this.instanceName,
+      });
 
       let state: TargetStatus["state"];
       let error: string | undefined;
 
-      if (readyCondition?.state === "CONDITION_SUCCEEDED") {
-        // Check if scaled to zero
-        const minInstances = service.template?.scaling?.minInstanceCount ?? 0;
-        const maxInstances = service.template?.scaling?.maxInstanceCount ?? 1;
-
-        if (maxInstances === 0) {
-          state = "stopped";
-        } else if (minInstances === 0) {
-          // Could be running or scaled to zero, check latest revision
-          state = "running"; // Assume running if not explicitly stopped
-        } else {
+      switch (instance.status) {
+        case "RUNNING":
           state = "running";
-        }
-      } else if (readyCondition?.state === "CONDITION_FAILED") {
-        state = "error";
-        error = readyCondition.message ?? "Service not ready";
-      } else {
-        // Pending or reconciling
-        state = "running";
+          break;
+        case "STOPPED":
+        case "TERMINATED":
+          state = "stopped";
+          break;
+        case "STAGING":
+        case "PROVISIONING":
+        case "SUSPENDING":
+        case "SUSPENDED":
+        case "REPAIRING":
+          state = "running"; // Transitional states
+          break;
+        default:
+          state = "error";
+          error = `Unknown VM status: ${instance.status}`;
       }
 
       return {
@@ -438,7 +403,6 @@ export class CloudRunTarget implements DeploymentTarget {
         error,
       };
     } catch (error: unknown) {
-      // Check for 404 (service not found)
       if (
         error instanceof Error &&
         (error.message.includes("NOT_FOUND") || error.message.includes("404"))
@@ -455,12 +419,12 @@ export class CloudRunTarget implements DeploymentTarget {
 
   async getLogs(options?: DeploymentLogOptions): Promise<string[]> {
     try {
-      const log = this.logging.log("run.googleapis.com%2Fstdout");
+      const log = this.logging.log("compute.googleapis.com%2Fstartup-script");
 
       const filter = [
-        `resource.type="cloud_run_revision"`,
-        `resource.labels.service_name="${this.serviceName}"`,
-        `resource.labels.location="${this.config.region}"`,
+        `resource.type="gce_instance"`,
+        `resource.labels.instance_id="${this.instanceName}"`,
+        `resource.labels.zone="${this.config.zone}"`,
       ];
 
       if (options?.since) {
@@ -500,7 +464,7 @@ export class CloudRunTarget implements DeploymentTarget {
   // ------------------------------------------------------------------
 
   async getEndpoint(): Promise<GatewayEndpoint> {
-    // CRITICAL: Return the External Load Balancer IP, NEVER the Cloud Run URL
+    // CRITICAL: Return the External Load Balancer IP, NEVER the VM's ephemeral IP
     if (!this.cachedExternalIp) {
       const [address] = await this.addressesClient.get({
         project: this.config.projectId,
@@ -590,32 +554,43 @@ export class CloudRunTarget implements DeploymentTarget {
       // May not exist
     }
 
-    // 6. Delete Serverless NEG
+    // 6. Delete Instance Group
     try {
-      const [operation] = await this.negClient.delete({
+      const [operation] = await this.instanceGroupsClient.delete({
         project: this.config.projectId,
-        region: this.config.region,
-        networkEndpointGroup: this.negName,
+        zone: this.config.zone,
+        instanceGroup: this.instanceGroupName,
       });
-      await this.waitForRegionOperation(operation);
+      await this.waitForZoneOperation(operation);
     } catch {
       // May not exist
     }
 
-    // 7. Delete Cloud Run Service
+    // 7. Delete VM Instance
     try {
-      const servicePath = this.runClient.servicePath(
-        this.config.projectId,
-        this.config.region,
-        this.serviceName
-      );
-      const [operation] = await this.runClient.deleteService({ name: servicePath });
-      await this.waitForOperation(operation);
+      const [operation] = await this.instancesClient.delete({
+        project: this.config.projectId,
+        zone: this.config.zone,
+        instance: this.instanceName,
+      });
+      await this.waitForZoneOperation(operation);
     } catch {
       // May not exist
     }
 
-    // 8. Delete External IP
+    // 8. Delete Data Disk
+    try {
+      const [operation] = await this.disksClient.delete({
+        project: this.config.projectId,
+        zone: this.config.zone,
+        disk: this.dataDiskName,
+      });
+      await this.waitForZoneOperation(operation);
+    } catch {
+      // May not exist
+    }
+
+    // 9. Delete External IP
     try {
       const [operation] = await this.addressesClient.delete({
         project: this.config.projectId,
@@ -626,15 +601,18 @@ export class CloudRunTarget implements DeploymentTarget {
       // May not exist
     }
 
-    // 9. VPC Connector is NOT deleted automatically
-    // VPC Connector deletion requires the @google-cloud/vpc-access client.
-    // VPC Connectors can be reused across multiple Cloud Run services and are
-    // relatively inexpensive, so they are intentionally preserved.
-    // To delete manually:
-    //   gcloud compute networks vpc-access connectors delete ${this.vpcConnectorName} \
-    //     --region=${this.config.region}
+    // 10. Delete Firewall
+    try {
+      const [operation] = await this.firewallsClient.delete({
+        project: this.config.projectId,
+        firewall: this.firewallName,
+      });
+      await this.waitForGlobalOperation(operation);
+    } catch {
+      // May not exist
+    }
 
-    // 10. Delete Secret
+    // 11. Delete Secret
     try {
       const secretPath = `projects/${this.config.projectId}/secrets/${this.secretName}`;
       await this.secretClient.deleteSecret({ name: secretPath });
@@ -642,7 +620,7 @@ export class CloudRunTarget implements DeploymentTarget {
       // May not exist
     }
 
-    // Note: VPC Network is NOT deleted as it may be shared with other services
+    // Note: VPC Network and Subnet are NOT deleted as they may be shared with other services
   }
 
   // ------------------------------------------------------------------
@@ -712,8 +690,8 @@ export class CloudRunTarget implements DeploymentTarget {
           project: this.config.projectId,
           networkResource: {
             name: this.vpcNetworkName,
-            autoCreateSubnetworks: true, // Auto mode creates subnets in each region
-            description: `Clawster VPC for ${this.serviceName}`,
+            autoCreateSubnetworks: false, // Custom subnets
+            description: `Clawster VPC for ${this.instanceName}`,
           },
         });
         await this.waitForGlobalOperation(operation);
@@ -723,23 +701,72 @@ export class CloudRunTarget implements DeploymentTarget {
     }
   }
 
-  private async ensureVpcConnector(): Promise<void> {
-    // VPC Access Connector creation requires the @google-cloud/vpc-access client
-    // which is not included in this package. The connector must be created manually
-    // or via Terraform/gcloud before deploying Cloud Run services that need VPC egress.
-    //
-    // The VPC Connector needs to be in the same region as Cloud Run.
-    // It provides private network access for outbound connections.
-    // Format: projects/{project}/locations/{region}/connectors/{connector}
-    //
-    // If vpcConnectorName is not configured, the Cloud Run service will use
-    // default egress (direct internet access) which is acceptable for most use cases.
-    //
-    // To create a VPC Connector manually:
-    //   gcloud compute networks vpc-access connectors create ${this.vpcConnectorName} \
-    //     --region=${this.config.region} \
-    //     --network=${this.vpcNetworkName} \
-    //     --range=${DEFAULT_VPC_CONNECTOR_IP_RANGE}
+  private async ensureSubnet(): Promise<void> {
+    try {
+      await this.subnetworksClient.get({
+        project: this.config.projectId,
+        region: this.region,
+        subnetwork: this.subnetName,
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        (error.message.includes("NOT_FOUND") || error.message.includes("404"))
+      ) {
+        const [operation] = await this.subnetworksClient.insert({
+          project: this.config.projectId,
+          region: this.region,
+          subnetworkResource: {
+            name: this.subnetName,
+            network: `projects/${this.config.projectId}/global/networks/${this.vpcNetworkName}`,
+            ipCidrRange: "10.0.0.0/24",
+            region: this.region,
+            description: `Clawster subnet for ${this.instanceName}`,
+          },
+        });
+        await this.waitForRegionOperation(operation);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  private async ensureFirewall(): Promise<void> {
+    try {
+      await this.firewallsClient.get({
+        project: this.config.projectId,
+        firewall: this.firewallName,
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        (error.message.includes("NOT_FOUND") || error.message.includes("404"))
+      ) {
+        const [operation] = await this.firewallsClient.insert({
+          project: this.config.projectId,
+          firewallResource: {
+            name: this.firewallName,
+            network: `projects/${this.config.projectId}/global/networks/${this.vpcNetworkName}`,
+            description: `Allow traffic to Clawster instance ${this.instanceName}`,
+            allowed: [
+              {
+                IPProtocol: "tcp",
+                ports: [String(this.gatewayPort)],
+              },
+            ],
+            // Allow traffic from GCP health check ranges and the LB
+            sourceRanges: [
+              "130.211.0.0/22", // GCP health check
+              "35.191.0.0/16", // GCP health check
+            ],
+            targetTags: [`clawster-${this.sanitizeName(this.instanceName)}`],
+          },
+        });
+        await this.waitForGlobalOperation(operation);
+      } else {
+        throw error;
+      }
+    }
   }
 
   private async ensureExternalIp(): Promise<void> {
@@ -758,7 +785,7 @@ export class CloudRunTarget implements DeploymentTarget {
           project: this.config.projectId,
           addressResource: {
             name: this.externalIpName,
-            description: `External IP for Clawster service ${this.serviceName}`,
+            description: `External IP for Clawster instance ${this.instanceName}`,
             networkTier: "PREMIUM",
           },
         });
@@ -777,159 +804,258 @@ export class CloudRunTarget implements DeploymentTarget {
   }
 
   // ------------------------------------------------------------------
-  // Private helpers - Cloud Run Service
+  // Private helpers - Persistent Disk
   // ------------------------------------------------------------------
 
-  private async createCloudRunService(options: InstallOptions): Promise<void> {
-    const imageUri = this.config.image ?? "node:22-slim";
-
-    // Build environment variables
-    const envVars: Array<{ name: string; value: string }> = [
-      { name: "OPENCLAW_GATEWAY_PORT", value: String(this.gatewayPort) },
-      { name: "OPENCLAW_CONFIG", value: "{}" }, // Initial empty config
-    ];
-
-    if (options.gatewayAuthToken) {
-      envVars.push({
-        name: "OPENCLAW_GATEWAY_TOKEN",
-        value: options.gatewayAuthToken,
-      });
-    }
-
-    for (const [key, value] of Object.entries(options.containerEnv ?? {})) {
-      envVars.push({ name: key, value });
-    }
-
-    const parent = `projects/${this.config.projectId}/locations/${this.config.region}`;
-
-    const service = {
-      template: {
-        containers: [
-          {
-            image: imageUri,
-            ports: [{ containerPort: this.gatewayPort }],
-            env: envVars,
-            resources: {
-              limits: {
-                cpu: this.cpu,
-                memory: this.memory,
-              },
-            },
-            // Startup command to write config and run gateway
-            command: ["/bin/sh"],
-            args: [
-              "-c",
-              `mkdir -p ~/.openclaw && echo "$OPENCLAW_CONFIG" > ~/.openclaw/openclaw.json && npx -y openclaw@latest gateway --port ${this.gatewayPort} --verbose`,
-            ],
-          },
-        ],
-        scaling: {
-          minInstanceCount: this.minInstances,
-          maxInstanceCount: this.maxInstances,
-        },
-        // VPC Connector for outbound traffic
-        vpcAccess: this.config.vpcConnectorName
-          ? {
-              connector: `projects/${this.config.projectId}/locations/${this.config.region}/connectors/${this.vpcConnectorName}`,
-              egress: "ALL_TRAFFIC",
-            }
-          : undefined,
-        annotations: {
-          "clawster/managed": "true",
-          "clawster/profile": options.profileName,
-        },
-      },
-      // CRITICAL: Internal ingress only - traffic comes through Load Balancer
-      // IngressTraffic.INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER = 3
-      ingress: 3,
-      annotations: {
-        "clawster/managed": "true",
-      },
-      labels: {
-        "clawster-managed": "true",
-        "clawster-profile": this.sanitizeName(options.profileName),
-      },
-    };
-
-    const [operation] = await this.runClient.createService({
-      parent,
-      serviceId: this.serviceName,
-      service: service as Parameters<typeof this.runClient.createService>[0]["service"],
-    });
-
-    await this.waitForOperation(operation);
-  }
-
-  private async updateCloudRunServiceEnv(configData: string): Promise<void> {
-    const servicePath = this.runClient.servicePath(
-      this.config.projectId,
-      this.config.region,
-      this.serviceName
-    );
-
-    const [service] = await this.runClient.getService({ name: servicePath });
-
-    if (!service.template?.containers?.[0]) {
-      throw new Error("Service template or container not found");
-    }
-
-    // Update OPENCLAW_CONFIG env var
-    const envVars = service.template.containers[0].env ?? [];
-    const configEnvIndex = envVars.findIndex((e) => e.name === "OPENCLAW_CONFIG");
-    if (configEnvIndex >= 0) {
-      envVars[configEnvIndex].value = configData;
-    } else {
-      envVars.push({ name: "OPENCLAW_CONFIG", value: configData });
-    }
-    service.template.containers[0].env = envVars;
-
-    // Force new revision
-    service.template.annotations = {
-      ...service.template.annotations,
-      "clawster/config-update": new Date().toISOString(),
-    };
-
-    const [operation] = await this.runClient.updateService({
-      service,
-      allowMissing: false,
-    });
-
-    await this.waitForOperation(operation);
-  }
-
-  // ------------------------------------------------------------------
-  // Private helpers - Load Balancer Infrastructure
-  // ------------------------------------------------------------------
-
-  private async ensureServerlessNeg(): Promise<void> {
+  private async ensureDataDisk(): Promise<void> {
     try {
-      await this.negClient.get({
+      await this.disksClient.get({
         project: this.config.projectId,
-        region: this.config.region,
-        networkEndpointGroup: this.negName,
+        zone: this.config.zone,
+        disk: this.dataDiskName,
       });
     } catch (error: unknown) {
       if (
         error instanceof Error &&
         (error.message.includes("NOT_FOUND") || error.message.includes("404"))
       ) {
-        const [operation] = await this.negClient.insert({
+        const [operation] = await this.disksClient.insert({
           project: this.config.projectId,
-          region: this.config.region,
-          networkEndpointGroupResource: {
-            name: this.negName,
-            networkEndpointType: "SERVERLESS",
-            cloudRun: {
-              service: this.serviceName,
-            },
+          zone: this.config.zone,
+          diskResource: {
+            name: this.dataDiskName,
+            sizeGb: String(this.dataDiskSizeGb),
+            type: `zones/${this.config.zone}/diskTypes/pd-standard`,
+            description: `Persistent data disk for Clawster instance ${this.instanceName}`,
           },
         });
-        await this.waitForRegionOperation(operation);
+        await this.waitForZoneOperation(operation);
       } else {
         throw error;
       }
     }
   }
+
+  // ------------------------------------------------------------------
+  // Private helpers - VM Instance
+  // ------------------------------------------------------------------
+
+  private async createVmInstance(options: InstallOptions): Promise<void> {
+    const imageUri = this.config.image ?? "node:22-slim";
+    const networkTag = `clawster-${this.sanitizeName(options.profileName)}`;
+
+    // Startup script that:
+    // 1. Formats and mounts the data disk
+    // 2. Pulls the config from metadata
+    // 3. Runs OpenClaw in Docker with Docker socket mounted (for sandbox)
+    const startupScript = `#!/bin/bash
+set -e
+
+# Format and mount data disk if not already mounted
+DATA_DISK="/dev/disk/by-id/google-${this.dataDiskName}"
+MOUNT_POINT="/mnt/openclaw"
+
+if ! mountpoint -q "$MOUNT_POINT"; then
+  sudo mkdir -p "$MOUNT_POINT"
+
+  # Check if disk needs formatting
+  if ! blkid "$DATA_DISK"; then
+    sudo mkfs.ext4 -F "$DATA_DISK"
+  fi
+
+  sudo mount "$DATA_DISK" "$MOUNT_POINT"
+  sudo chmod 777 "$MOUNT_POINT"
+
+  # Add to fstab for persistence
+  if ! grep -q "$MOUNT_POINT" /etc/fstab; then
+    echo "$DATA_DISK $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+  fi
+fi
+
+# Get config from instance metadata
+GATEWAY_PORT=$(curl -s -H "Metadata-Flavor: Google" \\
+  http://metadata.google.internal/computeMetadata/v1/instance/attributes/gateway-port || echo "${this.gatewayPort}")
+GATEWAY_TOKEN=$(curl -s -H "Metadata-Flavor: Google" \\
+  http://metadata.google.internal/computeMetadata/v1/instance/attributes/gateway-token || echo "")
+OPENCLAW_CONFIG=$(curl -s -H "Metadata-Flavor: Google" \\
+  http://metadata.google.internal/computeMetadata/v1/instance/attributes/openclaw-config || echo "{}")
+
+# Create config directory
+mkdir -p "$MOUNT_POINT/.openclaw"
+echo "$OPENCLAW_CONFIG" > "$MOUNT_POINT/.openclaw/openclaw.json"
+
+# Stop any existing container
+docker rm -f openclaw-gateway 2>/dev/null || true
+
+# Run OpenClaw in Docker with full Docker access (for sandbox)
+docker run -d \\
+  --name openclaw-gateway \\
+  --restart=always \\
+  -p $GATEWAY_PORT:$GATEWAY_PORT \\
+  -v "$MOUNT_POINT/.openclaw:/home/node/.openclaw" \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
+  -e OPENCLAW_GATEWAY_PORT=$GATEWAY_PORT \\
+  -e OPENCLAW_GATEWAY_TOKEN="$GATEWAY_TOKEN" \\
+  ${imageUri} \\
+  sh -c "npx -y openclaw@latest gateway --port $GATEWAY_PORT --verbose"
+`;
+
+    // Build metadata items
+    const metadataItems: Array<{ key: string; value: string }> = [
+      { key: "startup-script", value: startupScript },
+      { key: "gateway-port", value: String(this.gatewayPort) },
+      { key: "openclaw-config", value: "{}" },
+    ];
+
+    if (options.gatewayAuthToken) {
+      metadataItems.push({ key: "gateway-token", value: options.gatewayAuthToken });
+    }
+
+    // Add container env vars to metadata
+    for (const [key, value] of Object.entries(options.containerEnv ?? {})) {
+      metadataItems.push({ key: `env-${key}`, value });
+    }
+
+    const [operation] = await this.instancesClient.insert({
+      project: this.config.projectId,
+      zone: this.config.zone,
+      instanceResource: {
+        name: this.instanceName,
+        machineType: `zones/${this.config.zone}/machineTypes/${this.machineType}`,
+        description: `Clawster OpenClaw instance for ${options.profileName}`,
+        tags: {
+          items: [networkTag],
+        },
+        disks: [
+          {
+            boot: true,
+            autoDelete: true,
+            initializeParams: {
+              // Container-Optimized OS - has Docker pre-installed
+              sourceImage: "projects/cos-cloud/global/images/family/cos-stable",
+              diskSizeGb: String(this.bootDiskSizeGb),
+              diskType: `zones/${this.config.zone}/diskTypes/pd-standard`,
+            },
+          },
+          {
+            // Attach the data disk
+            boot: false,
+            autoDelete: false,
+            source: `zones/${this.config.zone}/disks/${this.dataDiskName}`,
+            deviceName: this.dataDiskName,
+          },
+        ],
+        networkInterfaces: [
+          {
+            network: `projects/${this.config.projectId}/global/networks/${this.vpcNetworkName}`,
+            subnetwork: `projects/${this.config.projectId}/regions/${this.region}/subnetworks/${this.subnetName}`,
+            // No external IP - traffic goes through LB
+            accessConfigs: [],
+          },
+        ],
+        metadata: {
+          items: metadataItems,
+        },
+        labels: {
+          "clawster-managed": "true",
+          "clawster-profile": this.sanitizeName(options.profileName),
+        },
+        serviceAccounts: [
+          {
+            scopes: [
+              "https://www.googleapis.com/auth/cloud-platform",
+            ],
+          },
+        ],
+      },
+    });
+
+    await this.waitForZoneOperation(operation);
+  }
+
+  private async updateVmMetadata(configData: string): Promise<void> {
+    // Get current instance
+    const [instance] = await this.instancesClient.get({
+      project: this.config.projectId,
+      zone: this.config.zone,
+      instance: this.instanceName,
+    });
+
+    // Update metadata
+    const currentItems = instance.metadata?.items ?? [];
+    const newItems = currentItems.filter((item) => item.key !== "openclaw-config");
+    newItems.push({ key: "openclaw-config", value: configData });
+
+    const [operation] = await this.instancesClient.setMetadata({
+      project: this.config.projectId,
+      zone: this.config.zone,
+      instance: this.instanceName,
+      metadataResource: {
+        fingerprint: instance.metadata?.fingerprint,
+        items: newItems,
+      },
+    });
+
+    await this.waitForZoneOperation(operation);
+  }
+
+  // ------------------------------------------------------------------
+  // Private helpers - Instance Group
+  // ------------------------------------------------------------------
+
+  private async ensureInstanceGroup(): Promise<void> {
+    try {
+      await this.instanceGroupsClient.get({
+        project: this.config.projectId,
+        zone: this.config.zone,
+        instanceGroup: this.instanceGroupName,
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        (error.message.includes("NOT_FOUND") || error.message.includes("404"))
+      ) {
+        // Create unmanaged instance group
+        const [operation] = await this.instanceGroupsClient.insert({
+          project: this.config.projectId,
+          zone: this.config.zone,
+          instanceGroupResource: {
+            name: this.instanceGroupName,
+            description: `Instance group for Clawster ${this.instanceName}`,
+            network: `projects/${this.config.projectId}/global/networks/${this.vpcNetworkName}`,
+            namedPorts: [
+              {
+                name: "http",
+                port: this.gatewayPort,
+              },
+            ],
+          },
+        });
+        await this.waitForZoneOperation(operation);
+
+        // Add instance to group
+        const [addOperation] = await this.instanceGroupsClient.addInstances({
+          project: this.config.projectId,
+          zone: this.config.zone,
+          instanceGroup: this.instanceGroupName,
+          instanceGroupsAddInstancesRequestResource: {
+            instances: [
+              {
+                instance: `zones/${this.config.zone}/instances/${this.instanceName}`,
+              },
+            ],
+          },
+        });
+        await this.waitForZoneOperation(addOperation);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Private helpers - Load Balancer Infrastructure
+  // ------------------------------------------------------------------
 
   private async ensureSecurityPolicy(): Promise<void> {
     const allowedCidr = this.config.allowedCidr ?? ["0.0.0.0/0"];
@@ -974,7 +1100,7 @@ export class CloudRunTarget implements DeploymentTarget {
           project: this.config.projectId,
           securityPolicyResource: {
             name: this.securityPolicyName,
-            description: `Cloud Armor policy for Clawster service ${this.serviceName}`,
+            description: `Cloud Armor policy for Clawster instance ${this.instanceName}`,
             rules,
           },
         });
@@ -986,7 +1112,7 @@ export class CloudRunTarget implements DeploymentTarget {
   }
 
   private async ensureBackendService(): Promise<void> {
-    const negSelfLink = `https://www.googleapis.com/compute/v1/projects/${this.config.projectId}/regions/${this.config.region}/networkEndpointGroups/${this.negName}`;
+    const instanceGroupSelfLink = `https://www.googleapis.com/compute/v1/projects/${this.config.projectId}/zones/${this.config.zone}/instanceGroups/${this.instanceGroupName}`;
 
     try {
       await this.backendServicesClient.get({
@@ -1000,15 +1126,17 @@ export class CloudRunTarget implements DeploymentTarget {
       ) {
         const backendService: Record<string, unknown> = {
           name: this.backendServiceName,
-          description: `Backend service for Clawster ${this.serviceName}`,
+          description: `Backend service for Clawster ${this.instanceName}`,
           backends: [
             {
-              group: negSelfLink,
+              group: instanceGroupSelfLink,
+              balancingMode: "UTILIZATION",
+              maxUtilization: 0.8,
             },
           ],
           protocol: "HTTP",
           portName: "http",
-          enableCDN: false,
+          healthChecks: [], // We'll use a simple TCP health check created inline
           loadBalancingScheme: "EXTERNAL_MANAGED",
         };
 
@@ -1045,7 +1173,7 @@ export class CloudRunTarget implements DeploymentTarget {
           project: this.config.projectId,
           urlMapResource: {
             name: this.urlMapName,
-            description: `URL map for Clawster ${this.serviceName}`,
+            description: `URL map for Clawster ${this.instanceName}`,
             defaultService: backendServiceSelfLink,
           },
         });
@@ -1075,7 +1203,7 @@ export class CloudRunTarget implements DeploymentTarget {
             project: this.config.projectId,
             targetHttpsProxyResource: {
               name: this.httpsProxyName,
-              description: `HTTPS proxy for Clawster ${this.serviceName}`,
+              description: `HTTPS proxy for Clawster ${this.instanceName}`,
               urlMap: urlMapSelfLink,
               sslCertificates: [this.config.sslCertificateId],
             },
@@ -1101,7 +1229,7 @@ export class CloudRunTarget implements DeploymentTarget {
             project: this.config.projectId,
             targetHttpProxyResource: {
               name: this.httpProxyName,
-              description: `HTTP proxy for Clawster ${this.serviceName}`,
+              description: `HTTP proxy for Clawster ${this.instanceName}`,
               urlMap: urlMapSelfLink,
             },
           });
@@ -1135,7 +1263,7 @@ export class CloudRunTarget implements DeploymentTarget {
           project: this.config.projectId,
           forwardingRuleResource: {
             name: this.forwardingRuleName,
-            description: `Forwarding rule for Clawster ${this.serviceName}`,
+            description: `Forwarding rule for Clawster ${this.instanceName}`,
             IPAddress: ipSelfLink,
             IPProtocol: "TCP",
             portRange: this.config.sslCertificateId ? "443" : "80",
@@ -1155,33 +1283,80 @@ export class CloudRunTarget implements DeploymentTarget {
   // Private helpers - Operation waiting
   // ------------------------------------------------------------------
 
-  private async waitForOperation(operation: unknown): Promise<void> {
-    // Cloud Run operations return a promise that resolves when complete
-    if (operation && typeof operation === "object" && "promise" in operation) {
-      await (operation as { promise: () => Promise<unknown> }).promise();
-    }
-  }
-
   private async waitForGlobalOperation(operation: unknown): Promise<void> {
-    // Compute global operations need polling
-    const op = operation as { name?: string; latestResponse?: { status?: string; error?: { errors?: Array<{ message?: string }> } } };
+    const op = operation as { name?: string };
     if (!op?.name) return;
+
+    const operationName = op.name.split("/").pop() ?? op.name;
 
     const start = Date.now();
     while (Date.now() - start < OPERATION_TIMEOUT_MS) {
-      if (op.latestResponse?.status === "DONE") {
-        if (op.latestResponse?.error?.errors?.length) {
-          throw new Error(op.latestResponse.error.errors[0]?.message ?? "Operation failed");
+      const [result] = await this.globalOperationsClient.get({
+        project: this.config.projectId,
+        operation: operationName,
+      });
+
+      if (result.status === "DONE") {
+        if (result.error?.errors?.length) {
+          throw new Error(result.error.errors[0]?.message ?? "Operation failed");
         }
         return;
       }
+
       await new Promise((resolve) => setTimeout(resolve, OPERATION_POLL_INTERVAL_MS));
     }
-    throw new Error(`Operation timed out: ${op.name}`);
+    throw new Error(`Operation timed out: ${operationName}`);
+  }
+
+  private async waitForZoneOperation(operation: unknown): Promise<void> {
+    const op = operation as { name?: string };
+    if (!op?.name) return;
+
+    const operationName = op.name.split("/").pop() ?? op.name;
+
+    const start = Date.now();
+    while (Date.now() - start < OPERATION_TIMEOUT_MS) {
+      const [result] = await this.zoneOperationsClient.get({
+        project: this.config.projectId,
+        zone: this.config.zone,
+        operation: operationName,
+      });
+
+      if (result.status === "DONE") {
+        if (result.error?.errors?.length) {
+          throw new Error(result.error.errors[0]?.message ?? "Operation failed");
+        }
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, OPERATION_POLL_INTERVAL_MS));
+    }
+    throw new Error(`Operation timed out: ${operationName}`);
   }
 
   private async waitForRegionOperation(operation: unknown): Promise<void> {
-    // Same as global operation for now
-    await this.waitForGlobalOperation(operation);
+    const op = operation as { name?: string };
+    if (!op?.name) return;
+
+    const operationName = op.name.split("/").pop() ?? op.name;
+
+    const start = Date.now();
+    while (Date.now() - start < OPERATION_TIMEOUT_MS) {
+      const [result] = await this.regionOperationsClient.get({
+        project: this.config.projectId,
+        region: this.region,
+        operation: operationName,
+      });
+
+      if (result.status === "DONE") {
+        if (result.error?.errors?.length) {
+          throw new Error(result.error.errors[0]?.message ?? "Operation failed");
+        }
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, OPERATION_POLL_INTERVAL_MS));
+    }
+    throw new Error(`Operation timed out: ${operationName}`);
   }
 }

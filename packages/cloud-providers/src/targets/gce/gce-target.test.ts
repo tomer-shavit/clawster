@@ -1,42 +1,35 @@
-import { CloudRunTarget } from "./cloud-run-target";
-import type { CloudRunConfig } from "./cloud-run-config";
+import { GceTarget } from "./gce-target";
+import type { GceConfig } from "./gce-config";
 import { DeploymentTargetType } from "../../interface/deployment-target";
 
 // Mock all GCP SDK clients
-jest.mock("@google-cloud/run", () => ({
-  ServicesClient: jest.fn().mockImplementation(() => ({
-    servicePath: jest.fn((project, region, service) =>
-      `projects/${project}/locations/${region}/services/${service}`
-    ),
-    getService: jest.fn(),
-    createService: jest.fn(),
-    updateService: jest.fn(),
-    deleteService: jest.fn(),
-  })),
-  RevisionsClient: jest.fn().mockImplementation(() => ({})),
-}));
-
-jest.mock("@google-cloud/secret-manager", () => ({
-  SecretManagerServiceClient: jest.fn().mockImplementation(() => ({
-    getSecret: jest.fn(),
-    createSecret: jest.fn(),
-    addSecretVersion: jest.fn(),
-    deleteSecret: jest.fn(),
-  })),
-}));
-
-jest.mock("@google-cloud/logging", () => ({
-  Logging: jest.fn().mockImplementation(() => ({
-    log: jest.fn().mockReturnValue({
-      getEntries: jest.fn().mockResolvedValue([[]]),
-    }),
-  })),
-}));
-
 jest.mock("@google-cloud/compute", () => ({
+  InstancesClient: jest.fn().mockImplementation(() => ({
+    get: jest.fn(),
+    insert: jest.fn(),
+    delete: jest.fn(),
+    start: jest.fn(),
+    stop: jest.fn(),
+    reset: jest.fn(),
+    setMetadata: jest.fn(),
+  })),
+  DisksClient: jest.fn().mockImplementation(() => ({
+    get: jest.fn(),
+    insert: jest.fn(),
+    delete: jest.fn(),
+  })),
   NetworksClient: jest.fn().mockImplementation(() => ({
     get: jest.fn(),
     insert: jest.fn(),
+  })),
+  SubnetworksClient: jest.fn().mockImplementation(() => ({
+    get: jest.fn(),
+    insert: jest.fn(),
+  })),
+  FirewallsClient: jest.fn().mockImplementation(() => ({
+    get: jest.fn(),
+    insert: jest.fn(),
+    delete: jest.fn(),
   })),
   GlobalAddressesClient: jest.fn().mockImplementation(() => ({
     get: jest.fn(),
@@ -68,22 +61,49 @@ jest.mock("@google-cloud/compute", () => ({
     insert: jest.fn(),
     delete: jest.fn(),
   })),
-  RegionNetworkEndpointGroupsClient: jest.fn().mockImplementation(() => ({
+  InstanceGroupsClient: jest.fn().mockImplementation(() => ({
     get: jest.fn(),
     insert: jest.fn(),
     delete: jest.fn(),
+    addInstances: jest.fn(),
   })),
   SecurityPoliciesClient: jest.fn().mockImplementation(() => ({
     get: jest.fn(),
     insert: jest.fn(),
     delete: jest.fn(),
   })),
+  GlobalOperationsClient: jest.fn().mockImplementation(() => ({
+    get: jest.fn().mockResolvedValue([{ status: "DONE" }]),
+  })),
+  ZoneOperationsClient: jest.fn().mockImplementation(() => ({
+    get: jest.fn().mockResolvedValue([{ status: "DONE" }]),
+  })),
+  RegionOperationsClient: jest.fn().mockImplementation(() => ({
+    get: jest.fn().mockResolvedValue([{ status: "DONE" }]),
+  })),
 }));
 
-describe("CloudRunTarget", () => {
-  const baseConfig: CloudRunConfig = {
+jest.mock("@google-cloud/secret-manager", () => ({
+  SecretManagerServiceClient: jest.fn().mockImplementation(() => ({
+    getSecret: jest.fn(),
+    createSecret: jest.fn(),
+    addSecretVersion: jest.fn(),
+    deleteSecret: jest.fn(),
+  })),
+}));
+
+jest.mock("@google-cloud/logging", () => ({
+  Logging: jest.fn().mockImplementation(() => ({
+    log: jest.fn().mockReturnValue({
+      getEntries: jest.fn().mockResolvedValue([[]]),
+    }),
+  })),
+}));
+
+describe("GceTarget", () => {
+  const baseConfig: GceConfig = {
     projectId: "test-project",
-    region: "us-central1",
+    zone: "us-central1-a",
     profileName: "test-bot",
   };
 
@@ -92,54 +112,56 @@ describe("CloudRunTarget", () => {
   });
 
   describe("constructor", () => {
-    it("should create a CloudRunTarget with default values", () => {
-      const target = new CloudRunTarget(baseConfig);
+    it("should create a GceTarget with default values", () => {
+      const target = new GceTarget(baseConfig);
 
-      expect(target.type).toBe(DeploymentTargetType.CLOUD_RUN);
+      expect(target.type).toBe(DeploymentTargetType.GCE);
     });
 
     it("should derive resource names from profileName", () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       // Access private properties via type assertion for testing
       const targetAny = target as unknown as {
-        serviceName: string;
+        instanceName: string;
+        dataDiskName: string;
         secretName: string;
         vpcNetworkName: string;
       };
 
-      expect(targetAny.serviceName).toBe("clawster-test-bot");
+      expect(targetAny.instanceName).toBe("clawster-test-bot");
+      expect(targetAny.dataDiskName).toBe("clawster-data-test-bot");
       expect(targetAny.secretName).toBe("clawster-test-bot-config");
       expect(targetAny.vpcNetworkName).toBe("clawster-vpc-test-bot");
     });
 
     it("should use custom values from config when provided", () => {
-      const customConfig: CloudRunConfig = {
+      const customConfig: GceConfig = {
         ...baseConfig,
-        cpu: "2",
-        memory: "4Gi",
-        maxInstances: 5,
+        machineType: "n1-standard-2",
+        bootDiskSizeGb: 50,
+        dataDiskSizeGb: 20,
         vpcNetworkName: "custom-vpc",
       };
 
-      const target = new CloudRunTarget(customConfig);
+      const target = new GceTarget(customConfig);
       const targetAny = target as unknown as {
-        cpu: string;
-        memory: string;
-        maxInstances: number;
+        machineType: string;
+        bootDiskSizeGb: number;
+        dataDiskSizeGb: number;
         vpcNetworkName: string;
       };
 
-      expect(targetAny.cpu).toBe("2");
-      expect(targetAny.memory).toBe("4Gi");
-      expect(targetAny.maxInstances).toBe(5);
+      expect(targetAny.machineType).toBe("n1-standard-2");
+      expect(targetAny.bootDiskSizeGb).toBe(50);
+      expect(targetAny.dataDiskSizeGb).toBe(20);
       expect(targetAny.vpcNetworkName).toBe("custom-vpc");
     });
   });
 
   describe("sanitizeName", () => {
     it("should sanitize names for GCP resources", () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
       const targetAny = target as unknown as {
         sanitizeName: (name: string) => string;
       };
@@ -152,7 +174,7 @@ describe("CloudRunTarget", () => {
     });
 
     it("should truncate names longer than 63 characters", () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
       const targetAny = target as unknown as {
         sanitizeName: (name: string) => string;
       };
@@ -162,18 +184,43 @@ describe("CloudRunTarget", () => {
     });
   });
 
+  describe("region getter", () => {
+    it("should extract region from zone", () => {
+      const target = new GceTarget(baseConfig);
+      const targetAny = target as unknown as {
+        region: string;
+      };
+
+      expect(targetAny.region).toBe("us-central1");
+    });
+
+    it("should handle different zone formats", () => {
+      const target = new GceTarget({
+        ...baseConfig,
+        zone: "europe-west1-b",
+      });
+      const targetAny = target as unknown as {
+        region: string;
+      };
+
+      expect(targetAny.region).toBe("europe-west1");
+    });
+  });
+
   describe("install", () => {
     it("should return success result on successful install", async () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       // Mock all the necessary methods
       const targetAny = target as unknown as {
         ensureSecret: jest.Mock;
         ensureVpcNetwork: jest.Mock;
-        ensureVpcConnector: jest.Mock;
+        ensureSubnet: jest.Mock;
+        ensureFirewall: jest.Mock;
         ensureExternalIp: jest.Mock;
-        createCloudRunService: jest.Mock;
-        ensureServerlessNeg: jest.Mock;
+        ensureDataDisk: jest.Mock;
+        createVmInstance: jest.Mock;
+        ensureInstanceGroup: jest.Mock;
         ensureBackendService: jest.Mock;
         ensureUrlMap: jest.Mock;
         ensureHttpProxy: jest.Mock;
@@ -182,10 +229,12 @@ describe("CloudRunTarget", () => {
 
       targetAny.ensureSecret = jest.fn().mockResolvedValue(undefined);
       targetAny.ensureVpcNetwork = jest.fn().mockResolvedValue(undefined);
-      targetAny.ensureVpcConnector = jest.fn().mockResolvedValue(undefined);
+      targetAny.ensureSubnet = jest.fn().mockResolvedValue(undefined);
+      targetAny.ensureFirewall = jest.fn().mockResolvedValue(undefined);
       targetAny.ensureExternalIp = jest.fn().mockResolvedValue(undefined);
-      targetAny.createCloudRunService = jest.fn().mockResolvedValue(undefined);
-      targetAny.ensureServerlessNeg = jest.fn().mockResolvedValue(undefined);
+      targetAny.ensureDataDisk = jest.fn().mockResolvedValue(undefined);
+      targetAny.createVmInstance = jest.fn().mockResolvedValue(undefined);
+      targetAny.ensureInstanceGroup = jest.fn().mockResolvedValue(undefined);
       targetAny.ensureBackendService = jest.fn().mockResolvedValue(undefined);
       targetAny.ensureUrlMap = jest.fn().mockResolvedValue(undefined);
       targetAny.ensureHttpProxy = jest.fn().mockResolvedValue(undefined);
@@ -198,12 +247,12 @@ describe("CloudRunTarget", () => {
 
       expect(result.success).toBe(true);
       expect(result.instanceId).toBe("clawster-test-bot");
-      expect(result.message).toContain("Cloud Run service");
-      expect(result.message).toContain("secure");
+      expect(result.message).toContain("GCE VM");
+      expect(result.message).toContain("persistent disk");
     });
 
     it("should return failure result on error", async () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       const targetAny = target as unknown as {
         ensureSecret: jest.Mock;
@@ -223,11 +272,11 @@ describe("CloudRunTarget", () => {
 
   describe("configure", () => {
     it("should transform config correctly", async () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       const targetAny = target as unknown as {
         ensureSecret: jest.Mock;
-        updateCloudRunServiceEnv: jest.Mock;
+        updateVmMetadata: jest.Mock;
       };
 
       let capturedConfig: string | undefined;
@@ -235,7 +284,7 @@ describe("CloudRunTarget", () => {
         capturedConfig = config;
         return Promise.resolve();
       });
-      targetAny.updateCloudRunServiceEnv = jest.fn().mockResolvedValue(undefined);
+      targetAny.updateVmMetadata = jest.fn().mockResolvedValue(undefined);
 
       await target.configure({
         profileName: "test-bot",
@@ -285,15 +334,15 @@ describe("CloudRunTarget", () => {
     });
 
     it("should return requiresRestart: true on success", async () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       const targetAny = target as unknown as {
         ensureSecret: jest.Mock;
-        updateCloudRunServiceEnv: jest.Mock;
+        updateVmMetadata: jest.Mock;
       };
 
       targetAny.ensureSecret = jest.fn().mockResolvedValue(undefined);
-      targetAny.updateCloudRunServiceEnv = jest.fn().mockResolvedValue(undefined);
+      targetAny.updateVmMetadata = jest.fn().mockResolvedValue(undefined);
 
       const result = await target.configure({
         profileName: "test-bot",
@@ -307,16 +356,15 @@ describe("CloudRunTarget", () => {
   });
 
   describe("getStatus", () => {
-    it("should return running when service is ready", async () => {
-      const target = new CloudRunTarget(baseConfig);
+    it("should return running when VM is running", async () => {
+      const target = new GceTarget(baseConfig);
 
-      const { ServicesClient } = jest.requireMock("@google-cloud/run");
-      const mockClient = ServicesClient.mock.results[0]?.value;
+      const { InstancesClient } = jest.requireMock("@google-cloud/compute");
+      const mockClient = InstancesClient.mock.results[0]?.value;
       if (mockClient) {
-        mockClient.getService.mockResolvedValue([
+        mockClient.get.mockResolvedValue([
           {
-            conditions: [{ type: "Ready", state: "CONDITION_SUCCEEDED" }],
-            template: { scaling: { minInstanceCount: 1, maxInstanceCount: 1 } },
+            status: "RUNNING",
           },
         ]);
       }
@@ -326,16 +374,15 @@ describe("CloudRunTarget", () => {
       expect(status.state).toBe("running");
     });
 
-    it("should return stopped when maxInstances is 0", async () => {
-      const target = new CloudRunTarget(baseConfig);
+    it("should return stopped when VM is stopped", async () => {
+      const target = new GceTarget(baseConfig);
 
-      const { ServicesClient } = jest.requireMock("@google-cloud/run");
-      const mockClient = ServicesClient.mock.results[0]?.value;
+      const { InstancesClient } = jest.requireMock("@google-cloud/compute");
+      const mockClient = InstancesClient.mock.results[0]?.value;
       if (mockClient) {
-        mockClient.getService.mockResolvedValue([
+        mockClient.get.mockResolvedValue([
           {
-            conditions: [{ type: "Ready", state: "CONDITION_SUCCEEDED" }],
-            template: { scaling: { minInstanceCount: 0, maxInstanceCount: 0 } },
+            status: "STOPPED",
           },
         ]);
       }
@@ -345,38 +392,31 @@ describe("CloudRunTarget", () => {
       expect(status.state).toBe("stopped");
     });
 
-    it("should return error when service is not ready", async () => {
-      const target = new CloudRunTarget(baseConfig);
+    it("should return stopped when VM is terminated", async () => {
+      const target = new GceTarget(baseConfig);
 
-      const { ServicesClient } = jest.requireMock("@google-cloud/run");
-      const mockClient = ServicesClient.mock.results[0]?.value;
+      const { InstancesClient } = jest.requireMock("@google-cloud/compute");
+      const mockClient = InstancesClient.mock.results[0]?.value;
       if (mockClient) {
-        mockClient.getService.mockResolvedValue([
+        mockClient.get.mockResolvedValue([
           {
-            conditions: [
-              {
-                type: "Ready",
-                state: "CONDITION_FAILED",
-                message: "Container failed to start",
-              },
-            ],
+            status: "TERMINATED",
           },
         ]);
       }
 
       const status = await target.getStatus();
 
-      expect(status.state).toBe("error");
-      expect(status.error).toContain("Container failed to start");
+      expect(status.state).toBe("stopped");
     });
 
-    it("should return not-installed when service not found", async () => {
-      const target = new CloudRunTarget(baseConfig);
+    it("should return not-installed when VM not found", async () => {
+      const target = new GceTarget(baseConfig);
 
-      const { ServicesClient } = jest.requireMock("@google-cloud/run");
-      const mockClient = ServicesClient.mock.results[0]?.value;
+      const { InstancesClient } = jest.requireMock("@google-cloud/compute");
+      const mockClient = InstancesClient.mock.results[0]?.value;
       if (mockClient) {
-        mockClient.getService.mockRejectedValue(new Error("NOT_FOUND"));
+        mockClient.get.mockRejectedValue(new Error("NOT_FOUND"));
       }
 
       const status = await target.getStatus();
@@ -387,7 +427,7 @@ describe("CloudRunTarget", () => {
 
   describe("getEndpoint", () => {
     it("should return external LB IP with HTTP when no SSL certificate", async () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       const { GlobalAddressesClient } = jest.requireMock("@google-cloud/compute");
       const mockClient = GlobalAddressesClient.mock.results[0]?.value;
@@ -403,12 +443,12 @@ describe("CloudRunTarget", () => {
     });
 
     it("should return HTTPS endpoint when SSL certificate is configured", async () => {
-      const configWithSsl: CloudRunConfig = {
+      const configWithSsl: GceConfig = {
         ...baseConfig,
         sslCertificateId: "projects/test/global/sslCertificates/my-cert",
         customDomain: "bot.example.com",
       };
-      const target = new CloudRunTarget(configWithSsl);
+      const target = new GceTarget(configWithSsl);
 
       const { GlobalAddressesClient } = jest.requireMock("@google-cloud/compute");
       const mockClient = GlobalAddressesClient.mock.results[0]?.value;
@@ -424,7 +464,7 @@ describe("CloudRunTarget", () => {
     });
 
     it("should throw error when external IP not found", async () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       const { GlobalAddressesClient } = jest.requireMock("@google-cloud/compute");
       const mockClient = GlobalAddressesClient.mock.results[0]?.value;
@@ -437,93 +477,68 @@ describe("CloudRunTarget", () => {
   });
 
   describe("start", () => {
-    it("should set minInstanceCount to 1", async () => {
-      const target = new CloudRunTarget(baseConfig);
+    it("should call instancesClient.start", async () => {
+      const target = new GceTarget(baseConfig);
 
-      const { ServicesClient } = jest.requireMock("@google-cloud/run");
-      const mockClient = ServicesClient.mock.results[0]?.value;
-      let capturedService: unknown;
+      const { InstancesClient } = jest.requireMock("@google-cloud/compute");
+      const mockClient = InstancesClient.mock.results[0]?.value;
       if (mockClient) {
-        mockClient.getService.mockResolvedValue([
-          {
-            template: { scaling: { minInstanceCount: 0, maxInstanceCount: 1 } },
-          },
-        ]);
-        mockClient.updateService.mockImplementation((args: { service: unknown }) => {
-          capturedService = args.service;
-          return [{ promise: () => Promise.resolve() }];
-        });
+        mockClient.start.mockResolvedValue([{ name: "op-1" }]);
       }
 
       await target.start();
 
-      expect(capturedService).toBeDefined();
-      const service = capturedService as { template: { scaling: { minInstanceCount: number } } };
-      expect(service.template.scaling.minInstanceCount).toBe(1);
+      expect(mockClient.start).toHaveBeenCalledWith({
+        project: "test-project",
+        zone: "us-central1-a",
+        instance: "clawster-test-bot",
+      });
     });
   });
 
   describe("stop", () => {
-    it("should set minInstanceCount and maxInstanceCount to 0", async () => {
-      const target = new CloudRunTarget(baseConfig);
+    it("should call instancesClient.stop", async () => {
+      const target = new GceTarget(baseConfig);
 
-      const { ServicesClient } = jest.requireMock("@google-cloud/run");
-      const mockClient = ServicesClient.mock.results[0]?.value;
-      let capturedService: unknown;
+      const { InstancesClient } = jest.requireMock("@google-cloud/compute");
+      const mockClient = InstancesClient.mock.results[0]?.value;
       if (mockClient) {
-        mockClient.getService.mockResolvedValue([
-          {
-            template: { scaling: { minInstanceCount: 1, maxInstanceCount: 1 } },
-          },
-        ]);
-        mockClient.updateService.mockImplementation((args: { service: unknown }) => {
-          capturedService = args.service;
-          return [{ promise: () => Promise.resolve() }];
-        });
+        mockClient.stop.mockResolvedValue([{ name: "op-1" }]);
       }
 
       await target.stop();
 
-      expect(capturedService).toBeDefined();
-      const service = capturedService as { template: { scaling: { minInstanceCount: number; maxInstanceCount: number } } };
-      expect(service.template.scaling.minInstanceCount).toBe(0);
-      expect(service.template.scaling.maxInstanceCount).toBe(0);
+      expect(mockClient.stop).toHaveBeenCalledWith({
+        project: "test-project",
+        zone: "us-central1-a",
+        instance: "clawster-test-bot",
+      });
     });
   });
 
   describe("restart", () => {
-    it("should add restart timestamp annotation", async () => {
-      const target = new CloudRunTarget(baseConfig);
+    it("should call instancesClient.reset", async () => {
+      const target = new GceTarget(baseConfig);
 
-      const { ServicesClient } = jest.requireMock("@google-cloud/run");
-      const mockClient = ServicesClient.mock.results[0]?.value;
-      let capturedService: unknown;
+      const { InstancesClient } = jest.requireMock("@google-cloud/compute");
+      const mockClient = InstancesClient.mock.results[0]?.value;
       if (mockClient) {
-        mockClient.getService.mockResolvedValue([
-          {
-            template: {
-              scaling: { minInstanceCount: 0, maxInstanceCount: 1 },
-              annotations: {},
-            },
-          },
-        ]);
-        mockClient.updateService.mockImplementation((args: { service: unknown }) => {
-          capturedService = args.service;
-          return [{ promise: () => Promise.resolve() }];
-        });
+        mockClient.reset.mockResolvedValue([{ name: "op-1" }]);
       }
 
       await target.restart();
 
-      expect(capturedService).toBeDefined();
-      const service = capturedService as { template: { annotations: Record<string, string> } };
-      expect(service.template.annotations["clawster/restart-timestamp"]).toBeDefined();
+      expect(mockClient.reset).toHaveBeenCalledWith({
+        project: "test-project",
+        zone: "us-central1-a",
+        instance: "clawster-test-bot",
+      });
     });
   });
 
   describe("getLogs", () => {
     it("should return logs from Cloud Logging", async () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       const { Logging } = jest.requireMock("@google-cloud/logging");
       const mockLogging = Logging.mock.results[0]?.value;
@@ -545,7 +560,7 @@ describe("CloudRunTarget", () => {
     });
 
     it("should filter logs when filter option is provided", async () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       const { Logging } = jest.requireMock("@google-cloud/logging");
       const mockLogging = Logging.mock.results[0]?.value;
@@ -568,7 +583,7 @@ describe("CloudRunTarget", () => {
     });
 
     it("should return empty array on error", async () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       const { Logging } = jest.requireMock("@google-cloud/logging");
       const mockLogging = Logging.mock.results[0]?.value;
@@ -586,55 +601,73 @@ describe("CloudRunTarget", () => {
 
   describe("destroy", () => {
     it("should delete resources in reverse order", async () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       const deleteOrder: string[] = [];
 
       // Mock all delete operations
-      const { GlobalForwardingRulesClient, TargetHttpProxiesClient, UrlMapsClient, BackendServicesClient, SecurityPoliciesClient, RegionNetworkEndpointGroupsClient, GlobalAddressesClient } = jest.requireMock("@google-cloud/compute");
-      const { ServicesClient } = jest.requireMock("@google-cloud/run");
+      const {
+        GlobalForwardingRulesClient,
+        TargetHttpProxiesClient,
+        UrlMapsClient,
+        BackendServicesClient,
+        SecurityPoliciesClient,
+        InstanceGroupsClient,
+        InstancesClient,
+        DisksClient,
+        GlobalAddressesClient,
+        FirewallsClient,
+      } = jest.requireMock("@google-cloud/compute");
       const { SecretManagerServiceClient } = jest.requireMock("@google-cloud/secret-manager");
-
-      const mockOperation = { name: "op-1", latestResponse: { status: "DONE" } };
 
       GlobalForwardingRulesClient.mock.results[0]?.value?.delete?.mockImplementation(() => {
         deleteOrder.push("forwarding-rule");
-        return [mockOperation];
+        return [{ name: "op-1" }];
       });
 
       TargetHttpProxiesClient.mock.results[0]?.value?.delete?.mockImplementation(() => {
         deleteOrder.push("http-proxy");
-        return [mockOperation];
+        return [{ name: "op-1" }];
       });
 
       UrlMapsClient.mock.results[0]?.value?.delete?.mockImplementation(() => {
         deleteOrder.push("url-map");
-        return [mockOperation];
+        return [{ name: "op-1" }];
       });
 
       BackendServicesClient.mock.results[0]?.value?.delete?.mockImplementation(() => {
         deleteOrder.push("backend-service");
-        return [mockOperation];
+        return [{ name: "op-1" }];
       });
 
       SecurityPoliciesClient.mock.results[0]?.value?.delete?.mockImplementation(() => {
         deleteOrder.push("security-policy");
-        return [mockOperation];
+        return [{ name: "op-1" }];
       });
 
-      RegionNetworkEndpointGroupsClient.mock.results[0]?.value?.delete?.mockImplementation(() => {
-        deleteOrder.push("neg");
-        return [mockOperation];
+      InstanceGroupsClient.mock.results[0]?.value?.delete?.mockImplementation(() => {
+        deleteOrder.push("instance-group");
+        return [{ name: "op-1" }];
       });
 
-      ServicesClient.mock.results[0]?.value?.deleteService?.mockImplementation(() => {
-        deleteOrder.push("cloud-run-service");
-        return [{ promise: () => Promise.resolve() }];
+      InstancesClient.mock.results[0]?.value?.delete?.mockImplementation(() => {
+        deleteOrder.push("vm-instance");
+        return [{ name: "op-1" }];
+      });
+
+      DisksClient.mock.results[0]?.value?.delete?.mockImplementation(() => {
+        deleteOrder.push("data-disk");
+        return [{ name: "op-1" }];
       });
 
       GlobalAddressesClient.mock.results[0]?.value?.delete?.mockImplementation(() => {
         deleteOrder.push("external-ip");
-        return [mockOperation];
+        return [{ name: "op-1" }];
+      });
+
+      FirewallsClient.mock.results[0]?.value?.delete?.mockImplementation(() => {
+        deleteOrder.push("firewall");
+        return [{ name: "op-1" }];
       });
 
       SecretManagerServiceClient.mock.results[0]?.value?.deleteSecret?.mockImplementation(() => {
@@ -648,13 +681,13 @@ describe("CloudRunTarget", () => {
       expect(deleteOrder.indexOf("forwarding-rule")).toBeLessThan(deleteOrder.indexOf("http-proxy"));
       expect(deleteOrder.indexOf("http-proxy")).toBeLessThan(deleteOrder.indexOf("url-map"));
       expect(deleteOrder.indexOf("url-map")).toBeLessThan(deleteOrder.indexOf("backend-service"));
-      expect(deleteOrder.indexOf("backend-service")).toBeLessThan(deleteOrder.indexOf("neg"));
-      expect(deleteOrder.indexOf("neg")).toBeLessThan(deleteOrder.indexOf("cloud-run-service"));
-      expect(deleteOrder.indexOf("cloud-run-service")).toBeLessThan(deleteOrder.indexOf("secret"));
+      expect(deleteOrder.indexOf("instance-group")).toBeLessThan(deleteOrder.indexOf("vm-instance"));
+      expect(deleteOrder.indexOf("vm-instance")).toBeLessThan(deleteOrder.indexOf("data-disk"));
+      expect(deleteOrder.indexOf("data-disk")).toBeLessThan(deleteOrder.indexOf("secret"));
     });
 
     it("should continue deletion even if some resources fail", async () => {
-      const target = new CloudRunTarget(baseConfig);
+      const target = new GceTarget(baseConfig);
 
       const { GlobalForwardingRulesClient, TargetHttpProxiesClient } = jest.requireMock("@google-cloud/compute");
       const { SecretManagerServiceClient } = jest.requireMock("@google-cloud/secret-manager");
@@ -665,8 +698,7 @@ describe("CloudRunTarget", () => {
       );
 
       // Second delete works
-      const mockOperation = { name: "op-1", latestResponse: { status: "DONE" } };
-      TargetHttpProxiesClient.mock.results[0]?.value?.delete?.mockResolvedValue([mockOperation]);
+      TargetHttpProxiesClient.mock.results[0]?.value?.delete?.mockResolvedValue([{ name: "op-1" }]);
 
       // Secret delete also works
       SecretManagerServiceClient.mock.results[0]?.value?.deleteSecret?.mockResolvedValue(undefined);

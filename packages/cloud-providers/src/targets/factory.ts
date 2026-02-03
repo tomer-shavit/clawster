@@ -8,7 +8,7 @@ import { RemoteVMTarget } from "./remote-vm/remote-vm-target";
 import { DockerContainerTarget } from "./docker/docker-target";
 import { KubernetesTarget } from "./kubernetes/kubernetes-target";
 import { EcsEc2Target } from "./ecs-ec2/ecs-ec2-target";
-import { CloudRunTarget } from "./cloud-run/cloud-run-target";
+import { GceTarget } from "./gce/gce-target";
 import { AciTarget } from "./aci/aci-target";
 import { CloudflareWorkersTarget } from "./cloudflare-workers/cloudflare-workers-target";
 
@@ -55,11 +55,11 @@ export class DeploymentTargetFactory {
         }
         return new EcsEc2Target(config.ecs);
 
-      case "cloud-run":
-        if (!config.cloudRun) {
-          throw new Error("Cloud Run target requires 'cloudRun' configuration");
+      case "gce":
+        if (!config.gce) {
+          throw new Error("GCE target requires 'gce' configuration");
         }
-        return new CloudRunTarget(config.cloudRun);
+        return new GceTarget(config.gce);
 
       case "aci":
         if (!config.aci) {
@@ -135,9 +135,9 @@ export class DeploymentTargetFactory {
         status: "ready",
       },
       {
-        type: DeploymentTargetType.CLOUD_RUN,
-        name: "Google Cloud Run",
-        description: "Deploy on Google Cloud Run with VPC + External Load Balancer (secure)",
+        type: DeploymentTargetType.GCE,
+        name: "Google Compute Engine",
+        description: "Deploy on GCE VM with persistent disk for WhatsApp sessions and sandbox support",
         status: "ready",
       },
       {
@@ -165,7 +165,7 @@ export class DeploymentTargetFactory {
       DeploymentTargetType.DOCKER,
       DeploymentTargetType.KUBERNETES,
       DeploymentTargetType.ECS_EC2,
-      DeploymentTargetType.CLOUD_RUN,
+      DeploymentTargetType.GCE,
       DeploymentTargetType.ACI,
       DeploymentTargetType.CLOUDFLARE_WORKERS,
     ].includes(type);

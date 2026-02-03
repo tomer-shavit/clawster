@@ -19,7 +19,7 @@ export type DeploymentTargetType =
   | "docker"
   | "kubernetes"
   | "ecs"
-  | "cloud-run"
+  | "gce"
   | "aci";
 
 export interface DeploymentTargetConfig {
@@ -30,6 +30,8 @@ export interface DeploymentTargetConfig {
   namespace?: string;
   cluster?: string;
   region?: string;
+  zone?: string;
+  projectId?: string;
   serviceName?: string;
   resourceGroup?: string;
 }
@@ -77,9 +79,9 @@ const targetOptions: {
     icon: <Cloud className="w-5 h-5" />,
   },
   {
-    type: "cloud-run",
-    label: "Cloud Run",
-    description: "Google Cloud Run",
+    type: "gce",
+    label: "GCE",
+    description: "Google Compute Engine VM",
     icon: <Globe className="w-5 h-5" />,
   },
   {
@@ -227,30 +229,39 @@ export function DeploymentTargetSelector({
             </>
           )}
 
-          {value.type === "cloud-run" && (
+          {value.type === "gce" && (
             <>
               <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Service Name</label>
+                <label className="text-xs text-muted-foreground mb-1 block">Project ID</label>
                 <Input
-                  placeholder="my-bot-service"
+                  placeholder="my-gcp-project"
+                  value={value.projectId || ""}
+                  onChange={(e) => handleFieldChange("projectId", e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Zone</label>
+                <Input
+                  placeholder="us-central1-a"
+                  value={value.zone || ""}
+                  onChange={(e) => handleFieldChange("zone", e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Instance Name</label>
+                <Input
+                  placeholder="my-bot-instance"
                   value={value.serviceName || ""}
                   onChange={(e) => handleFieldChange("serviceName", e.target.value)}
                   className="h-8 text-sm"
                 />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Region</label>
-                <Input
-                  placeholder="us-central1"
-                  value={value.region || ""}
-                  onChange={(e) => handleFieldChange("region", e.target.value)}
-                  className="h-8 text-sm"
-                />
-              </div>
-              <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Image</label>
                 <Input
-                  placeholder="gcr.io/project/openclaw:latest"
+                  placeholder="node:22-slim"
                   value={value.image || ""}
                   onChange={(e) => handleFieldChange("image", e.target.value)}
                   className="h-8 text-sm"

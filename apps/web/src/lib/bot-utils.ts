@@ -34,7 +34,7 @@ export function formatDeploymentType(
     DOCKER: 'Docker',
     REMOTE_VM: 'VM',
     ECS_EC2: 'ECS',
-    CLOUD_RUN: 'Cloud Run',
+    GCE: 'GCE',
     ACI: 'ACI',
     KUBERNETES: 'K8s',
   };
