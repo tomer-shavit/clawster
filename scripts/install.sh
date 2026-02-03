@@ -139,12 +139,12 @@ pnpm install || error "Failed to install dependencies"
 success "Dependencies installed"
 
 # -----------------------------------------------------------------------------
-# Build CLI
+# Build packages
 # -----------------------------------------------------------------------------
 
-info "Building CLI..."
-pnpm --filter @clawster/cli build || error "Failed to build CLI"
-success "CLI built"
+info "Building packages (this may take a moment)..."
+pnpm build || error "Failed to build packages"
+success "Packages built"
 
 # -----------------------------------------------------------------------------
 # Run setup
