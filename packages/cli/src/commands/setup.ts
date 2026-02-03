@@ -384,7 +384,8 @@ async function setupDatabase(projectRoot: string) {
     execSync("pnpm prisma db push", {
       cwd: databaseDir,
       stdio: "pipe",
-      env: { ...shellEnv, DATABASE_URL: "file:./prisma/dev.db" }
+      // DATABASE_URL is relative to schema location (prisma/schema.prisma), so ./dev.db = prisma/dev.db
+      env: { ...shellEnv, DATABASE_URL: "file:./dev.db" }
     });
     pushSpinner.succeed("Database schema pushed");
 
