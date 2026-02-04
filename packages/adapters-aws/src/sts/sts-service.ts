@@ -164,31 +164,6 @@ export class STSService {
   }
 
   /**
-   * Create a new STS client with assumed role credentials.
-   * Useful for chaining assume role operations.
-   */
-  async createAssumedRoleClient(
-    roleArn: string,
-    roleSessionName: string,
-    options?: {
-      durationSeconds?: number;
-      externalId?: string;
-      region?: string;
-    }
-  ): Promise<STSService> {
-    const assumeResult = await this.assumeRole(roleArn, roleSessionName, {
-      durationSeconds: options?.durationSeconds,
-      externalId: options?.externalId,
-    });
-
-    return new STSService(options?.region ?? "us-east-1", {
-      accessKeyId: assumeResult.credentials.accessKeyId,
-      secretAccessKey: assumeResult.credentials.secretAccessKey,
-      sessionToken: assumeResult.credentials.sessionToken,
-    });
-  }
-
-  /**
    * Map AWS SDK Credentials to AssumedRoleCredentials.
    */
   private mapCredentials(creds: Credentials): AssumedRoleCredentials {

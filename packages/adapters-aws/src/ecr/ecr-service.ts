@@ -260,31 +260,6 @@ export class ECRService {
   }
 
   /**
-   * Ensure a repository exists, creating it if necessary.
-   */
-  async ensureRepository(
-    repositoryName: string,
-    options?: {
-      imageScanningEnabled?: boolean;
-      imageTagMutability?: "MUTABLE" | "IMMUTABLE";
-      tags?: Record<string, string>;
-    }
-  ): Promise<ECRRepositoryInfo> {
-    const existing = await this.getRepository(repositoryName);
-    if (existing) {
-      return existing;
-    }
-    return this.createRepository(repositoryName, options);
-  }
-
-  /**
-   * Get the full image URI for a repository and tag.
-   */
-  getImageUri(repositoryUri: string, tag: string = "latest"): string {
-    return `${repositoryUri}:${tag}`;
-  }
-
-  /**
    * Map AWS SDK Repository to ECRRepositoryInfo.
    */
   private mapRepositoryToInfo(repo: Repository): ECRRepositoryInfo {

@@ -1,6 +1,3 @@
-// ECS
-export { ECSService, ECSDeploymentConfig } from "./ecs/ecs-service";
-
 // Secrets Manager
 export { SecretsManagerService, SecretValue } from "./secrets/secrets-service";
 export { TokenRotationService, StaleSecret } from "./secrets/token-rotation.service";

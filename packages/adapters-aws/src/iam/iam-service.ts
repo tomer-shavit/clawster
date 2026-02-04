@@ -391,57 +391,6 @@ export class IAMService {
   }
 
   /**
-   * Ensure a role exists with the given assume role policy.
-   * Creates the role if it doesn't exist.
-   */
-  async ensureRole(
-    roleName: string,
-    assumeRolePolicyDocument: string | object,
-    options?: {
-      description?: string;
-      path?: string;
-      maxSessionDuration?: number;
-      tags?: Record<string, string>;
-    }
-  ): Promise<RoleInfo> {
-    const existing = await this.getRole(roleName);
-    if (existing) {
-      return existing;
-    }
-    return this.createRole(roleName, assumeRolePolicyDocument, options);
-  }
-
-  /**
-   * Ensure an instance profile exists with the given role attached.
-   */
-  async ensureInstanceProfileWithRole(
-    instanceProfileName: string,
-    roleName: string,
-    options?: { path?: string; tags?: Record<string, string> }
-  ): Promise<InstanceProfileInfo> {
-    let profile = await this.getInstanceProfile(instanceProfileName);
-
-    if (!profile) {
-      profile = await this.createInstanceProfile(instanceProfileName, options);
-      // Wait a bit for the instance profile to propagate
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-
-    // Check if the role is already attached
-    const hasRole = profile.roles.some((r) => r.roleName === roleName);
-    if (!hasRole) {
-      await this.addRoleToInstanceProfile(instanceProfileName, roleName);
-      // Refresh the profile
-      profile = await this.getInstanceProfile(instanceProfileName);
-      if (!profile) {
-        throw new Error(`Instance profile "${instanceProfileName}" not found after adding role`);
-      }
-    }
-
-    return profile;
-  }
-
-  /**
    * Map AWS SDK Role to RoleInfo.
    */
   private mapRoleToInfo(role: Role): RoleInfo {

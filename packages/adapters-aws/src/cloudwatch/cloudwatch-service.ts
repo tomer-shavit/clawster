@@ -95,10 +95,4 @@ export class CloudWatchLogsService {
       nextToken: result.nextForwardToken,
     };
   }
-
-  // Get deep link to CloudWatch console
-  getConsoleLink(logGroupName: string, region?: string): string {
-    const r = region || process.env.AWS_REGION || "us-east-1";
-    return `https://${r}.console.aws.amazon.com/cloudwatch/home?region=${r}#logsV2:log-groups/log-group/${encodeURIComponent(logGroupName)}`;
-  }
 }
