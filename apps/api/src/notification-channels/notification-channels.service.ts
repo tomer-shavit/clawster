@@ -1,6 +1,7 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Inject, Logger } from "@nestjs/common";
 import {
-  prisma,
+  PrismaClient,
+  PRISMA_CLIENT,
   Prisma,
 } from "@clawster/database";
 import type {
@@ -15,10 +16,14 @@ import type {
 export class NotificationChannelsService {
   private readonly logger = new Logger(NotificationChannelsService.name);
 
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+  ) {}
+
   // ---- Channel CRUD --------------------------------------------------------
 
   async create(workspaceId: string, dto: CreateNotificationChannelDto) {
-    return prisma.notificationChannel.create({
+    return this.prisma.notificationChannel.create({
       data: {
         workspaceId,
         name: dto.name,
@@ -35,7 +40,7 @@ export class NotificationChannelsService {
     if (query.type) where.type = query.type;
     if (query.enabled !== undefined) where.enabled = query.enabled;
 
-    return prisma.notificationChannel.findMany({
+    return this.prisma.notificationChannel.findMany({
       where,
       include: {
         notificationRules: true,
@@ -45,7 +50,7 @@ export class NotificationChannelsService {
   }
 
   async findOne(id: string) {
-    return prisma.notificationChannel.findUnique({
+    return this.prisma.notificationChannel.findUnique({
       where: { id },
       include: {
         notificationRules: true,
@@ -61,7 +66,7 @@ export class NotificationChannelsService {
     if (dto.config !== undefined) data.config = dto.config;
     if (dto.enabled !== undefined) data.enabled = dto.enabled;
 
-    return prisma.notificationChannel.update({
+    return this.prisma.notificationChannel.update({
       where: { id },
       data,
       include: {
@@ -71,7 +76,7 @@ export class NotificationChannelsService {
   }
 
   async remove(id: string) {
-    return prisma.notificationChannel.delete({
+    return this.prisma.notificationChannel.delete({
       where: { id },
     });
   }
@@ -79,7 +84,7 @@ export class NotificationChannelsService {
   // ---- Test Channel --------------------------------------------------------
 
   async testChannel(id: string) {
-    const channel = await prisma.notificationChannel.findUnique({
+    const channel = await this.prisma.notificationChannel.findUnique({
       where: { id },
     });
 
@@ -131,7 +136,7 @@ export class NotificationChannelsService {
       this.logger.warn(`Test failed for channel ${id}: ${error}`);
     }
 
-    return prisma.notificationChannel.update({
+    return this.prisma.notificationChannel.update({
       where: { id },
       data: {
         lastTestedAt: new Date(),
@@ -143,7 +148,7 @@ export class NotificationChannelsService {
   // ---- Notification Rules --------------------------------------------------
 
   async createRule(dto: CreateNotificationRuleDto) {
-    return prisma.alertNotificationRule.create({
+    return this.prisma.alertNotificationRule.create({
       data: {
         channelId: dto.channelId,
         severities: dto.severities ?? null,
@@ -160,14 +165,14 @@ export class NotificationChannelsService {
     if (dto.alertRules !== undefined) data.alertRules = dto.alertRules;
     if (dto.enabled !== undefined) data.enabled = dto.enabled;
 
-    return prisma.alertNotificationRule.update({
+    return this.prisma.alertNotificationRule.update({
       where: { id },
       data,
     });
   }
 
   async removeRule(id: string) {
-    return prisma.alertNotificationRule.delete({
+    return this.prisma.alertNotificationRule.delete({
       where: { id },
     });
   }
@@ -179,7 +184,7 @@ export class NotificationChannelsService {
    * Returns the matching rules with their associated channels.
    */
   async findRulesForAlert(severity: string, rule: string) {
-    const allRules = await prisma.alertNotificationRule.findMany({
+    const allRules = await this.prisma.alertNotificationRule.findMany({
       where: { enabled: true },
       include: {
         channel: true,

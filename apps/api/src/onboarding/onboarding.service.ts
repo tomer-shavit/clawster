@@ -1,5 +1,16 @@
-import { Injectable, Logger, BadRequestException } from "@nestjs/common";
-import { prisma, Prisma } from "@clawster/database";
+import { Injectable, Inject, Logger, BadRequestException } from "@nestjs/common";
+import {
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+  FLEET_REPOSITORY,
+  IFleetRepository,
+  WORKSPACE_REPOSITORY,
+  IWorkspaceRepository,
+  CHANNEL_REPOSITORY,
+  IChannelRepository,
+  PRISMA_CLIENT,
+  PrismaClient,
+} from "@clawster/database";
 import { ReconcilerService } from "../reconciler/reconciler.service";
 import { ConfigGeneratorService } from "../reconciler/config-generator.service";
 import {
@@ -22,6 +33,11 @@ export class OnboardingService {
   private readonly logger = new Logger(OnboardingService.name);
 
   constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+    @Inject(FLEET_REPOSITORY) private readonly fleetRepo: IFleetRepository,
+    @Inject(WORKSPACE_REPOSITORY) private readonly workspaceRepo: IWorkspaceRepository,
+    @Inject(CHANNEL_REPOSITORY) private readonly channelRepo: IChannelRepository,
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
     private readonly reconciler: ReconcilerService,
     private readonly configGenerator: ConfigGeneratorService,
     private readonly credentialVault: CredentialVaultService,
@@ -29,7 +45,7 @@ export class OnboardingService {
 
   /** Check if any bot instances exist */
   async checkFirstRun(): Promise<{ hasInstances: boolean }> {
-    const count = await prisma.botInstance.count();
+    const count = await this.botInstanceRepo.count();
     return { hasInstances: count > 0 };
   }
 
@@ -117,10 +133,11 @@ export class OnboardingService {
     }
 
     // 2. Get or create workspace
-    let workspace = await prisma.workspace.findFirst();
+    let workspace = await this.workspaceRepo.findFirstWorkspace();
     if (!workspace) {
-      workspace = await prisma.workspace.create({
-        data: { name: "Default Workspace", slug: "default" },
+      workspace = await this.workspaceRepo.createWorkspace({
+        name: "Default Workspace",
+        slug: "default",
       });
     }
 
@@ -150,10 +167,11 @@ export class OnboardingService {
     }
 
     // 2b. Check for duplicate bot name
-    const existing = await prisma.botInstance.findFirst({
-      where: { workspaceId: workspace.id, name: dto.botName },
+    const existing = await this.botInstanceRepo.findFirst({
+      workspaceId: workspace.id,
+      search: dto.botName,
     });
-    if (existing) {
+    if (existing && existing.name === dto.botName) {
       throw new BadRequestException(
         `A bot named "${dto.botName}" already exists in this workspace`,
       );
@@ -163,9 +181,7 @@ export class OnboardingService {
     const env = dto.environment || "dev";
     let fleet;
     if (dto.fleetId) {
-      fleet = await prisma.fleet.findUnique({
-        where: { id: dto.fleetId },
-      });
+      fleet = await this.fleetRepo.findById(dto.fleetId);
       if (!fleet) {
         throw new BadRequestException(`Fleet not found: ${dto.fleetId}`);
       }
@@ -173,18 +189,13 @@ export class OnboardingService {
         throw new BadRequestException(`Fleet does not belong to this workspace`);
       }
     } else {
-      fleet = await prisma.fleet.findFirst({
-        where: { workspaceId: workspace.id },
-        orderBy: { createdAt: "asc" },
-      });
+      fleet = await this.fleetRepo.findFirst({ workspaceId: workspace.id });
       if (!fleet) {
-        fleet = await prisma.fleet.create({
-          data: {
-            workspaceId: workspace.id,
-            name: "Default Fleet",
-            environment: env as "dev" | "staging" | "prod",
-            status: "ACTIVE",
-          },
+        fleet = await this.fleetRepo.create({
+          workspace: { connect: { id: workspace.id } },
+          name: "Default Fleet",
+          environment: env as "dev" | "staging" | "prod",
+          status: "ACTIVE",
         });
       }
     }
@@ -333,7 +344,7 @@ export class OnboardingService {
             gatewayPort: effectivePort,
           };
 
-    const deploymentTarget = await prisma.deploymentTarget.create({
+    const deploymentTarget = await this.prisma.deploymentTarget.create({
       data: {
         name: `${dto.botName}-target`,
         type: deploymentType,
@@ -342,26 +353,24 @@ export class OnboardingService {
     });
 
     // 7. Create BotInstance
-    const botInstance = await prisma.botInstance.create({
-      data: {
-        workspaceId: workspace.id,
-        fleetId: fleet.id,
-        name: dto.botName,
-        status: "CREATING",
-        health: "UNKNOWN",
-        desiredManifest: JSON.stringify(manifest),
-        deploymentType: deploymentType,
-        deploymentTargetId: deploymentTarget.id,
-        gatewayPort: effectivePort,
-        templateId: resolvedTemplateId,
-        tags: JSON.stringify({}),
-        metadata: JSON.stringify({
-          gatewayAuthToken, // TODO: encrypt sensitive metadata fields
-          ...targetConfig,
-          ...(Object.keys(containerEnv).length > 0 ? { containerEnv } : {}),
-        }),
-        createdBy: userId,
-      },
+    const botInstance = await this.botInstanceRepo.create({
+      workspace: { connect: { id: workspace.id } },
+      fleet: { connect: { id: fleet.id } },
+      name: dto.botName,
+      status: "CREATING",
+      health: "UNKNOWN",
+      desiredManifest: JSON.stringify(manifest),
+      deploymentType: deploymentType,
+      deploymentTarget: { connect: { id: deploymentTarget.id } },
+      gatewayPort: effectivePort,
+      templateId: resolvedTemplateId,
+      tags: JSON.stringify({}),
+      metadata: JSON.stringify({
+        gatewayAuthToken, // TODO: encrypt sensitive metadata fields
+        ...targetConfig,
+        ...(Object.keys(containerEnv).length > 0 ? { containerEnv } : {}),
+      }),
+      createdBy: userId,
     });
 
     // 8. Create channel records
@@ -378,27 +387,16 @@ export class OnboardingService {
       for (const ch of dto.channels) {
         const channelType = channelTypeMap[ch.type.toLowerCase()] || "CUSTOM";
         const channelName = `${dto.botName}-${ch.type}`;
-        await prisma.communicationChannel.upsert({
-          where: {
-            workspaceId_name: {
-              workspaceId: workspace.id,
-              name: channelName,
-            },
-          },
-          update: {
-            type: channelType,
-            config: JSON.stringify(ch.config || {}),
-            status: "PENDING",
-          },
-          create: {
-            workspaceId: workspace.id,
-            name: channelName,
+        await this.channelRepo.upsertChannel(
+          workspace.id,
+          channelName,
+          {
             type: channelType,
             config: JSON.stringify(ch.config || {}),
             status: "PENDING",
             createdBy: userId,
           },
-        });
+        );
       }
     }
 
@@ -428,12 +426,7 @@ export class OnboardingService {
 
   /** Get deployment status with staleness detection */
   async getDeployStatus(instanceId: string) {
-    const instance = await prisma.botInstance.findUnique({
-      where: { id: instanceId },
-      include: {
-        gatewayConnection: true,
-      },
-    });
+    const instance = await this.botInstanceRepo.findById(instanceId);
 
     if (!instance) {
       throw new BadRequestException("Instance not found");
@@ -519,29 +512,22 @@ export class OnboardingService {
 
     try {
       // Delete related records first (foreign key dependencies)
-      await prisma.gatewayConnection.deleteMany({ where: { instanceId } });
-      await prisma.openClawProfile.deleteMany({ where: { instanceId } });
-      await prisma.healthSnapshot.deleteMany({ where: { instanceId } });
+      await this.botInstanceRepo.deleteRelatedRecords(instanceId);
 
       // Delete communication channels linked to the bot's workspace
-      const instance = await prisma.botInstance.findUnique({
-        where: { id: instanceId },
-        select: { name: true, workspaceId: true },
-      });
+      const instance = await this.botInstanceRepo.findById(instanceId);
       if (instance) {
-        await prisma.communicationChannel.deleteMany({
-          where: {
-            workspaceId: instance.workspaceId,
-            name: { startsWith: `${instance.name}-` },
-          },
-        });
+        await this.channelRepo.deleteChannelsByNamePrefix(
+          instance.workspaceId,
+          `${instance.name}-`,
+        );
       }
 
       // Delete the bot instance
-      await prisma.botInstance.delete({ where: { id: instanceId } });
+      await this.botInstanceRepo.delete(instanceId);
 
       // Delete the deployment target
-      await prisma.deploymentTarget.delete({ where: { id: deploymentTargetId } });
+      await this.prisma.deploymentTarget.delete({ where: { id: deploymentTargetId } });
 
       this.logger.log(`Cleaned up all DB records for failed deployment ${instanceId}`);
     } catch (err) {
@@ -561,14 +547,14 @@ export class OnboardingService {
     const PORT_SPACING = 20;
     const MAX_PORT = 65500;
 
-    const instances = await prisma.botInstance.findMany({
-      where: { gatewayPort: { not: null } },
-      select: { gatewayPort: true },
-      orderBy: { gatewayPort: "desc" },
-    });
+    // Find all instances with gateway ports
+    const result = await this.botInstanceRepo.findMany(
+      { gatewayPortNotNull: true },
+      { page: 1, limit: 10000 },
+    );
 
     const usedPorts = new Set(
-      instances.map((i) => i.gatewayPort).filter((p): p is number => p !== null),
+      result.data.map((i) => i.gatewayPort).filter((p): p is number => p !== null),
     );
 
     let port = BASE_PORT;

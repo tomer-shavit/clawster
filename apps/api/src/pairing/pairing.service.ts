@@ -1,12 +1,13 @@
 import { randomInt } from "node:crypto";
 import {
   Injectable,
+  Inject,
   Logger,
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { prisma } from "@clawster/database";
+import { PrismaClient, PRISMA_CLIENT } from "@clawster/database";
 // PairingState and OpenClawChannelType were enums, now plain strings after SQLite migration
 type PairingState = string;
 type OpenClawChannelType = string;
@@ -24,6 +25,10 @@ export class PairingService {
   private readonly logger = new Logger(PairingService.name);
   private readonly gatewayManager = new GatewayManager();
 
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+  ) {}
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
@@ -33,7 +38,7 @@ export class PairingService {
    * Throws NotFoundException if the instance does not exist.
    */
   async verifyInstanceExists(instanceId: string): Promise<void> {
-    const instance = await prisma.botInstance.findFirst({
+    const instance = await this.prisma.botInstance.findFirst({
       where: { id: instanceId },
       select: { id: true },
     });
@@ -59,12 +64,12 @@ export class PairingService {
    * Get a Gateway client for a bot instance.
    */
   private async getGatewayClient(instanceId: string) {
-    const instance = await prisma.botInstance.findUnique({
+    const instance = await this.prisma.botInstance.findUnique({
       where: { id: instanceId },
       select: { id: true, gatewayPort: true },
     });
 
-    const gwConn = await prisma.gatewayConnection.findUnique({
+    const gwConn = await this.prisma.gatewayConnection.findUnique({
       where: { instanceId },
     });
 
@@ -205,7 +210,7 @@ export class PairingService {
       where.state = state;
     }
 
-    return prisma.devicePairing.findMany({
+    return this.prisma.devicePairing.findMany({
       where,
       orderBy: { createdAt: "desc" },
     });
@@ -229,7 +234,7 @@ export class PairingService {
   ) {
     const now = new Date();
 
-    const record = await prisma.devicePairing.upsert({
+    const record = await this.prisma.devicePairing.upsert({
       where: {
         instanceId_channelType_senderId: {
           instanceId,
@@ -267,7 +272,7 @@ export class PairingService {
     channelType: OpenClawChannelType,
     senderId: string,
   ) {
-    const existing = await prisma.devicePairing.findUnique({
+    const existing = await this.prisma.devicePairing.findUnique({
       where: {
         instanceId_channelType_senderId: {
           instanceId,
@@ -283,7 +288,7 @@ export class PairingService {
       );
     }
 
-    const record = await prisma.devicePairing.update({
+    const record = await this.prisma.devicePairing.update({
       where: { id: existing.id },
       data: { state: "REJECTED" },
     });
@@ -301,14 +306,14 @@ export class PairingService {
    */
   async batchApproveAll(instanceId: string) {
     // Fetch pending pairings before updating so we know which senderIds to sync
-    const pendingPairings = await prisma.devicePairing.findMany({
+    const pendingPairings = await this.prisma.devicePairing.findMany({
       where: { instanceId, state: "PENDING" },
       select: { channelType: true, senderId: true },
     });
 
     const now = new Date();
 
-    const result = await prisma.devicePairing.updateMany({
+    const result = await this.prisma.devicePairing.updateMany({
       where: {
         instanceId,
         state: "PENDING",
@@ -349,7 +354,7 @@ export class PairingService {
     channelType: OpenClawChannelType,
     senderId: string,
   ) {
-    const existing = await prisma.devicePairing.findUnique({
+    const existing = await this.prisma.devicePairing.findUnique({
       where: {
         instanceId_channelType_senderId: {
           instanceId,
@@ -367,7 +372,7 @@ export class PairingService {
 
     const now = new Date();
 
-    const record = await prisma.devicePairing.update({
+    const record = await this.prisma.devicePairing.update({
       where: { id: existing.id },
       data: {
         state: "REVOKED",
@@ -399,7 +404,7 @@ export class PairingService {
     senderName?: string,
   ) {
     // Check max pending limit
-    const pendingCount = await prisma.devicePairing.count({
+    const pendingCount = await this.prisma.devicePairing.count({
       where: {
         instanceId,
         channelType,
@@ -416,7 +421,7 @@ export class PairingService {
     const pairingCode = this.generatePairingCode();
     const expiresAt = new Date(Date.now() + PAIRING_EXPIRY_MS);
 
-    const record = await prisma.devicePairing.upsert({
+    const record = await this.prisma.devicePairing.upsert({
       where: {
         instanceId_channelType_senderId: {
           instanceId,
@@ -452,7 +457,7 @@ export class PairingService {
    * Find a pending pairing by its short code.
    */
   async findByCode(instanceId: string, code: string) {
-    const pairings = await prisma.devicePairing.findMany({
+    const pairings = await this.prisma.devicePairing.findMany({
       where: {
         instanceId,
         pairingCode: code,
@@ -520,7 +525,7 @@ export class PairingService {
         if (!channelType) continue;
 
         for (const senderId of allowFrom) {
-          await prisma.devicePairing.upsert({
+          await this.prisma.devicePairing.upsert({
             where: {
               instanceId_channelType_senderId: {
                 instanceId,
@@ -587,7 +592,7 @@ export class PairingService {
   async expireStale(): Promise<number> {
     const now = new Date();
 
-    const result = await prisma.devicePairing.updateMany({
+    const result = await this.prisma.devicePairing.updateMany({
       where: {
         state: "PENDING",
         expiresAt: { lt: now },

@@ -1,24 +1,21 @@
 import {
   Injectable,
+  Inject,
   Logger,
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
-import { prisma, Prisma } from "@clawster/database";
+import {
+  ROUTING_REPOSITORY,
+  IRoutingRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from "@clawster/database";
 import type {
   CreateBotRoutingRuleDto,
   UpdateBotRoutingRuleDto,
   RoutingRuleQueryDto,
 } from "./bot-routing.dto";
-
-// ---------------------------------------------------------------------------
-// Shared include for source/target bot names
-// ---------------------------------------------------------------------------
-
-const botInclude = {
-  sourceBot: { select: { id: true, name: true } },
-  targetBot: { select: { id: true, name: true } },
-} satisfies Prisma.BotRoutingRuleInclude;
 
 // ---------------------------------------------------------------------------
 // Service
@@ -28,67 +25,58 @@ const botInclude = {
 export class BotRoutingService {
   private readonly logger = new Logger(BotRoutingService.name);
 
+  constructor(
+    @Inject(ROUTING_REPOSITORY) private readonly routingRepo: IRoutingRepository,
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+  ) {}
+
   // ---- Create --------------------------------------------------------------
 
   async create(workspaceId: string, dto: CreateBotRoutingRuleDto) {
     // Validate that both bots exist and belong to the workspace
     const [sourceBot, targetBot] = await Promise.all([
-      prisma.botInstance.findFirst({
-        where: { id: dto.sourceBotId, workspaceId },
-      }),
-      prisma.botInstance.findFirst({
-        where: { id: dto.targetBotId, workspaceId },
-      }),
+      this.botInstanceRepo.findById(dto.sourceBotId),
+      this.botInstanceRepo.findById(dto.targetBotId),
     ]);
 
-    if (!sourceBot) {
+    if (!sourceBot || sourceBot.workspaceId !== workspaceId) {
       throw new BadRequestException(
         `Source bot ${dto.sourceBotId} not found in workspace`,
       );
     }
-    if (!targetBot) {
+    if (!targetBot || targetBot.workspaceId !== workspaceId) {
       throw new BadRequestException(
         `Target bot ${dto.targetBotId} not found in workspace`,
       );
     }
 
-    return prisma.botRoutingRule.create({
-      data: {
-        workspaceId,
-        sourceBotId: dto.sourceBotId,
-        targetBotId: dto.targetBotId,
-        triggerPattern: dto.triggerPattern,
-        description: dto.description,
-        priority: dto.priority ?? 0,
-        enabled: dto.enabled ?? true,
-      },
-      include: botInclude,
+    const rule = await this.routingRepo.createRoutingRule({
+      workspace: { connect: { id: workspaceId } },
+      sourceBot: { connect: { id: dto.sourceBotId } },
+      targetBot: { connect: { id: dto.targetBotId } },
+      triggerPattern: dto.triggerPattern,
+      description: dto.description,
+      priority: dto.priority ?? 0,
+      enabled: dto.enabled ?? true,
     });
+
+    return this.routingRepo.findRoutingRuleById(rule.id);
   }
 
   // ---- List ----------------------------------------------------------------
 
   async findAll(workspaceId: string, query: RoutingRuleQueryDto) {
-    const where: Prisma.BotRoutingRuleWhereInput = { workspaceId };
-
-    if (query.sourceBotId) where.sourceBotId = query.sourceBotId;
-    if (query.targetBotId) where.targetBotId = query.targetBotId;
-    if (query.enabled !== undefined) where.enabled = query.enabled;
-
-    return prisma.botRoutingRule.findMany({
-      where,
-      include: botInclude,
-      orderBy: { priority: "desc" },
+    return this.routingRepo.findRoutingRulesByWorkspace(workspaceId, {
+      sourceBotId: query.sourceBotId,
+      targetBotId: query.targetBotId,
+      enabled: query.enabled,
     });
   }
 
   // ---- Find one ------------------------------------------------------------
 
   async findOne(id: string) {
-    const rule = await prisma.botRoutingRule.findUnique({
-      where: { id },
-      include: botInclude,
-    });
+    const rule = await this.routingRepo.findRoutingRuleById(id);
 
     if (!rule) {
       throw new NotFoundException(`Routing rule ${id} not found`);
@@ -102,18 +90,16 @@ export class BotRoutingService {
   async update(id: string, dto: UpdateBotRoutingRuleDto) {
     await this.findOne(id); // ensure exists
 
-    return prisma.botRoutingRule.update({
-      where: { id },
-      data: {
-        ...(dto.sourceBotId !== undefined && { sourceBotId: dto.sourceBotId }),
-        ...(dto.targetBotId !== undefined && { targetBotId: dto.targetBotId }),
-        ...(dto.triggerPattern !== undefined && { triggerPattern: dto.triggerPattern }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.priority !== undefined && { priority: dto.priority }),
-        ...(dto.enabled !== undefined && { enabled: dto.enabled }),
-      },
-      include: botInclude,
+    await this.routingRepo.updateRoutingRule(id, {
+      ...(dto.sourceBotId !== undefined && { sourceBot: { connect: { id: dto.sourceBotId } } }),
+      ...(dto.targetBotId !== undefined && { targetBot: { connect: { id: dto.targetBotId } } }),
+      ...(dto.triggerPattern !== undefined && { triggerPattern: dto.triggerPattern }),
+      ...(dto.description !== undefined && { description: dto.description }),
+      ...(dto.priority !== undefined && { priority: dto.priority }),
+      ...(dto.enabled !== undefined && { enabled: dto.enabled }),
     });
+
+    return this.routingRepo.findRoutingRuleById(id);
   }
 
   // ---- Remove --------------------------------------------------------------
@@ -121,7 +107,7 @@ export class BotRoutingService {
   async remove(id: string) {
     await this.findOne(id); // ensure exists
 
-    await prisma.botRoutingRule.delete({ where: { id } });
+    await this.routingRepo.deleteRoutingRule(id);
   }
 
   // ---- Find matching rules for delegation ----------------------------------
@@ -131,14 +117,7 @@ export class BotRoutingService {
    * triggerPattern (tested as a regex). Results are ordered by priority desc.
    */
   async findMatchingRules(sourceBotId: string, message: string) {
-    const rules = await prisma.botRoutingRule.findMany({
-      where: {
-        sourceBotId,
-        enabled: true,
-      },
-      include: botInclude,
-      orderBy: { priority: "desc" },
-    });
+    const rules = await this.routingRepo.findRoutingRulesBySource(sourceBotId);
 
     return rules.filter((rule) => {
       try {

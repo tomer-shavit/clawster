@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { DatabaseModule } from "@clawster/database";
 import { ReconcilerService } from "./reconciler.service";
 import { ReconcilerController } from "./reconciler.controller";
 import { ConfigGeneratorService } from "./config-generator.service";
@@ -11,7 +12,7 @@ import { SecurityAuditModule } from "../security/security-audit.module";
 import { ProvisioningModule } from "../provisioning/provisioning.module";
 
 @Module({
-  imports: [SecurityAuditModule, ProvisioningModule],
+  imports: [DatabaseModule, SecurityAuditModule, ProvisioningModule],
   controllers: [ReconcilerController],
   providers: [
     ConfigGeneratorService,

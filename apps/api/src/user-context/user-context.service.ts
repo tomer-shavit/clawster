@@ -1,5 +1,5 @@
-import { Injectable } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Injectable, Inject } from "@nestjs/common";
+import { PrismaClient, PRISMA_CLIENT } from "@clawster/database";
 
 export interface UserContext {
   agentCount: number;
@@ -13,10 +13,14 @@ const FLEET_STAGE_THRESHOLD = 4;
 
 @Injectable()
 export class UserContextService {
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+  ) {}
+
   async getUserContext(workspaceId: string): Promise<UserContext> {
     const [agentCount, fleetCount] = await Promise.all([
-      prisma.botInstance.count({ where: { workspaceId } }),
-      prisma.fleet.count({
+      this.prisma.botInstance.count({ where: { workspaceId } }),
+      this.prisma.fleet.count({
         where: {
           workspaceId,
           instances: { some: {} },

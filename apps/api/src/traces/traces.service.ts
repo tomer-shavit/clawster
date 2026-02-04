@@ -1,56 +1,58 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { prisma, Trace } from "@clawster/database";
+import { Injectable, NotFoundException, Inject } from "@nestjs/common";
+import {
+  Trace,
+  TRACE_REPOSITORY,
+  ITraceRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from "@clawster/database";
 import { CreateTraceDto, ListTracesQueryDto } from "./traces.dto";
 
 @Injectable()
 export class TracesService {
+  constructor(
+    @Inject(TRACE_REPOSITORY) private readonly traceRepo: ITraceRepository,
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+  ) {}
+
   async create(dto: CreateTraceDto): Promise<Trace> {
-    const trace = await prisma.trace.create({
-      data: {
-        botInstanceId: dto.botInstanceId,
-        traceId: dto.traceId,
-        parentTraceId: dto.parentTraceId,
-        name: dto.name,
-        type: dto.type,
-        status: dto.status || "PENDING",
-        startedAt: dto.startedAt || new Date(),
-        endedAt: dto.endedAt,
-        durationMs: dto.durationMs,
-        input: dto.input ? JSON.stringify(dto.input) : undefined,
-        output: dto.output ? JSON.stringify(dto.output) : undefined,
-        error: dto.error ? JSON.stringify(dto.error) : undefined,
-        metadata: JSON.stringify(dto.metadata || {}),
-        tags: JSON.stringify(dto.tags || {}),
-      },
+    const trace = await this.traceRepo.create({
+      botInstanceId: dto.botInstanceId,
+      traceId: dto.traceId,
+      parentTraceId: dto.parentTraceId,
+      name: dto.name,
+      type: dto.type,
+      status: dto.status || "PENDING",
+      startedAt: dto.startedAt || new Date(),
+      endedAt: dto.endedAt,
+      durationMs: dto.durationMs,
+      input: dto.input ? JSON.stringify(dto.input) : undefined,
+      output: dto.output ? JSON.stringify(dto.output) : undefined,
+      error: dto.error ? JSON.stringify(dto.error) : undefined,
+      metadata: JSON.stringify(dto.metadata || {}),
+      tags: JSON.stringify(dto.tags || {}),
     });
 
     return trace;
   }
 
   async findAll(query: ListTracesQueryDto): Promise<Trace[]> {
-    return prisma.trace.findMany({
-      where: {
-        ...(query.botInstanceId && { botInstanceId: query.botInstanceId }),
-        ...(query.type && { type: query.type }),
-        ...(query.status && { status: query.status }),
-        ...(query.traceId && { traceId: query.traceId }),
-        ...(query.parentTraceId && { parentTraceId: query.parentTraceId }),
-        ...(query.from && query.to && {
-          startedAt: {
-            gte: new Date(query.from),
-            lte: new Date(query.to),
-          },
-        }),
+    const result = await this.traceRepo.findMany(
+      {
+        instanceId: query.botInstanceId,
+        type: query.type,
+        status: query.status,
+        parentTraceId: query.parentTraceId,
+        startedAfter: query.from ? new Date(query.from) : undefined,
+        startedBefore: query.to ? new Date(query.to) : undefined,
       },
-      orderBy: { startedAt: "desc" },
-      take: query.limit || 100,
-    });
+      { limit: query.limit || 100 }
+    );
+    return result.data;
   }
 
   async findOne(id: string): Promise<Trace> {
-    const trace = await prisma.trace.findUnique({
-      where: { id },
-    });
+    const trace = await this.traceRepo.findById(id);
 
     if (!trace) {
       throw new NotFoundException(`Trace ${id} not found`);
@@ -60,84 +62,49 @@ export class TracesService {
   }
 
   async findByTraceId(traceId: string): Promise<Trace & { children: Trace[] }> {
-    const trace = await prisma.trace.findUnique({
-      where: { traceId },
-      include: {
-        botInstance: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
+    const trace = await this.traceRepo.findByTraceId(traceId);
 
     if (!trace) {
       throw new NotFoundException(`Trace with ID ${traceId} not found`);
     }
 
     // Get child traces
-    const children = await prisma.trace.findMany({
-      where: { parentTraceId: traceId },
-      orderBy: { startedAt: "asc" },
-    });
+    const children = await this.traceRepo.findChildren(traceId);
 
     return { ...trace, children };
   }
 
   async complete(id: string, output?: Record<string, unknown>): Promise<Trace> {
-    const trace = await this.findOne(id);
-    const endedAt = new Date();
-    const durationMs = endedAt.getTime() - trace.startedAt.getTime();
+    // Verify trace exists first
+    await this.findOne(id);
 
-    return prisma.trace.update({
-      where: { id },
-      data: {
-        status: "SUCCESS",
-        endedAt,
-        durationMs,
-        ...(output && { output: JSON.stringify(output) }),
-      },
-    });
+    return this.traceRepo.complete(
+      id,
+      "SUCCESS",
+      output ? JSON.stringify(output) : undefined
+    );
   }
 
   async fail(id: string, error: Record<string, unknown>): Promise<Trace> {
-    const trace = await this.findOne(id);
-    const endedAt = new Date();
-    const durationMs = endedAt.getTime() - trace.startedAt.getTime();
+    // Verify trace exists first
+    await this.findOne(id);
 
-    return prisma.trace.update({
-      where: { id },
-      data: {
-        status: "ERROR",
-        endedAt,
-        durationMs,
-        error: JSON.stringify(error),
-      },
-    });
+    return this.traceRepo.complete(
+      id,
+      "ERROR",
+      undefined,
+      JSON.stringify(error)
+    );
   }
 
   async getTraceTree(traceId: string): Promise<Record<string, unknown>> {
-    const root = await this.findByTraceId(traceId);
+    const tree = await this.traceRepo.findTree(traceId);
 
-    async function buildTree(parentId: string): Promise<Record<string, unknown>[]> {
-      const children = await prisma.trace.findMany({
-        where: { parentTraceId: parentId },
-        orderBy: { startedAt: "asc" },
-      });
-
-      return Promise.all(
-        children.map(async (child) => ({
-          ...child,
-          children: await buildTree(child.traceId),
-        }))
-      );
+    if (!tree) {
+      throw new NotFoundException(`Trace with ID ${traceId} not found`);
     }
 
-    return {
-      ...root,
-      children: await buildTree(traceId),
-    };
+    return tree.root as unknown as Record<string, unknown>;
   }
 
   async getStats(botInstanceId: string, from: Date, to: Date): Promise<{
@@ -148,43 +115,21 @@ export class TracesService {
     avgDuration: number;
     byType: Record<string, number>;
   }> {
-    const traces = await prisma.trace.findMany({
-      where: {
-        botInstanceId,
-        startedAt: {
-          gte: from,
-          lte: to,
-        },
-      },
-    });
+    const stats = await this.traceRepo.getStats(botInstanceId, from, to);
+    const statsByType = await this.traceRepo.getStatsByType(botInstanceId, from, to);
 
-    const stats = traces.reduce(
-      (acc, trace) => {
-        acc.total++;
-        acc[trace.status.toLowerCase()]++;
-        if (trace.durationMs) {
-          acc.totalDuration += trace.durationMs;
-        }
-        acc.byType[trace.type] = (acc.byType[trace.type] || 0) + 1;
-        return acc;
-      },
-      {
-        total: 0,
-        success: 0,
-        error: 0,
-        pending: 0,
-        totalDuration: 0,
-        byType: {} as Record<string, number>,
-      }
-    );
+    const byType: Record<string, number> = {};
+    for (const typeStat of statsByType) {
+      byType[typeStat.type] = typeStat.totalTraces;
+    }
 
     return {
-      total: stats.total,
-      success: stats.success,
-      error: stats.error,
-      pending: stats.pending,
-      avgDuration: stats.total > 0 ? Math.round(stats.totalDuration / stats.total) : 0,
-      byType: stats.byType,
+      total: stats.totalTraces,
+      success: stats.successCount,
+      error: stats.errorCount,
+      pending: stats.pendingCount,
+      avgDuration: stats.avgDurationMs ?? 0,
+      byType,
     };
   }
 }

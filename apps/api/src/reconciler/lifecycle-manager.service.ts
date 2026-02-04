@@ -1,9 +1,12 @@
 import * as path from "path";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Inject, Logger } from "@nestjs/common";
 import {
-  prisma,
   BotInstance,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+  PRISMA_CLIENT,
 } from "@clawster/database";
+import type { PrismaClient } from "@clawster/database";
 import type { OpenClawManifest, OpenClawFullConfig } from "@clawster/core";
 import {
   GatewayManager,
@@ -65,6 +68,8 @@ export class LifecycleManagerService {
   private readonly gatewayManager = new GatewayManager();
 
   constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
     private readonly configGenerator: ConfigGeneratorService,
     private readonly provisioningEvents: ProvisioningEventsService,
   ) {}
@@ -173,20 +178,17 @@ export class LifecycleManagerService {
       this.provisioningEvents.updateStep(instance.id, "health_check", "completed");
 
       // 8. Update DB
-      await prisma.botInstance.update({
-        where: { id: instance.id },
-        data: {
-          status: "RUNNING",
-          runningSince: new Date(),
-          health: health.ok ? "HEALTHY" : "DEGRADED",
-          gatewayPort,
-          profileName,
-          configHash,
-          lastReconcileAt: new Date(),
-          lastHealthCheckAt: new Date(),
-          lastError: null,
-          errorCount: 0,
-        },
+      await this.botInstanceRepo.update(instance.id, {
+        status: "RUNNING",
+        runningSince: new Date(),
+        health: health.ok ? "HEALTHY" : "DEGRADED",
+        gatewayPort,
+        profileName,
+        configHash,
+        lastReconcileAt: new Date(),
+        lastHealthCheckAt: new Date(),
+        lastError: null,
+        errorCount: 0,
       });
 
       // Upsert GatewayConnection record (persist auth token for health poller)
@@ -209,15 +211,12 @@ export class LifecycleManagerService {
       this.logger.error(`Provision failed for ${instance.id}: ${message}`);
       this.provisioningEvents.failProvisioning(instance.id, message);
 
-      await prisma.botInstance.update({
-        where: { id: instance.id },
-        data: {
-          status: "ERROR",
-          runningSince: null,
-          health: "UNKNOWN",
-          lastError: message,
-          errorCount: { increment: 1 },
-        },
+      await this.botInstanceRepo.update(instance.id, {
+        status: "ERROR",
+        runningSince: null,
+        health: "UNKNOWN",
+        lastError: message,
+        errorCount: { increment: 1 },
       });
 
       return { success: false, message };
@@ -256,9 +255,8 @@ export class LifecycleManagerService {
 
       if (remote.hash === desiredHash) {
         // DB was stale — update local record and return
-        await prisma.botInstance.update({
-          where: { id: instance.id },
-          data: { configHash: desiredHash },
+        await this.botInstanceRepo.update(instance.id, {
+          configHash: desiredHash,
         });
         return { success: true, message: "Remote config already matches", method: "none", configHash: desiredHash };
       }
@@ -297,19 +295,15 @@ export class LifecycleManagerService {
       }
 
       // Persist new hash
-      await prisma.botInstance.update({
-        where: { id: instance.id },
-        data: {
-          configHash: desiredHash,
-          lastReconcileAt: new Date(),
-          lastError: null,
-        },
+      await this.botInstanceRepo.update(instance.id, {
+        configHash: desiredHash,
+        lastReconcileAt: new Date(),
+        lastError: null,
       });
 
       // Update GatewayConnection hash
-      await prisma.gatewayConnection.updateMany({
-        where: { instanceId: instance.id },
-        data: { configHash: desiredHash },
+      await this.botInstanceRepo.upsertGatewayConnection(instance.id, {
+        configHash: desiredHash,
       });
 
       this.logger.log(`Instance ${instance.id} config applied (hash=${desiredHash.slice(0, 12)})`);
@@ -319,9 +313,9 @@ export class LifecycleManagerService {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Config update failed for ${instance.id}: ${message}`);
 
-      await prisma.botInstance.update({
-        where: { id: instance.id },
-        data: { lastError: message, errorCount: { increment: 1 } },
+      await this.botInstanceRepo.update(instance.id, {
+        lastError: message,
+        errorCount: { increment: 1 },
       });
 
       return { success: false, message, method: "apply" };
@@ -338,14 +332,11 @@ export class LifecycleManagerService {
     const target = await this.resolveTarget(instance);
     await target.restart();
 
-    await prisma.botInstance.update({
-      where: { id: instance.id },
-      data: {
-        status: "RUNNING",
-        runningSince: new Date(),
-        restartCount: { increment: 1 },
-        lastReconcileAt: new Date(),
-      },
+    await this.botInstanceRepo.update(instance.id, {
+      status: "RUNNING",
+      runningSince: new Date(),
+      restartCount: { increment: 1 },
+      lastReconcileAt: new Date(),
     });
   }
 
@@ -366,9 +357,8 @@ export class LifecycleManagerService {
       const target = await this.resolveTarget(instance);
       await target.restart();
 
-      await prisma.botInstance.update({
-        where: { id: instance.id },
-        data: { lastReconcileAt: new Date() },
+      await this.botInstanceRepo.update(instance.id, {
+        lastReconcileAt: new Date(),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -406,23 +396,18 @@ export class LifecycleManagerService {
     }
 
     // Clean up DB records
-    await prisma.gatewayConnection.deleteMany({
+    await this.botInstanceRepo.deleteGatewayConnection(instance.id);
+    await this.prisma.openClawProfile.deleteMany({
       where: { instanceId: instance.id },
     });
-    await prisma.openClawProfile.deleteMany({
-      where: { instanceId: instance.id },
-    });
-    await prisma.healthSnapshot.deleteMany({
+    await this.prisma.healthSnapshot.deleteMany({
       where: { instanceId: instance.id },
     });
 
-    await prisma.botInstance.update({
-      where: { id: instance.id },
-      data: {
-        status: "DELETING",
-        runningSince: null,
-        health: "UNKNOWN",
-      },
+    await this.botInstanceRepo.update(instance.id, {
+      status: "DELETING",
+      runningSince: null,
+      health: "UNKNOWN",
     });
   }
 
@@ -618,7 +603,7 @@ export class LifecycleManagerService {
 
   private async resolveTarget(instance: BotInstance): Promise<DeploymentTarget> {
     if (instance.deploymentTargetId) {
-      const dbTarget = await prisma.deploymentTarget.findUnique({
+      const dbTarget = await this.prisma.deploymentTarget.findUnique({
         where: { id: instance.deploymentTargetId },
       });
 
@@ -770,9 +755,7 @@ export class LifecycleManagerService {
    */
   private async getGatewayClient(instance: BotInstance): Promise<GatewayClient> {
     // Look up stored connection info
-    const gwConn = await prisma.gatewayConnection.findUnique({
-      where: { instanceId: instance.id },
-    });
+    const gwConn = await this.botInstanceRepo.getGatewayConnection(instance.id);
 
     const host = gwConn?.host ?? "localhost";
     const port = gwConn?.port ?? instance.gatewayPort ?? 18789;
@@ -832,25 +815,13 @@ export class LifecycleManagerService {
     configHash: string,
     authToken?: string,
   ): Promise<void> {
-    await prisma.gatewayConnection.upsert({
-      where: { instanceId },
-      create: {
-        instanceId,
-        host: endpoint.host,
-        port: endpoint.port,
-        status: "CONNECTED",
-        configHash,
-        lastHeartbeat: new Date(),
-        ...(authToken ? { authToken } : {}),
-      },
-      update: {
-        host: endpoint.host,
-        port: endpoint.port,
-        status: "CONNECTED",
-        configHash,
-        lastHeartbeat: new Date(),
-        ...(authToken ? { authToken } : {}),
-      },
+    await this.botInstanceRepo.upsertGatewayConnection(instanceId, {
+      host: endpoint.host,
+      port: endpoint.port,
+      status: "CONNECTED",
+      configHash,
+      lastHeartbeat: new Date(),
+      ...(authToken ? { authToken } : {}),
     });
   }
 
@@ -863,7 +834,7 @@ export class LifecycleManagerService {
     const stateDir = `~/.openclaw/profiles/${profileName}/state/`;
     const workspace = `~/openclaw/${profileName}/`;
 
-    await prisma.openClawProfile.upsert({
+    await this.prisma.openClawProfile.upsert({
       where: { instanceId },
       create: {
         instanceId,

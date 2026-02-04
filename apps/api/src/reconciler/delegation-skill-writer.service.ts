@@ -1,7 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
-import { Injectable, Logger } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Injectable, Inject, Logger } from "@nestjs/common";
+import {
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+  PRISMA_CLIENT,
+} from "@clawster/database";
+import type { PrismaClient } from "@clawster/database";
 import * as crypto from "crypto";
 import { DelegationSkillGeneratorService } from "../bot-teams/delegation-skill-generator.service";
 
@@ -10,6 +15,8 @@ export class DelegationSkillWriterService {
   private readonly logger = new Logger(DelegationSkillWriterService.name);
 
   constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
     private readonly skillGenerator: DelegationSkillGeneratorService,
   ) {}
 
@@ -27,7 +34,7 @@ export class DelegationSkillWriterService {
     apiUrl: string,
   ): Promise<{ written: boolean; memberCount: number }> {
     // 1. Query team members for this bot
-    const teamMembers = await prisma.botTeamMember.findMany({
+    const teamMembers = await this.prisma.botTeamMember.findMany({
       where: { ownerBotId: instanceId, enabled: true },
       include: {
         memberBot: { select: { id: true, name: true } },
@@ -43,10 +50,7 @@ export class DelegationSkillWriterService {
     }
 
     // 3. Get bot info
-    const bot = await prisma.botInstance.findUnique({
-      where: { id: instanceId },
-      select: { id: true, name: true },
-    });
+    const bot = await this.botInstanceRepo.findById(instanceId);
 
     if (!bot) {
       this.logger.warn(`Bot ${instanceId} not found — skipping delegation skill write`);
@@ -89,7 +93,7 @@ export class DelegationSkillWriterService {
     const DELEGATION_LABEL = "clawster-delegation-auto";
 
     // Revoke any previous delegation keys
-    await prisma.a2aApiKey.updateMany({
+    await this.prisma.a2aApiKey.updateMany({
       where: {
         botInstanceId,
         label: DELEGATION_LABEL,
@@ -105,7 +109,7 @@ export class DelegationSkillWriterService {
     const keyHash = crypto.createHash("sha256").update(key).digest("hex");
     const keyPrefix = key.slice(0, 12) + "...";
 
-    await prisma.a2aApiKey.create({
+    await this.prisma.a2aApiKey.create({
       data: {
         keyHash,
         keyPrefix,

@@ -1,5 +1,5 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Injectable, Inject, Logger } from "@nestjs/common";
+import { PrismaClient, PRISMA_CLIENT } from "@clawster/database";
 import { NotificationChannelsService } from "./notification-channels.service";
 
 // ---------------------------------------------------------------------------
@@ -23,6 +23,7 @@ export class NotificationDeliveryService {
   private readonly logger = new Logger(NotificationDeliveryService.name);
 
   constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
     private readonly notificationChannelsService: NotificationChannelsService,
   ) {}
 
@@ -65,7 +66,7 @@ export class NotificationDeliveryService {
     let botName = botInstanceId ?? "unknown";
     if (botInstanceId) {
       try {
-        const instance = await prisma.botInstance.findUnique({
+        const instance = await this.prisma.botInstance.findUnique({
           where: { id: botInstanceId },
           select: { name: true },
         });
@@ -143,7 +144,7 @@ export class NotificationDeliveryService {
       }
 
       // Success — update delivery tracking
-      await prisma.notificationChannel.update({
+      await this.prisma.notificationChannel.update({
         where: { id: channel.id },
         data: {
           lastDeliveryAt: new Date(),
@@ -159,7 +160,7 @@ export class NotificationDeliveryService {
 
       // Failure — update failure tracking
       try {
-        await prisma.notificationChannel.update({
+        await this.prisma.notificationChannel.update({
           where: { id: channel.id },
           data: {
             lastError: errorMessage,

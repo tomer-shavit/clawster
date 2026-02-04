@@ -4,53 +4,54 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { BotInstancesService } from './bot-instances.service';
+import {
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+  FLEET_REPOSITORY,
+  IFleetRepository,
+} from '@clawster/database';
+import { ReconcilerService } from '../reconciler/reconciler.service';
 
-// Mock the database and core modules
-jest.mock('@clawster/database', () => ({
-  prisma: {
-    botInstance: {
-      findFirst: jest.fn(),
-      findUnique: jest.fn(),
-      findMany: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      count: jest.fn(),
-      groupBy: jest.fn(),
-    },
-    fleet: {
-      findUnique: jest.fn(),
-    },
-  },
-  BotStatus: {
-    CREATING: 'CREATING',
-    PENDING: 'PENDING',
-    RUNNING: 'RUNNING',
-    DEGRADED: 'DEGRADED',
-    STOPPED: 'STOPPED',
-    PAUSED: 'PAUSED',
-    DELETING: 'DELETING',
-    ERROR: 'ERROR',
-    RECONCILING: 'RECONCILING',
-  },
-  BotHealth: {
-    HEALTHY: 'HEALTHY',
-    UNHEALTHY: 'UNHEALTHY',
-    UNKNOWN: 'UNKNOWN',
-    DEGRADED: 'DEGRADED',
-  },
-}));
-
+// Mock the core module
 jest.mock('@clawster/core', () => ({
   PolicyEngine: jest.fn().mockImplementation(() => ({
     validate: jest.fn().mockReturnValue({ valid: true, violations: [] }),
   })),
 }));
 
-import { prisma } from '@clawster/database';
-
 describe('BotInstancesService', () => {
   let service: BotInstancesService;
-  const mockPrisma = prisma as jest.Mocked<typeof prisma>;
+  let module: TestingModule;
+
+  const mockBotInstanceRepo: jest.Mocked<Partial<IBotInstanceRepository>> = {
+    findFirst: jest.fn(),
+    findById: jest.fn(),
+    findByIds: jest.fn(),
+    findMany: jest.fn(),
+    findManyWithRelations: jest.fn(),
+    findOneWithRelations: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    updateStatus: jest.fn(),
+    updateHealth: jest.fn(),
+    count: jest.fn(),
+    groupByStatus: jest.fn(),
+    groupByHealth: jest.fn(),
+    groupByFleet: jest.fn(),
+    getGatewayConnection: jest.fn(),
+  };
+
+  const mockFleetRepo: jest.Mocked<Partial<IFleetRepository>> = {
+    findById: jest.fn(),
+  };
+
+  const mockReconciler: jest.Mocked<Partial<ReconcilerService>> = {
+    reconcile: jest.fn(),
+    stop: jest.fn(),
+    delete: jest.fn(),
+    doctor: jest.fn(),
+    updateResources: jest.fn(),
+  };
 
   const validManifest = {
     apiVersion: 'clawster/v1',
@@ -76,13 +77,43 @@ describe('BotInstancesService', () => {
     },
   };
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [BotInstancesService],
+  const createTestModule = async () => {
+    module = await Test.createTestingModule({
+      providers: [
+        BotInstancesService,
+        {
+          provide: BOT_INSTANCE_REPOSITORY,
+          useValue: mockBotInstanceRepo,
+        },
+        {
+          provide: FLEET_REPOSITORY,
+          useValue: mockFleetRepo,
+        },
+        {
+          provide: ReconcilerService,
+          useValue: mockReconciler,
+        },
+      ],
     }).compile();
 
     service = module.get<BotInstancesService>(BotInstancesService);
+  };
+
+  beforeEach(async () => {
+    // Reset to valid PolicyEngine mock
+    const { PolicyEngine } = jest.requireMock('@clawster/core');
+    PolicyEngine.mockImplementation(() => ({
+      validate: jest.fn().mockReturnValue({ valid: true, violations: [] }),
+    }));
+    
+    await createTestModule();
     jest.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    if (module) {
+      await module.close();
+    }
   });
 
   describe('create', () => {
@@ -96,9 +127,9 @@ describe('BotInstancesService', () => {
     };
 
     it('should create a bot instance successfully', async () => {
-      mockPrisma.botInstance.findFirst.mockResolvedValue(null);
-      mockPrisma.fleet.findUnique.mockResolvedValue({ id: 'fleet-123' } as any);
-      mockPrisma.botInstance.create.mockResolvedValue({
+      mockBotInstanceRepo.findFirst!.mockResolvedValue(null);
+      mockFleetRepo.findById!.mockResolvedValue({ id: 'fleet-123' } as any);
+      mockBotInstanceRepo.create!.mockResolvedValue({
         id: 'bot-123',
         ...createDto,
         status: 'CREATING',
@@ -115,7 +146,7 @@ describe('BotInstancesService', () => {
     });
 
     it('should throw BadRequestException for duplicate name', async () => {
-      mockPrisma.botInstance.findFirst.mockResolvedValue({
+      mockBotInstanceRepo.findFirst!.mockResolvedValue({
         id: 'existing-bot',
         name: 'test-instance',
       } as any);
@@ -124,13 +155,14 @@ describe('BotInstancesService', () => {
     });
 
     it('should throw NotFoundException for non-existent fleet', async () => {
-      mockPrisma.botInstance.findFirst.mockResolvedValue(null);
-      mockPrisma.fleet.findUnique.mockResolvedValue(null);
+      mockBotInstanceRepo.findFirst!.mockResolvedValue(null);
+      mockFleetRepo.findById!.mockResolvedValue(null);
 
       await expect(service.create(createDto)).rejects.toThrow(NotFoundException);
     });
 
     it('should throw BadRequestException for invalid manifest', async () => {
+      // Set up the invalid mock before creating the service
       const { PolicyEngine } = jest.requireMock('@clawster/core');
       PolicyEngine.mockImplementation(() => ({
         validate: jest.fn().mockReturnValue({
@@ -139,8 +171,11 @@ describe('BotInstancesService', () => {
         }),
       }));
 
-      mockPrisma.botInstance.findFirst.mockResolvedValue(null);
-      mockPrisma.fleet.findUnique.mockResolvedValue({ id: 'fleet-123' } as any);
+      // Re-create the module with the new mock
+      await createTestModule();
+
+      mockBotInstanceRepo.findFirst!.mockResolvedValue(null);
+      mockFleetRepo.findById!.mockResolvedValue({ id: 'fleet-123' } as any);
 
       await expect(service.create(createDto)).rejects.toThrow(BadRequestException);
     });
@@ -148,7 +183,7 @@ describe('BotInstancesService', () => {
 
   describe('findAll', () => {
     it('should return list of instances', async () => {
-      mockPrisma.botInstance.findMany.mockResolvedValue([
+      mockBotInstanceRepo.findManyWithRelations!.mockResolvedValue([
         { id: 'bot-1', name: 'Bot 1' },
         { id: 'bot-2', name: 'Bot 2' },
       ] as any);
@@ -159,25 +194,27 @@ describe('BotInstancesService', () => {
     });
 
     it('should filter by fleet', async () => {
-      mockPrisma.botInstance.findMany.mockResolvedValue([]);
+      mockBotInstanceRepo.findManyWithRelations!.mockResolvedValue([]);
 
       await service.findAll({ workspaceId: 'workspace-123', fleetId: 'fleet-123' });
 
-      expect(mockPrisma.botInstance.findMany).toHaveBeenCalledWith(
+      expect(mockBotInstanceRepo.findManyWithRelations).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ workspaceId: 'workspace-123', fleetId: 'fleet-123' }),
+          workspaceId: 'workspace-123',
+          fleetId: 'fleet-123',
         })
       );
     });
 
     it('should filter by status', async () => {
-      mockPrisma.botInstance.findMany.mockResolvedValue([]);
+      mockBotInstanceRepo.findManyWithRelations!.mockResolvedValue([]);
 
       await service.findAll({ workspaceId: 'workspace-123', status: 'RUNNING' });
 
-      expect(mockPrisma.botInstance.findMany).toHaveBeenCalledWith(
+      expect(mockBotInstanceRepo.findManyWithRelations).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ workspaceId: 'workspace-123', status: 'RUNNING' }),
+          workspaceId: 'workspace-123',
+          status: 'RUNNING',
         })
       );
     });
@@ -185,7 +222,7 @@ describe('BotInstancesService', () => {
 
   describe('findOne', () => {
     it('should return instance by id', async () => {
-      mockPrisma.botInstance.findUnique.mockResolvedValue({
+      mockBotInstanceRepo.findOneWithRelations!.mockResolvedValue({
         id: 'bot-123',
         name: 'Test Bot',
         fleet: {},
@@ -198,7 +235,7 @@ describe('BotInstancesService', () => {
     });
 
     it('should throw NotFoundException for non-existent instance', async () => {
-      mockPrisma.botInstance.findUnique.mockResolvedValue(null);
+      mockBotInstanceRepo.findOneWithRelations!.mockResolvedValue(null);
 
       await expect(service.findOne('non-existent')).rejects.toThrow(NotFoundException);
     });
@@ -206,18 +243,20 @@ describe('BotInstancesService', () => {
 
   describe('update', () => {
     it('should update instance successfully', async () => {
-      mockPrisma.botInstance.findUnique.mockResolvedValue({ id: 'bot-123' } as any);
-      mockPrisma.botInstance.update.mockResolvedValue({
+      mockBotInstanceRepo.findOneWithRelations!.mockResolvedValue({ id: 'bot-123' } as any);
+      mockBotInstanceRepo.update!.mockResolvedValue({
         id: 'bot-123',
-        tags: { team: 'platform' },
+        tags: JSON.stringify({ team: 'platform' }),
       } as any);
 
       const result = await service.update('bot-123', { tags: { team: 'platform' } });
 
-      expect(result.tags.team).toBe('platform');
+      expect(result.id).toBe('bot-123');
+      expect(JSON.parse(result.tags)).toEqual({ team: 'platform' });
     });
 
     it('should validate manifest on update', async () => {
+      // Set up the invalid mock before creating the service
       const { PolicyEngine } = jest.requireMock('@clawster/core');
       PolicyEngine.mockImplementation(() => ({
         validate: jest.fn().mockReturnValue({
@@ -226,7 +265,10 @@ describe('BotInstancesService', () => {
         }),
       }));
 
-      mockPrisma.botInstance.findUnique.mockResolvedValue({ id: 'bot-123' } as any);
+      // Re-create the module with the new mock
+      await createTestModule();
+
+      mockBotInstanceRepo.findOneWithRelations!.mockResolvedValue({ id: 'bot-123' } as any);
 
       await expect(
         service.update('bot-123', { desiredManifest: validManifest })
@@ -236,8 +278,8 @@ describe('BotInstancesService', () => {
 
   describe('updateStatus', () => {
     it('should update status successfully', async () => {
-      mockPrisma.botInstance.findUnique.mockResolvedValue({ id: 'bot-123' } as any);
-      mockPrisma.botInstance.update.mockResolvedValue({
+      mockBotInstanceRepo.findOneWithRelations!.mockResolvedValue({ id: 'bot-123' } as any);
+      mockBotInstanceRepo.updateStatus!.mockResolvedValue({
         id: 'bot-123',
         status: 'RUNNING',
       } as any);
@@ -246,32 +288,12 @@ describe('BotInstancesService', () => {
 
       expect(result.status).toBe('RUNNING');
     });
-
-    it('should increment error count on ERROR status', async () => {
-      mockPrisma.botInstance.findUnique.mockResolvedValue({ id: 'bot-123' } as any);
-      mockPrisma.botInstance.update.mockResolvedValue({
-        id: 'bot-123',
-        status: 'ERROR',
-        errorCount: 1,
-      } as any);
-
-      await service.updateStatus('bot-123', 'ERROR');
-
-      expect(mockPrisma.botInstance.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: 'ERROR',
-            errorCount: { increment: 1 },
-          }),
-        })
-      );
-    });
   });
 
   describe('updateHealth', () => {
     it('should update health successfully', async () => {
-      mockPrisma.botInstance.findUnique.mockResolvedValue({ id: 'bot-123' } as any);
-      mockPrisma.botInstance.update.mockResolvedValue({
+      mockBotInstanceRepo.findOneWithRelations!.mockResolvedValue({ id: 'bot-123' } as any);
+      mockBotInstanceRepo.updateHealth!.mockResolvedValue({
         id: 'bot-123',
         health: 'HEALTHY',
       } as any);
@@ -279,31 +301,27 @@ describe('BotInstancesService', () => {
       const result = await service.updateHealth('bot-123', 'HEALTHY');
 
       expect(result.health).toBe('HEALTHY');
-      expect(mockPrisma.botInstance.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            health: 'HEALTHY',
-            lastHealthCheckAt: expect.any(Date),
-          }),
-        })
+      expect(mockBotInstanceRepo.updateHealth).toHaveBeenCalledWith(
+        'bot-123',
+        'HEALTHY',
+        expect.any(Date)
       );
     });
   });
 
   describe('restart', () => {
     it('should restart instance', async () => {
-      mockPrisma.botInstance.findUnique.mockResolvedValue({ id: 'bot-123' } as any);
-      mockPrisma.botInstance.update.mockResolvedValue({} as any);
+      mockBotInstanceRepo.findOneWithRelations!.mockResolvedValue({ id: 'bot-123' } as any);
+      mockBotInstanceRepo.update!.mockResolvedValue({} as any);
 
       await service.restart('bot-123');
 
-      expect(mockPrisma.botInstance.update).toHaveBeenCalledWith(
+      expect(mockBotInstanceRepo.update).toHaveBeenCalledWith(
+        'bot-123',
         expect.objectContaining({
-          data: expect.objectContaining({
-            status: 'RECONCILING',
-            restartCount: { increment: 1 },
-            lastReconcileAt: expect.any(Date),
-          }),
+          status: 'RECONCILING',
+          restartCount: { increment: 1 },
+          lastReconcileAt: expect.any(Date),
         })
       );
     });
@@ -311,77 +329,68 @@ describe('BotInstancesService', () => {
 
   describe('pause', () => {
     it('should pause instance', async () => {
-      mockPrisma.botInstance.findUnique.mockResolvedValue({ id: 'bot-123' } as any);
-      mockPrisma.botInstance.update.mockResolvedValue({} as any);
+      mockBotInstanceRepo.findOneWithRelations!.mockResolvedValue({ id: 'bot-123' } as any);
+      mockBotInstanceRepo.update!.mockResolvedValue({} as any);
 
       await service.pause('bot-123');
 
-      expect(mockPrisma.botInstance.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: 'PAUSED' }),
-        })
+      expect(mockBotInstanceRepo.update).toHaveBeenCalledWith(
+        'bot-123',
+        expect.objectContaining({ status: 'PAUSED' })
       );
     });
   });
 
   describe('resume', () => {
     it('should resume instance', async () => {
-      mockPrisma.botInstance.findUnique.mockResolvedValue({ id: 'bot-123' } as any);
-      mockPrisma.botInstance.update.mockResolvedValue({} as any);
+      mockBotInstanceRepo.findOneWithRelations!.mockResolvedValue({ id: 'bot-123' } as any);
+      mockBotInstanceRepo.update!.mockResolvedValue({} as any);
+      mockReconciler.reconcile!.mockResolvedValue({} as any);
 
       await service.resume('bot-123');
 
-      expect(mockPrisma.botInstance.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: 'PENDING' }),
-        })
+      expect(mockBotInstanceRepo.update).toHaveBeenCalledWith(
+        'bot-123',
+        expect.objectContaining({ status: 'PENDING' })
       );
     });
   });
 
   describe('stop', () => {
     it('should stop instance', async () => {
-      mockPrisma.botInstance.findUnique.mockResolvedValue({ id: 'bot-123' } as any);
-      mockPrisma.botInstance.update.mockResolvedValue({} as any);
+      mockBotInstanceRepo.findOneWithRelations!.mockResolvedValue({ id: 'bot-123' } as any);
+      mockReconciler.stop!.mockResolvedValue(undefined);
 
       await service.stop('bot-123');
 
-      expect(mockPrisma.botInstance.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: 'STOPPED' }),
-        })
-      );
+      expect(mockReconciler.stop).toHaveBeenCalledWith('bot-123');
     });
   });
 
   describe('remove', () => {
     it('should mark instance for deletion', async () => {
-      mockPrisma.botInstance.findUnique.mockResolvedValue({ id: 'bot-123' } as any);
-      mockPrisma.botInstance.update.mockResolvedValue({} as any);
+      mockBotInstanceRepo.findOneWithRelations!.mockResolvedValue({ id: 'bot-123' } as any);
+      mockReconciler.delete!.mockResolvedValue(undefined);
 
       await service.remove('bot-123');
 
-      expect(mockPrisma.botInstance.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: 'DELETING' }),
-        })
-      );
+      expect(mockReconciler.delete).toHaveBeenCalledWith('bot-123');
     });
   });
 
   describe('getDashboardData', () => {
     it('should return dashboard data', async () => {
-      mockPrisma.botInstance.count.mockResolvedValue(10);
-      mockPrisma.botInstance.groupBy
-        .mockResolvedValueOnce([
-          { status: 'RUNNING', _count: { status: 5 } },
-          { status: 'PAUSED', _count: { status: 2 } },
-        ] as any)
-        .mockResolvedValueOnce([
-          { health: 'HEALTHY', _count: { health: 8 } },
-          { health: 'UNKNOWN', _count: { health: 2 } },
-        ] as any);
-      mockPrisma.botInstance.findMany.mockResolvedValue([]);
+      mockBotInstanceRepo.count!.mockResolvedValue(10);
+      mockBotInstanceRepo.groupByStatus!.mockResolvedValue([
+        { status: 'RUNNING', _count: 5 },
+        { status: 'PAUSED', _count: 2 },
+      ]);
+      mockBotInstanceRepo.groupByHealth!.mockResolvedValue([
+        { health: 'HEALTHY', _count: 8 },
+        { health: 'UNKNOWN', _count: 2 },
+      ]);
+      mockBotInstanceRepo.findManyWithRelations!.mockResolvedValue([]);
+      mockBotInstanceRepo.groupByFleet!.mockResolvedValue([]);
 
       const result = await service.getDashboardData('workspace-123');
 

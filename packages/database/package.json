@@ -16,7 +16,16 @@
   "dependencies": {
     "@prisma/client": "^5.8.1"
   },
+  "peerDependencies": {
+    "@nestjs/common": "^10.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/common": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@nestjs/common": "^10.3.0",
     "@types/node": "^20.11.0",
     "prisma": "^5.8.1",
     "typescript": "^5.3.3"

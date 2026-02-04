@@ -1,6 +1,7 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Inject, Logger, NotFoundException } from "@nestjs/common";
 import {
-  prisma,
+  PrismaClient,
+  PRISMA_CLIENT,
 } from "@clawster/database";
 import {
   GatewayClient,
@@ -61,11 +62,15 @@ const ENV_VAR_CATALOG: Array<{ name: string; category: EnvVarStatus["category"] 
 export class DebugService {
   private readonly logger = new Logger(DebugService.name);
 
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+  ) {}
+
   async getProcesses(instanceId: string): Promise<ProcessInfo[]> {
     const instance = await this.loadInstanceOrThrow(instanceId);
     const processes: ProcessInfo[] = [];
 
-    const connection = await prisma.gatewayConnection.findUnique({
+    const connection = await this.prisma.gatewayConnection.findUnique({
       where: { instanceId },
     });
 
@@ -123,7 +128,7 @@ export class DebugService {
   async probeGateway(instanceId: string): Promise<GatewayProbeResult> {
     await this.loadInstanceOrThrow(instanceId);
 
-    const connection = await prisma.gatewayConnection.findUnique({
+    const connection = await this.prisma.gatewayConnection.findUnique({
       where: { instanceId },
     });
 
@@ -175,7 +180,7 @@ export class DebugService {
   async getConfig(instanceId: string): Promise<RedactedConfig> {
     const instance = await this.loadInstanceOrThrow(instanceId);
 
-    const connection = await prisma.gatewayConnection.findUnique({
+    const connection = await this.prisma.gatewayConnection.findUnique({
       where: { instanceId },
     });
 
@@ -210,11 +215,11 @@ export class DebugService {
   async getEnvStatus(instanceId: string): Promise<EnvVarStatus[]> {
     const instance = await this.loadInstanceOrThrow(instanceId);
 
-    const profile = await prisma.openClawProfile.findUnique({
+    const profile = await this.prisma.openClawProfile.findUnique({
       where: { instanceId },
     });
 
-    const connection = await prisma.gatewayConnection.findUnique({
+    const connection = await this.prisma.gatewayConnection.findUnique({
       where: { instanceId },
     });
 
@@ -269,7 +274,7 @@ export class DebugService {
   async getStateFiles(instanceId: string): Promise<FileInfo[]> {
     await this.loadInstanceOrThrow(instanceId);
 
-    const profile = await prisma.openClawProfile.findUnique({
+    const profile = await this.prisma.openClawProfile.findUnique({
       where: { instanceId },
     });
 
@@ -299,7 +304,7 @@ export class DebugService {
   async testConnectivity(instanceId: string): Promise<ConnectivityResult> {
     await this.loadInstanceOrThrow(instanceId);
 
-    const connection = await prisma.gatewayConnection.findUnique({
+    const connection = await this.prisma.gatewayConnection.findUnique({
       where: { instanceId },
     });
 
@@ -341,7 +346,7 @@ export class DebugService {
   // ------------------------------------------------------------------
 
   private async loadInstanceOrThrow(instanceId: string) {
-    const instance = await prisma.botInstance.findUnique({
+    const instance = await this.prisma.botInstance.findUnique({
       where: { id: instanceId },
     });
     if (!instance) {

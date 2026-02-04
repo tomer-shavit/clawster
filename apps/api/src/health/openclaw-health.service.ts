@@ -1,8 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import {
-  Prisma,
-  prisma,
+  PrismaClient,
+  PRISMA_CLIENT,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
 } from "@clawster/database";
 import {
   GatewayClient,
@@ -44,6 +46,11 @@ export interface StoredHealthSnapshot {
 export class OpenClawHealthService {
   private readonly logger = new Logger(OpenClawHealthService.name);
 
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+  ) {}
+
   // ---- Scheduled polling ---------------------------------------------------
 
   @Cron("*/30 * * * * *")
@@ -64,7 +71,7 @@ export class OpenClawHealthService {
    * the GatewayConnection + BotInstance health status.
    */
   async pollInstanceHealth(instanceId: string): Promise<StoredHealthSnapshot | null> {
-    const connection = await prisma.gatewayConnection.findUnique({
+    const connection = await this.prisma.gatewayConnection.findUnique({
       where: { instanceId },
     });
 
@@ -102,7 +109,7 @@ export class OpenClawHealthService {
       const isHealthy = snapshot.ok && degradedChannels === 0;
 
       // Persist snapshot
-      const record = await prisma.healthSnapshot.create({
+      const record = await this.prisma.healthSnapshot.create({
         data: {
           instanceId,
           data: JSON.stringify(snapshot),
@@ -114,7 +121,7 @@ export class OpenClawHealthService {
       });
 
       // Update gateway connection status
-      await prisma.gatewayConnection.update({
+      await this.prisma.gatewayConnection.update({
         where: { instanceId },
         data: {
           status: "CONNECTED",
@@ -130,7 +137,7 @@ export class OpenClawHealthService {
       const health = snapshot.ok ? "HEALTHY" : "UNHEALTHY";
       const healthReason = snapshot.ok ? null : "Gateway reported unhealthy";
 
-      await prisma.botInstance.update({
+      await this.prisma.botInstance.update({
         where: { id: instanceId },
         data: {
           health,
@@ -172,7 +179,7 @@ export class OpenClawHealthService {
    * Poll all active instances with a concurrency limit.
    */
   async pollAllInstances(): Promise<void> {
-    const instances = await prisma.botInstance.findMany({
+    const instances = await this.prisma.botInstance.findMany({
       where: {
         status: { in: ["RUNNING", "DEGRADED"] },
         gatewayConnection: { isNot: null },
@@ -205,7 +212,7 @@ export class OpenClawHealthService {
    * Return the latest stored health snapshot for an instance.
    */
   async getHealth(instanceId: string): Promise<StoredHealthSnapshot | null> {
-    const record = await prisma.healthSnapshot.findFirst({
+    const record = await this.prisma.healthSnapshot.findFirst({
       where: { instanceId },
       orderBy: { capturedAt: "desc" },
     });
@@ -234,7 +241,7 @@ export class OpenClawHealthService {
     latencyMs: number;
     reachable: boolean;
   }> {
-    const connection = await prisma.gatewayConnection.findUnique({
+    const connection = await this.prisma.gatewayConnection.findUnique({
       where: { instanceId },
     });
 
@@ -271,7 +278,7 @@ export class OpenClawHealthService {
       const latencyMs = Date.now() - startMs;
 
       // Also store a snapshot for history
-      await prisma.healthSnapshot.create({
+      await this.prisma.healthSnapshot.create({
         data: {
           instanceId,
           data: JSON.stringify(snapshot),
@@ -301,7 +308,7 @@ export class OpenClawHealthService {
    * Fetch token usage from the gateway's usage.cost RPC.
    */
   async getUsage(instanceId: string): Promise<CostUsageSummary | null> {
-    const connection = await prisma.gatewayConnection.findUnique({
+    const connection = await this.prisma.gatewayConnection.findUnique({
       where: { instanceId },
     });
 
@@ -342,7 +349,7 @@ export class OpenClawHealthService {
   private async markUnreachable(instanceId: string, errorMessage: string): Promise<void> {
     // Update gateway connection
     try {
-      await prisma.gatewayConnection.update({
+      await this.prisma.gatewayConnection.update({
         where: { instanceId },
         data: {
           status: "ERROR",
@@ -355,7 +362,7 @@ export class OpenClawHealthService {
 
     // Update bot instance
     try {
-      const updated = await prisma.botInstance.update({
+      const updated = await this.prisma.botInstance.update({
         where: { id: instanceId },
         data: {
           health: "UNHEALTHY",
@@ -403,7 +410,7 @@ export class OpenClawHealthService {
       this.logger.warn(
         `Container ${containerName} state is "${output}" — marking instance ${instance.id} as STOPPED`,
       );
-      await prisma.botInstance.update({
+      await this.prisma.botInstance.update({
         where: { id: instance.id },
         data: {
           status: "STOPPED",
@@ -416,7 +423,7 @@ export class OpenClawHealthService {
       this.logger.warn(
         `Container ${containerName} not found after ${instance.errorCount} health failures — marking instance ${instance.id} as STOPPED`,
       );
-      await prisma.botInstance.update({
+      await this.prisma.botInstance.update({
         where: { id: instance.id },
         data: {
           status: "STOPPED",

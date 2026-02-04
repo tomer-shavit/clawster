@@ -1,12 +1,18 @@
 import {
   Injectable,
+  Inject,
   Logger,
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
 } from "@nestjs/common";
 import * as crypto from "crypto";
-import { prisma, Prisma } from "@clawster/database";
+import {
+  ROUTING_REPOSITORY,
+  IRoutingRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from "@clawster/database";
 import { A2aMessageService } from "../a2a/a2a-message.service";
 import { A2aApiKeyService } from "../a2a/a2a-api-key.service";
 import type {
@@ -17,15 +23,6 @@ import type {
 } from "./bot-teams.dto";
 
 // ---------------------------------------------------------------------------
-// Shared include for owner/member bot names
-// ---------------------------------------------------------------------------
-
-const memberInclude = {
-  ownerBot: { select: { id: true, name: true, status: true } },
-  memberBot: { select: { id: true, name: true, status: true } },
-} satisfies Prisma.BotTeamMemberInclude;
-
-// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -34,6 +31,8 @@ export class BotTeamsService {
   private readonly logger = new Logger(BotTeamsService.name);
 
   constructor(
+    @Inject(ROUTING_REPOSITORY) private readonly routingRepo: IRoutingRepository,
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
     private readonly a2aMessageService: A2aMessageService,
     private readonly a2aApiKeyService: A2aApiKeyService,
   ) {}
@@ -47,12 +46,8 @@ export class BotTeamsService {
 
     // Validate that both bots exist and belong to the same workspace
     const [ownerBot, memberBot] = await Promise.all([
-      prisma.botInstance.findFirst({
-        where: { id: dto.ownerBotId },
-      }),
-      prisma.botInstance.findFirst({
-        where: { id: dto.memberBotId },
-      }),
+      this.botInstanceRepo.findById(dto.ownerBotId),
+      this.botInstanceRepo.findById(dto.memberBotId),
     ]);
 
     if (!ownerBot) {
@@ -71,41 +66,33 @@ export class BotTeamsService {
       );
     }
 
-    return prisma.botTeamMember.create({
-      data: {
-        workspaceId: ownerBot.workspaceId,
-        ownerBotId: dto.ownerBotId,
-        memberBotId: dto.memberBotId,
-        role: dto.role,
-        description: dto.description,
-      },
-      include: memberInclude,
+    const member = await this.routingRepo.createTeamMember({
+      workspace: { connect: { id: ownerBot.workspaceId } },
+      ownerBot: { connect: { id: dto.ownerBotId } },
+      memberBot: { connect: { id: dto.memberBotId } },
+      role: dto.role,
+      description: dto.description,
     });
+
+    return this.routingRepo.findTeamMemberById(member.id);
   }
 
   // ---- List ----------------------------------------------------------------
 
   async findAll(_workspaceId: string, query: BotTeamQueryDto) {
-    const where: Prisma.BotTeamMemberWhereInput = {};
-
-    if (query.ownerBotId) where.ownerBotId = query.ownerBotId;
-    if (query.memberBotId) where.memberBotId = query.memberBotId;
-    if (query.enabled !== undefined) where.enabled = query.enabled;
-
-    return prisma.botTeamMember.findMany({
-      where,
-      include: memberInclude,
-      orderBy: { createdAt: "asc" },
+    const result = await this.routingRepo.findManyTeamMembers({
+      ownerBotId: query.ownerBotId,
+      memberBotId: query.memberBotId,
+      enabled: query.enabled,
     });
+
+    return result.data;
   }
 
   // ---- Find one ------------------------------------------------------------
 
   async findOne(id: string) {
-    const member = await prisma.botTeamMember.findUnique({
-      where: { id },
-      include: memberInclude,
-    });
+    const member = await this.routingRepo.findTeamMemberById(id);
 
     if (!member) {
       throw new NotFoundException(`Team member ${id} not found`);
@@ -119,15 +106,13 @@ export class BotTeamsService {
   async update(id: string, dto: UpdateBotTeamMemberDto) {
     await this.findOne(id); // ensure exists
 
-    return prisma.botTeamMember.update({
-      where: { id },
-      data: {
-        ...(dto.role !== undefined && { role: dto.role }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.enabled !== undefined && { enabled: dto.enabled }),
-      },
-      include: memberInclude,
+    await this.routingRepo.updateTeamMember(id, {
+      ...(dto.role !== undefined && { role: dto.role }),
+      ...(dto.description !== undefined && { description: dto.description }),
+      ...(dto.enabled !== undefined && { enabled: dto.enabled }),
     });
+
+    return this.routingRepo.findTeamMemberById(id);
   }
 
   // ---- Remove --------------------------------------------------------------
@@ -135,7 +120,7 @@ export class BotTeamsService {
   async remove(id: string) {
     await this.findOne(id); // ensure exists
 
-    await prisma.botTeamMember.delete({ where: { id } });
+    await this.routingRepo.deleteTeamMember(id);
   }
 
   // ---- Delegate ------------------------------------------------------------
@@ -150,20 +135,13 @@ export class BotTeamsService {
       throw new UnauthorizedException("Invalid API key for this bot");
     }
 
-    // 2. Find team member relationship
-    const teamMember = await prisma.botTeamMember.findFirst({
-      where: {
-        ownerBotId: dto.sourceBotId,
-        enabled: true,
-        memberBot: { name: dto.targetBotName },
-      },
-      include: {
-        memberBot: { select: { id: true, name: true } },
-        ownerBot: { select: { id: true, name: true } },
-      },
-    });
+    // 2. Find team member relationship by owner and filter by member bot name
+    const teamMembers = await this.routingRepo.findTeamMembersByOwner(dto.sourceBotId);
+    const teamMember = teamMembers.find(
+      (m) => m.memberBot?.name === dto.targetBotName
+    );
 
-    if (!teamMember) {
+    if (!teamMember || !teamMember.memberBot || !teamMember.ownerBot) {
       throw new BadRequestException(
         `No enabled team member "${dto.targetBotName}" found for this bot`,
       );

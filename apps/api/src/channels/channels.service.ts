@@ -1,8 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
+import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
 import {
-  prisma,
   CommunicationChannel,
   BotChannelBinding,
+  CHANNEL_REPOSITORY,
+  IChannelRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
 } from "@clawster/database";
 import {
   CreateChannelDto,
@@ -42,6 +45,8 @@ function resolveDbChannelType(openclawType: OpenClawChannelType, explicit?: stri
 @Injectable()
 export class ChannelsService {
   constructor(
+    @Inject(CHANNEL_REPOSITORY) private readonly channelRepo: IChannelRepository,
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botRepo: IBotInstanceRepository,
     private readonly authService: ChannelAuthService,
     private readonly configGenerator: ChannelConfigGenerator,
   ) {}
@@ -70,12 +75,10 @@ export class ChannelsService {
     }
 
     // Check for duplicate name in workspace
-    const existing = await prisma.communicationChannel.findFirst({
-      where: {
-        workspaceId: dto.workspaceId,
-        name: dto.name,
-      },
+    const existingChannels = await this.channelRepo.findChannelsByWorkspace(dto.workspaceId, {
+      search: dto.name,
     });
+    const existing = existingChannels.find((ch) => ch.name === dto.name);
 
     if (existing) {
       throw new BadRequestException(`Channel with name '${dto.name}' already exists in this workspace`);
@@ -86,41 +89,31 @@ export class ChannelsService {
 
     const dbType = resolveDbChannelType(dto.openclawType, dto.type);
 
-    return prisma.communicationChannel.create({
-      data: {
-        name: dto.name,
-        workspaceId: dto.workspaceId,
-        type: dbType,
-        config: JSON.stringify(config),
-        defaults: JSON.stringify({}),
-        isShared: dto.isShared ?? true,
-        tags: JSON.stringify(dto.tags || {}),
-        createdBy: dto.createdBy || "system",
-        status: "PENDING",
-      },
+    return this.channelRepo.createChannel({
+      name: dto.name,
+      workspace: { connect: { id: dto.workspaceId } },
+      type: dbType,
+      config: JSON.stringify(config),
+      defaults: JSON.stringify({}),
+      isShared: dto.isShared ?? true,
+      tags: JSON.stringify(dto.tags || {}),
+      createdBy: dto.createdBy || "system",
+      status: "PENDING",
     });
   }
 
   async findAll(query: ListChannelsQueryDto): Promise<CommunicationChannel[]> {
-    const where: Record<string, unknown> = {
+    const result = await this.channelRepo.findManyChannels({
       workspaceId: query.workspaceId,
-      ...(query.type && { type: query.type }),
-      ...(query.status && { status: query.status }),
-    };
-
-    const channels = await prisma.communicationChannel.findMany({
-      where,
-      include: {
-        _count: {
-          select: { botBindings: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
+      type: query.type,
+      status: query.status,
     });
+
+    let channels = result.data;
 
     // Filter by openclawType if specified
     if (query.openclawType) {
-      return channels.filter((ch) => {
+      channels = channels.filter((ch) => {
         const cfg = (typeof ch.config === "string" ? JSON.parse(ch.config) : ch.config) as Record<string, unknown> | null;
         return cfg?.openclawType === query.openclawType;
       });
@@ -130,31 +123,19 @@ export class ChannelsService {
   }
 
   async findOne(id: string): Promise<CommunicationChannel & { botBindings: BotChannelBinding[] }> {
-    const channel = await prisma.communicationChannel.findUnique({
-      where: { id },
-      include: {
-        botBindings: {
-          include: {
-            bot: {
-              select: {
-                id: true,
-                name: true,
-                status: true,
-                fleet: {
-                  select: { name: true, environment: true },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
+    const channel = await this.channelRepo.findChannelById(id);
 
     if (!channel) {
       throw new NotFoundException(`Channel ${id} not found`);
     }
 
-    return channel;
+    // Get bindings separately since the repository doesn't include full bot relations
+    const bindings = await this.channelRepo.findBindingsByChannel(id);
+
+    return {
+      ...channel,
+      botBindings: bindings,
+    };
   }
 
   async update(id: string, dto: UpdateChannelDto): Promise<CommunicationChannel> {
@@ -190,15 +171,12 @@ export class ChannelsService {
       existingConfig.enabled = dto.enabled;
     }
 
-    return prisma.communicationChannel.update({
-      where: { id },
-      data: {
-        ...(dto.name && { name: dto.name }),
-        config: JSON.stringify(existingConfig),
-        ...(dto.isShared !== undefined && { isShared: dto.isShared }),
-        ...(dto.status && { status: dto.status }),
-        ...(dto.tags && { tags: JSON.stringify(dto.tags) }),
-      },
+    return this.channelRepo.updateChannel(id, {
+      ...(dto.name && { name: dto.name }),
+      config: JSON.stringify(existingConfig),
+      ...(dto.isShared !== undefined && { isShared: dto.isShared }),
+      ...(dto.status && { status: dto.status }),
+      ...(dto.tags && { tags: JSON.stringify(dto.tags) }),
     });
   }
 
@@ -206,17 +184,15 @@ export class ChannelsService {
     await this.findOne(id);
 
     // Check if channel has active bindings
-    const bindingCount = await prisma.botChannelBinding.count({
-      where: { channelId: id },
-    });
+    const bindings = await this.channelRepo.findBindingsByChannel(id);
 
-    if (bindingCount > 0) {
+    if (bindings.length > 0) {
       throw new BadRequestException(
-        `Cannot delete channel with ${bindingCount} active bot bindings. Unbind all bots first.`,
+        `Cannot delete channel with ${bindings.length} active bot bindings. Unbind all bots first.`,
       );
     }
 
-    await prisma.communicationChannel.delete({ where: { id } });
+    await this.channelRepo.deleteChannel(id);
   }
 
   // ==========================================
@@ -224,17 +200,13 @@ export class ChannelsService {
   // ==========================================
 
   async bindToBot(channelId: string, dto: BindChannelToBotDto): Promise<BotChannelBinding> {
-    const channel = await prisma.communicationChannel.findUnique({
-      where: { id: channelId },
-    });
+    const channel = await this.channelRepo.findChannelById(channelId);
 
     if (!channel) {
       throw new NotFoundException(`Channel ${channelId} not found`);
     }
 
-    const bot = await prisma.botInstance.findUnique({
-      where: { id: dto.botId },
-    });
+    const bot = await this.botRepo.findById(dto.botId);
 
     if (!bot) {
       throw new NotFoundException(`Bot ${dto.botId} not found`);
@@ -248,13 +220,8 @@ export class ChannelsService {
     }
 
     // Check for existing binding with same purpose
-    const existing = await prisma.botChannelBinding.findFirst({
-      where: {
-        botId: dto.botId,
-        channelId,
-        purpose: dto.purpose,
-      },
-    });
+    const existingBindings = await this.channelRepo.findBindingsByBot(dto.botId, { purpose: dto.purpose });
+    const existing = existingBindings.find((b) => b.channelId === channelId);
 
     if (existing) {
       throw new BadRequestException(
@@ -262,70 +229,36 @@ export class ChannelsService {
       );
     }
 
-    return prisma.botChannelBinding.create({
-      data: {
-        botId: dto.botId,
-        channelId,
-        purpose: dto.purpose,
-        settings: JSON.stringify(dto.settings || {}),
-        targetDestination: dto.targetDestination ? JSON.stringify(dto.targetDestination) : null,
-        isActive: dto.isActive ?? true,
-      },
+    return this.channelRepo.createBinding({
+      bot: { connect: { id: dto.botId } },
+      channel: { connect: { id: channelId } },
+      purpose: dto.purpose,
+      settings: JSON.stringify(dto.settings || {}),
+      targetDestination: dto.targetDestination ? JSON.stringify(dto.targetDestination) : null,
+      isActive: dto.isActive ?? true,
     });
   }
 
   async unbindFromBot(bindingId: string): Promise<void> {
-    await prisma.botChannelBinding.delete({
-      where: { id: bindingId },
-    });
+    await this.channelRepo.deleteBinding(bindingId);
   }
 
   async updateBinding(bindingId: string, dto: UpdateBindingDto): Promise<BotChannelBinding> {
-    return prisma.botChannelBinding.update({
-      where: { id: bindingId },
-      data: {
-        ...(dto.purpose && { purpose: dto.purpose }),
-        ...(dto.settings && { settings: JSON.stringify(dto.settings) }),
-        ...(dto.targetDestination && { targetDestination: JSON.stringify(dto.targetDestination) }),
-        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-      },
+    return this.channelRepo.updateBinding(bindingId, {
+      ...(dto.purpose && { purpose: dto.purpose }),
+      ...(dto.settings && { settings: JSON.stringify(dto.settings) }),
+      ...(dto.targetDestination && { targetDestination: JSON.stringify(dto.targetDestination) }),
+      ...(dto.isActive !== undefined && { isActive: dto.isActive }),
     });
   }
 
   async getBoundBots(channelId: string): Promise<BotChannelBinding[]> {
-    return prisma.botChannelBinding.findMany({
-      where: { channelId },
-      include: {
-        bot: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            health: true,
-            fleet: {
-              select: { name: true, environment: true },
-            },
-          },
-        },
-      },
-    });
+    return this.channelRepo.findBindingsByChannel(channelId);
   }
 
   async getBotChannels(botId: string): Promise<BotChannelBinding[]> {
-    return prisma.botChannelBinding.findMany({
-      where: { botId },
-      include: {
-        channel: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-            status: true,
-            config: true,
-          },
-        },
-      },
-    });
+    const bindings = await this.channelRepo.findBindingsByBot(botId);
+    return bindings;
   }
 
   // ==========================================
@@ -337,25 +270,23 @@ export class ChannelsService {
     channelIds?: string[],
   ): Promise<Record<string, unknown>> {
     // Get all channels bound to this bot instance
-    const bindings = await prisma.botChannelBinding.findMany({
-      where: {
-        botId: instanceId,
-        isActive: true,
-        ...(channelIds && channelIds.length > 0
-          ? { channelId: { in: channelIds } }
-          : {}),
-      },
-      include: { channel: true },
-    });
+    const bindings = await this.channelRepo.findBindingsByBot(instanceId, { isActive: true });
 
-    const channelDataList: ChannelData[] = bindings
+    // Filter by channelIds if specified
+    const filteredBindings = channelIds && channelIds.length > 0
+      ? bindings.filter((b) => channelIds.includes(b.channelId))
+      : bindings;
+
+    const channelDataList: ChannelData[] = filteredBindings
       .map((binding) => {
-        const config = (typeof binding.channel.config === "string" ? JSON.parse(binding.channel.config) : binding.channel.config) as Record<string, unknown> | null;
+        const channel = binding.channel;
+        if (!channel) return null;
+        const config = (typeof channel.config === "string" ? JSON.parse(channel.config) : channel.config) as Record<string, unknown> | null;
         if (!config?.openclawType) return null;
 
         return {
-          id: binding.channel.id,
-          name: binding.channel.name,
+          id: channel.id,
+          name: channel.name,
           openclawType: config.openclawType as OpenClawChannelType,
           enabled: config.enabled ?? true,
           policies: config.policies || {},
@@ -373,9 +304,7 @@ export class ChannelsService {
   // ==========================================
 
   async testConnection(id: string, dto: TestChannelDto): Promise<Record<string, unknown>> {
-    const channel = await prisma.communicationChannel.findUnique({
-      where: { id },
-    });
+    const channel = await this.channelRepo.findChannelById(id);
 
     if (!channel) {
       throw new NotFoundException(`Channel ${id} not found`);
@@ -405,16 +334,7 @@ export class ChannelsService {
         error: `Missing required secrets: ${missingSecrets.join(", ")}`,
       };
 
-      await prisma.communicationChannel.update({
-        where: { id },
-        data: {
-          status: "ERROR",
-          statusMessage: testResult.error,
-          lastTestedAt: new Date(),
-          errorCount: { increment: 1 },
-          lastError: testResult.error,
-        },
-      });
+      await this.channelRepo.updateChannelStatus(id, "ERROR", testResult.error, testResult.error);
 
       return testResult;
     }
@@ -429,23 +349,13 @@ export class ChannelsService {
       latencyMs: Math.floor(Math.random() * 100),
     };
 
-    await prisma.communicationChannel.update({
-      where: { id },
-      data: {
-        status: "ACTIVE",
-        statusMessage: "Connection test successful",
-        lastTestedAt: new Date(),
-        errorCount: 0,
-      },
-    });
+    await this.channelRepo.updateChannelStatus(id, "ACTIVE", "Connection test successful");
 
     return testResult;
   }
 
   async sendTestMessage(id: string, dto: SendTestMessageDto): Promise<Record<string, unknown>> {
-    const channel = await prisma.communicationChannel.findUnique({
-      where: { id },
-    });
+    const channel = await this.channelRepo.findChannelById(id);
 
     if (!channel) {
       throw new NotFoundException(`Channel ${id} not found`);
@@ -459,46 +369,33 @@ export class ChannelsService {
       messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
     };
 
-    await prisma.communicationChannel.update({
-      where: { id },
-      data: {
-        messagesSent: result.success ? { increment: 1 } : undefined,
-        lastMessageAt: result.success ? new Date() : undefined,
-        lastActivityAt: new Date(),
-      },
-    });
+    if (result.success) {
+      await this.channelRepo.recordMessageSent(id);
+    }
 
     return result;
   }
 
   async checkBotChannelsHealth(botId: string): Promise<Record<string, unknown>> {
-    const bindings = await prisma.botChannelBinding.findMany({
-      where: { botId, isActive: true },
-      include: { channel: true },
-    });
+    const bindings = await this.channelRepo.findBindingsByBot(botId, { isActive: true });
 
     const results = await Promise.all(
       bindings.map(async (binding) => {
-        const config = (typeof binding.channel.config === "string" ? JSON.parse(binding.channel.config) : binding.channel.config) as Record<string, unknown> | null;
+        const channel = binding.channel;
+        const config = channel ? (typeof channel.config === "string" ? JSON.parse(channel.config) : channel.config) as Record<string, unknown> | null : null;
         const openclawType = config?.openclawType as string | undefined;
 
         // Simulate health check
         await new Promise((resolve) => setTimeout(resolve, 50 + Math.random() * 100));
         const healthy = true;
 
-        await prisma.botChannelBinding.update({
-          where: { id: binding.id },
-          data: {
-            healthStatus: healthy ? "HEALTHY" : "UNHEALTHY",
-            lastHealthCheck: new Date(),
-          },
-        });
+        await this.channelRepo.updateBindingHealth(binding.id, healthy ? "HEALTHY" : "UNHEALTHY");
 
         return {
           bindingId: binding.id,
           channelId: binding.channelId,
-          channelName: binding.channel.name,
-          type: binding.channel.type,
+          channelName: channel?.name || "unknown",
+          type: channel?.type || "unknown",
           openclawType: openclawType || "unknown",
           purpose: binding.purpose,
           healthy,
@@ -523,12 +420,7 @@ export class ChannelsService {
   // ==========================================
 
   async getChannelStats(id: string): Promise<Record<string, unknown>> {
-    const channel = await prisma.communicationChannel.findUnique({
-      where: { id },
-      include: {
-        _count: { select: { botBindings: true } },
-      },
-    });
+    const channel = await this.channelRepo.findChannelById(id);
 
     if (!channel) {
       throw new NotFoundException(`Channel ${id} not found`);
@@ -536,14 +428,8 @@ export class ChannelsService {
 
     const config = (typeof channel.config === "string" ? JSON.parse(channel.config) : channel.config) as Record<string, unknown> | null;
 
-    const recentBindings = await prisma.botChannelBinding.findMany({
-      where: { channelId: id },
-      orderBy: { updatedAt: "desc" },
-      take: 10,
-      include: {
-        bot: { select: { id: true, name: true, status: true } },
-      },
-    });
+    const bindings = await this.channelRepo.findBindingsByChannel(id);
+    const recentBindings = bindings.slice(0, 10);
 
     return {
       channel: {
@@ -564,7 +450,7 @@ export class ChannelsService {
             : 0,
       },
       bindings: {
-        total: channel._count.botBindings,
+        total: channel._count?.botBindings ?? bindings.length,
         recent: recentBindings,
       },
       health: {

@@ -1,67 +1,51 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { prisma, SloDefinition } from "@clawster/database";
+import { Injectable, NotFoundException, Inject } from "@nestjs/common";
+import {
+  SloDefinition,
+  SLO_REPOSITORY,
+  ISloRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from "@clawster/database";
 import { CreateSloDto, UpdateSloDto, SloQueryDto } from "./slos.dto";
 
 @Injectable()
 export class SlosService {
+  constructor(
+    @Inject(SLO_REPOSITORY)
+    private readonly sloRepo: ISloRepository,
+    @Inject(BOT_INSTANCE_REPOSITORY)
+    private readonly botInstanceRepo: IBotInstanceRepository,
+  ) {}
+
   async create(dto: CreateSloDto): Promise<SloDefinition> {
     // Verify the bot instance exists
-    const instance = await prisma.botInstance.findUnique({
-      where: { id: dto.instanceId },
-    });
+    const instance = await this.botInstanceRepo.findById(dto.instanceId);
 
     if (!instance) {
       throw new NotFoundException(`Bot instance ${dto.instanceId} not found`);
     }
 
-    return prisma.sloDefinition.create({
-      data: {
-        instanceId: dto.instanceId,
-        name: dto.name,
-        description: dto.description,
-        metric: dto.metric,
-        targetValue: dto.targetValue,
-        window: dto.window,
-        createdBy: dto.createdBy || "system",
-      },
+    return this.sloRepo.create({
+      instance: { connect: { id: dto.instanceId } },
+      name: dto.name,
+      description: dto.description,
+      metric: dto.metric,
+      targetValue: dto.targetValue,
+      window: dto.window,
+      createdBy: dto.createdBy || "system",
     });
   }
 
   async findAll(query: SloQueryDto): Promise<SloDefinition[]> {
-    return prisma.sloDefinition.findMany({
-      where: {
-        ...(query.instanceId && { instanceId: query.instanceId }),
-        ...(query.isBreached !== undefined && { isBreached: query.isBreached }),
-        ...(query.isActive !== undefined && { isActive: query.isActive }),
-      },
-      include: {
-        instance: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            health: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
+    return this.sloRepo.findManyWithRelations({
+      instanceId: query.instanceId,
+      isBreached: query.isBreached,
+      isActive: query.isActive,
     });
   }
 
   async findOne(id: string): Promise<SloDefinition> {
-    const slo = await prisma.sloDefinition.findUnique({
-      where: { id },
-      include: {
-        instance: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            health: true,
-          },
-        },
-      },
-    });
+    const slo = await this.sloRepo.findById(id);
 
     if (!slo) {
       throw new NotFoundException(`SLO definition ${id} not found`);
@@ -71,42 +55,26 @@ export class SlosService {
   }
 
   async findByInstance(instanceId: string): Promise<SloDefinition[]> {
-    return prisma.sloDefinition.findMany({
-      where: { instanceId },
-      include: {
-        instance: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            health: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    return this.sloRepo.findByInstanceWithRelations(instanceId);
   }
 
   async update(id: string, dto: UpdateSloDto): Promise<SloDefinition> {
     await this.findOne(id);
 
-    return prisma.sloDefinition.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.instanceId !== undefined && { instanceId: dto.instanceId }),
-        ...(dto.metric !== undefined && { metric: dto.metric }),
-        ...(dto.targetValue !== undefined && { targetValue: dto.targetValue }),
-        ...(dto.window !== undefined && { window: dto.window }),
-        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-      },
+    return this.sloRepo.update(id, {
+      ...(dto.name !== undefined && { name: dto.name }),
+      ...(dto.description !== undefined && { description: dto.description }),
+      ...(dto.instanceId !== undefined && { instance: { connect: { id: dto.instanceId } } }),
+      ...(dto.metric !== undefined && { metric: dto.metric }),
+      ...(dto.targetValue !== undefined && { targetValue: dto.targetValue }),
+      ...(dto.window !== undefined && { window: dto.window }),
+      ...(dto.isActive !== undefined && { isActive: dto.isActive }),
     });
   }
 
   async remove(id: string): Promise<void> {
     await this.findOne(id);
-    await prisma.sloDefinition.delete({ where: { id } });
+    await this.sloRepo.delete(id);
   }
 
   async getSummary(): Promise<{
@@ -116,8 +84,8 @@ export class SlosService {
     compliancePercent: number;
   }> {
     const [total, breached] = await Promise.all([
-      prisma.sloDefinition.count({ where: { isActive: true } }),
-      prisma.sloDefinition.count({ where: { isActive: true, isBreached: true } }),
+      this.sloRepo.count({ isActive: true }),
+      this.sloRepo.count({ isActive: true, isBreached: true }),
     ]);
 
     const healthy = total - breached;

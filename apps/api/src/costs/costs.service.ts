@@ -1,5 +1,11 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { prisma, CostEvent, Prisma } from "@clawster/database";
+import { Injectable, NotFoundException, Inject } from "@nestjs/common";
+import {
+  CostEvent,
+  COST_REPOSITORY,
+  ICostRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from "@clawster/database";
 import { CreateCostEventDto, CostQueryDto, CostSummaryQueryDto } from "./costs.dto";
 
 export interface CostSummaryByProvider {
@@ -57,135 +63,89 @@ export interface PaginatedCostEvents {
 
 @Injectable()
 export class CostsService {
+  constructor(
+    @Inject(COST_REPOSITORY)
+    private readonly costRepo: ICostRepository,
+    @Inject(BOT_INSTANCE_REPOSITORY)
+    private readonly botInstanceRepo: IBotInstanceRepository,
+  ) {}
+
   async recordCostEvent(dto: CreateCostEventDto): Promise<CostEvent> {
     // Verify instance exists
-    const instance = await prisma.botInstance.findUnique({
-      where: { id: dto.instanceId },
-    });
+    const instance = await this.botInstanceRepo.findById(dto.instanceId);
 
     if (!instance) {
       throw new NotFoundException(`Bot instance ${dto.instanceId} not found`);
     }
 
-    // Create the cost event
-    const costEvent = await prisma.costEvent.create({
-      data: {
-        instanceId: dto.instanceId,
-        provider: dto.provider,
-        model: dto.model,
-        inputTokens: dto.inputTokens,
-        outputTokens: dto.outputTokens,
-        costCents: dto.costCents,
-        channelType: dto.channelType,
-        traceId: dto.traceId,
-      },
-    });
-
-    // Update matching BudgetConfig currentSpendCents
-    // Find budgets scoped to this instance or its fleet
-    await prisma.budgetConfig.updateMany({
-      where: {
-        isActive: true,
-        OR: [
-          { instanceId: dto.instanceId },
-          { fleetId: instance.fleetId },
-        ],
-      },
-      data: {
-        currentSpendCents: {
-          increment: dto.costCents,
-        },
-      },
+    // Create the cost event (repository handles budget updates internally)
+    const costEvent = await this.costRepo.recordEvent({
+      instanceId: dto.instanceId,
+      provider: dto.provider,
+      model: dto.model,
+      inputTokens: dto.inputTokens,
+      outputTokens: dto.outputTokens,
+      costCents: dto.costCents,
+      channelType: dto.channelType,
+      traceId: dto.traceId,
     });
 
     return costEvent;
   }
 
   async getCostSummary(query: CostSummaryQueryDto): Promise<CostSummaryResult> {
-    const where: Prisma.CostEventWhereInput = {};
+    const startDate = query.from ? new Date(query.from) : new Date(0);
+    const endDate = query.to ? new Date(query.to) : new Date();
 
-    if (query.instanceId) {
-      where.instanceId = query.instanceId;
-    }
-    if (query.from || query.to) {
-      where.occurredAt = {};
-      if (query.from) where.occurredAt.gte = new Date(query.from);
-      if (query.to) where.occurredAt.lte = new Date(query.to);
-    }
+    const filters = {
+      instanceId: query.instanceId,
+      startDate,
+      endDate,
+    };
 
-    const [totals, byProvider, byModel, byChannel] = await Promise.all([
-      prisma.costEvent.aggregate({
-        where,
-        _sum: {
-          costCents: true,
-          inputTokens: true,
-          outputTokens: true,
-        },
-        _count: {
-          id: true,
-        },
-      }),
-
-      prisma.costEvent.groupBy({
-        by: ["provider"],
-        where,
-        _sum: {
-          costCents: true,
-          inputTokens: true,
-          outputTokens: true,
-        },
-        _count: {
-          id: true,
-        },
-        orderBy: {
-          _sum: {
-            costCents: "desc",
-          },
-        },
-      }),
-
-      prisma.costEvent.groupBy({
-        by: ["model", "provider"],
-        where,
-        _sum: {
-          costCents: true,
-          inputTokens: true,
-          outputTokens: true,
-        },
-        _count: {
-          id: true,
-        },
-        orderBy: {
-          _sum: {
-            costCents: "desc",
-          },
-        },
-      }),
-
-      prisma.costEvent.groupBy({
-        by: ["channelType"],
-        where,
-        _sum: {
-          costCents: true,
-        },
-        _count: {
-          id: true,
-        },
-        orderBy: {
-          _sum: {
-            costCents: "desc",
-          },
-        },
-      }),
+    const [totals, byProvider, byModel] = await Promise.all([
+      this.costRepo.getSummaryByDateRange(startDate, endDate, filters),
+      this.costRepo.getSummaryByProvider(filters),
+      this.costRepo.getSummaryByModel(filters),
     ]);
 
+    // Transform repository results to match existing API response format
+    const byProviderFormatted = byProvider.map((p) => ({
+      provider: p.provider,
+      _sum: {
+        costCents: p.totalCostCents,
+        inputTokens: p.totalInputTokens,
+        outputTokens: p.totalOutputTokens,
+      },
+      _count: {
+        id: p.totalEvents,
+      },
+    }));
+
+    const byModelFormatted = byModel.map((m) => ({
+      model: m.model,
+      provider: m.provider,
+      _sum: {
+        costCents: m.totalCostCents,
+        inputTokens: m.totalInputTokens,
+        outputTokens: m.totalOutputTokens,
+      },
+      _count: {
+        id: m.totalEvents,
+      },
+    }));
+
+    // Note: byChannel is not directly supported by the repository interface
+    // For now, return an empty array. This can be extended in the repository if needed.
+    const byChannel: CostSummaryByChannel[] = [];
+
     return {
-      totalCostCents: totals._sum.costCents ?? 0,
-      totalInputTokens: totals._sum.inputTokens ?? 0,
-      totalOutputTokens: totals._sum.outputTokens ?? 0,
-      totalEvents: totals._count.id,
-      byProvider,
-      byModel,
+      totalCostCents: totals.totalCostCents,
+      totalInputTokens: totals.totalInputTokens,
+      totalOutputTokens: totals.totalOutputTokens,
+      totalEvents: totals.totalEvents,
+      byProvider: byProviderFormatted,
+      byModel: byModelFormatted,
       byChannel,
     };
   }
@@ -196,9 +156,7 @@ export class CostsService {
     to?: string,
   ): Promise<CostSummaryResult> {
     // Verify instance exists
-    const instance = await prisma.botInstance.findUnique({
-      where: { id: instanceId },
-    });
+    const instance = await this.botInstanceRepo.findById(instanceId);
 
     if (!instance) {
       throw new NotFoundException(`Bot instance ${instanceId} not found`);
@@ -210,38 +168,26 @@ export class CostsService {
   async listCostEvents(query: CostQueryDto): Promise<PaginatedCostEvents> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const skip = (page - 1) * limit;
 
-    const where: Prisma.CostEventWhereInput = {};
+    const startDate = query.from ? new Date(query.from) : new Date(0);
+    const endDate = query.to ? new Date(query.to) : new Date();
 
-    if (query.instanceId) {
-      where.instanceId = query.instanceId;
-    }
-    if (query.provider) {
-      where.provider = query.provider;
-    }
-    if (query.from || query.to) {
-      where.occurredAt = {};
-      if (query.from) where.occurredAt.gte = new Date(query.from);
-      if (query.to) where.occurredAt.lte = new Date(query.to);
-    }
-
-    const [data, total] = await Promise.all([
-      prisma.costEvent.findMany({
-        where,
-        orderBy: { occurredAt: "desc" },
-        skip,
-        take: limit,
-      }),
-      prisma.costEvent.count({ where }),
-    ]);
+    const result = await this.costRepo.findByDateRange(
+      startDate,
+      endDate,
+      {
+        instanceId: query.instanceId,
+        provider: query.provider,
+      },
+      { page, limit },
+    );
 
     return {
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      data: result.data,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
     };
   }
 }

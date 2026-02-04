@@ -1,5 +1,10 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Injectable, Inject, Logger, NotFoundException, BadRequestException } from "@nestjs/common";
+import {
+  CONNECTOR_REPOSITORY,
+  IConnectorRepository,
+  AUDIT_REPOSITORY,
+  IAuditRepository,
+} from "@clawster/database";
 import { CredentialEncryptionService } from "./credential-encryption.service";
 import { SaveCredentialDto, ListSavedCredentialsQueryDto } from "./credential-vault.dto";
 
@@ -7,7 +12,11 @@ import { SaveCredentialDto, ListSavedCredentialsQueryDto } from "./credential-va
 export class CredentialVaultService {
   private readonly logger = new Logger(CredentialVaultService.name);
 
-  constructor(private readonly encryption: CredentialEncryptionService) {}
+  constructor(
+    @Inject(CONNECTOR_REPOSITORY) private readonly connectorRepo: IConnectorRepository,
+    @Inject(AUDIT_REPOSITORY) private readonly auditRepo: IAuditRepository,
+    private readonly encryption: CredentialEncryptionService,
+  ) {}
 
   /** Save credentials encrypted, return masked version */
   async save(dto: SaveCredentialDto, userId: string) {
@@ -16,30 +25,26 @@ export class CredentialVaultService {
     const encrypted = this.encryption.encrypt(dto.credentials);
     const masked = this.encryption.mask(dto.type, dto.credentials);
 
-    const connector = await prisma.integrationConnector.create({
-      data: {
-        workspaceId: dto.workspaceId,
-        name: dto.name,
-        description: `Saved ${dto.type} credential`,
-        type: dto.type,
-        config: encrypted,
-        status: "ACTIVE",
-        isShared: true,
-        tags: JSON.stringify({ credentialVault: true }),
-        createdBy: userId,
-      },
+    const connector = await this.connectorRepo.createConnector({
+      workspace: { connect: { id: dto.workspaceId } },
+      name: dto.name,
+      description: `Saved ${dto.type} credential`,
+      type: dto.type,
+      config: encrypted,
+      status: "ACTIVE",
+      isShared: true,
+      tags: JSON.stringify({ credentialVault: true }),
+      createdBy: userId,
     });
 
     // Create audit event
-    await prisma.auditEvent.create({
-      data: {
-        workspaceId: dto.workspaceId,
-        action: "credential.save",
-        resourceType: "IntegrationConnector",
-        resourceId: connector.id,
-        actor: userId,
-        metadata: JSON.stringify({ type: dto.type, name: dto.name }),
-      },
+    await this.auditRepo.create({
+      workspace: { connect: { id: dto.workspaceId } },
+      user: { connect: { id: userId } },
+      action: "credential.save",
+      resourceType: "IntegrationConnector",
+      resourceId: connector.id,
+      metadata: JSON.stringify({ type: dto.type, name: dto.name }),
     });
 
     this.logger.debug(`Saved ${dto.type} credential "${dto.name}" (${connector.id})`);
@@ -55,13 +60,15 @@ export class CredentialVaultService {
 
   /** List saved credentials with masked configs */
   async listSaved(query: ListSavedCredentialsQueryDto) {
-    const connectors = await prisma.integrationConnector.findMany({
-      where: {
-        workspaceId: query.workspaceId,
-        ...(query.type ? { type: query.type } : { type: { in: ["aws-account", "api-key"] } }),
-        tags: { contains: "credentialVault" },
-      },
-      orderBy: { createdAt: "desc" },
+    const result = await this.connectorRepo.findManyConnectors({
+      workspaceId: query.workspaceId,
+      type: query.type ? query.type : ["aws-account", "api-key"],
+    });
+
+    // Filter by credentialVault tag
+    const connectors = result.data.filter((c) => {
+      const tags = typeof c.tags === "string" ? c.tags : JSON.stringify(c.tags || {});
+      return tags.includes("credentialVault");
     });
 
     return connectors.map((c) => {
@@ -86,33 +93,23 @@ export class CredentialVaultService {
 
   /** Resolve credentials for internal use only (returns plaintext). Never expose via HTTP. */
   async resolve(id: string, userId: string, workspaceId: string): Promise<Record<string, unknown>> {
-    const connector = await prisma.integrationConnector.findUnique({
-      where: { id },
-    });
+    const connector = await this.connectorRepo.findConnectorById(id);
 
     if (!connector || connector.workspaceId !== workspaceId) {
       throw new NotFoundException(`Saved credential ${id} not found`);
     }
 
     // Increment usage
-    await prisma.integrationConnector.update({
-      where: { id },
-      data: {
-        usageCount: { increment: 1 },
-        lastUsedAt: new Date(),
-      },
-    });
+    await this.connectorRepo.incrementUsageCount(id);
 
     // Audit the access
-    await prisma.auditEvent.create({
-      data: {
-        workspaceId: connector.workspaceId,
-        action: "credential.access",
-        resourceType: "IntegrationConnector",
-        resourceId: id,
-        actor: userId,
-        metadata: JSON.stringify({ type: connector.type, name: connector.name }),
-      },
+    await this.auditRepo.create({
+      workspace: { connect: { id: connector.workspaceId } },
+      user: { connect: { id: userId } },
+      action: "credential.access",
+      resourceType: "IntegrationConnector",
+      resourceId: id,
+      metadata: JSON.stringify({ type: connector.type, name: connector.name }),
     });
 
     return this.encryption.decrypt(connector.config);
@@ -120,25 +117,21 @@ export class CredentialVaultService {
 
   /** Delete a saved credential */
   async delete(id: string, userId: string, workspaceId: string): Promise<void> {
-    const connector = await prisma.integrationConnector.findUnique({
-      where: { id },
-    });
+    const connector = await this.connectorRepo.findConnectorById(id);
 
     if (!connector || connector.workspaceId !== workspaceId) {
       throw new NotFoundException(`Saved credential ${id} not found`);
     }
 
-    await prisma.integrationConnector.delete({ where: { id } });
+    await this.connectorRepo.deleteConnector(id);
 
-    await prisma.auditEvent.create({
-      data: {
-        workspaceId: connector.workspaceId,
-        action: "credential.delete",
-        resourceType: "IntegrationConnector",
-        resourceId: id,
-        actor: userId,
-        metadata: JSON.stringify({ type: connector.type, name: connector.name }),
-      },
+    await this.auditRepo.create({
+      workspace: { connect: { id: connector.workspaceId } },
+      user: { connect: { id: userId } },
+      action: "credential.delete",
+      resourceType: "IntegrationConnector",
+      resourceId: id,
+      metadata: JSON.stringify({ type: connector.type, name: connector.name }),
     });
 
     this.logger.debug(`Deleted saved credential "${connector.name}" (${id})`);

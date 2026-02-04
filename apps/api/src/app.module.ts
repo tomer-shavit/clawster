@@ -3,6 +3,7 @@ import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
 import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { ScheduleModule } from "@nestjs/schedule";
+import { DatabaseModule } from "@clawster/database";
 import { configValidationSchema } from "./config/validation";
 import { BotInstancesModule } from "./bot-instances/bot-instances.module";
 import { FleetModule } from "./fleets/fleets.module";
@@ -52,6 +53,7 @@ import { A2aModule } from "./a2a/a2a.module";
       ttl: 60000,
       limit: 100,
     }]),
+    DatabaseModule.forRoot(),
     HealthModule,
     BotInstancesModule,
     FleetModule,

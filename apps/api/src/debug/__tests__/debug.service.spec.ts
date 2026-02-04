@@ -3,6 +3,7 @@
  */
 import { Test, TestingModule } from "@nestjs/testing";
 import { NotFoundException } from "@nestjs/common";
+import { PRISMA_CLIENT } from "@clawster/database";
 
 // Mock the gateway client before importing the service
 jest.mock("@clawster/gateway-client", () => {
@@ -44,9 +45,12 @@ jest.mock("@clawster/gateway-client", () => {
   };
 });
 
-// Mock the database module
-jest.mock("@clawster/database", () => ({
-  prisma: {
+import { DebugService } from "../debug.service";
+
+describe("DebugService", () => {
+  let service: DebugService;
+
+  const mockPrisma = {
     botInstance: {
       findUnique: jest.fn(),
     },
@@ -56,25 +60,7 @@ jest.mock("@clawster/database", () => ({
     openClawProfile: {
       findUnique: jest.fn(),
     },
-  },
-  GatewayConnectionStatus: {
-    CONNECTED: "CONNECTED",
-    DISCONNECTED: "DISCONNECTED",
-    ERROR: "ERROR",
-  },
-}));
-
-import { DebugService } from "../debug.service";
-import { prisma } from "@clawster/database";
-
-const mockPrisma = prisma as unknown as {
-  botInstance: { findUnique: jest.Mock };
-  gatewayConnection: { findUnique: jest.Mock };
-  openClawProfile: { findUnique: jest.Mock };
-};
-
-describe("DebugService", () => {
-  let service: DebugService;
+  };
 
   const mockInstance = {
     id: "inst-1",
@@ -124,7 +110,10 @@ describe("DebugService", () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [DebugService],
+      providers: [
+        DebugService,
+        { provide: PRISMA_CLIENT, useValue: mockPrisma },
+      ],
     }).compile();
 
     service = module.get<DebugService>(DebugService);

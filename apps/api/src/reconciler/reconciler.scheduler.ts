@@ -1,6 +1,9 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Inject, Logger } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
-import { prisma } from "@clawster/database";
+import {
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from "@clawster/database";
 import { DriftDetectionService } from "./drift-detection.service";
 import { ReconcilerService } from "./reconciler.service";
 import { LifecycleManagerService } from "./lifecycle-manager.service";
@@ -10,6 +13,7 @@ export class ReconcilerScheduler {
   private readonly logger = new Logger(ReconcilerScheduler.name);
 
   constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
     private readonly driftDetection: DriftDetectionService,
     private readonly reconciler: ReconcilerService,
     private readonly lifecycleManager: LifecycleManagerService,
@@ -61,26 +65,25 @@ export class ReconcilerScheduler {
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
 
     try {
-      const stuckInstances = await prisma.botInstance.findMany({
-        where: {
-          status: { in: ["CREATING", "RECONCILING"] },
-          updatedAt: { lt: tenMinutesAgo },
-        },
+      const { data: stuckInstances } = await this.botInstanceRepo.findMany({
+        status: ["CREATING", "RECONCILING"],
       });
 
-      for (const instance of stuckInstances) {
+      // Filter for instances older than 10 minutes
+      const stuckOldInstances = stuckInstances.filter(
+        (instance) => instance.updatedAt < tenMinutesAgo
+      );
+
+      for (const instance of stuckOldInstances) {
         this.logger.warn(
           `Instance ${instance.id} (${instance.name}) stuck in ${instance.status} for > 10 minutes`,
         );
 
-        await prisma.botInstance.update({
-          where: { id: instance.id },
-          data: {
-            status: "ERROR",
-            runningSince: null,
-            lastError: `Instance stuck in ${instance.status} state for too long`,
-            errorCount: { increment: 1 },
-          },
+        await this.botInstanceRepo.update(instance.id, {
+          status: "ERROR",
+          runningSince: null,
+          lastError: `Instance stuck in ${instance.status} state for too long`,
+          errorCount: { increment: 1 },
         });
       }
     } catch (error) {
@@ -97,9 +100,8 @@ export class ReconcilerScheduler {
   @Cron("*/30 * * * * *")
   async reconcilePendingInstances(): Promise<void> {
     try {
-      const pendingInstances = await prisma.botInstance.findMany({
-        where: { status: "PENDING" },
-        select: { id: true, name: true },
+      const { data: pendingInstances } = await this.botInstanceRepo.findMany({
+        status: "PENDING",
       });
 
       for (const instance of pendingInstances) {
@@ -127,12 +129,14 @@ export class ReconcilerScheduler {
   @Cron(CronExpression.EVERY_5_MINUTES)
   async checkOrphanedRunningInstances(): Promise<void> {
     try {
-      const orphanCandidates = await prisma.botInstance.findMany({
-        where: {
-          status: "RUNNING",
-          errorCount: { gte: 10 },
-        },
+      const { data: runningInstances } = await this.botInstanceRepo.findMany({
+        status: "RUNNING",
       });
+
+      // Filter for instances with 10+ consecutive errors
+      const orphanCandidates = runningInstances.filter(
+        (instance) => instance.errorCount >= 10
+      );
 
       if (orphanCandidates.length === 0) return;
 
@@ -148,25 +152,19 @@ export class ReconcilerScheduler {
             this.logger.warn(
               `Instance ${instance.id} (${instance.name}) container not found — marking as STOPPED`,
             );
-            await prisma.botInstance.update({
-              where: { id: instance.id },
-              data: {
-                status: "STOPPED",
-                runningSince: null,
-                lastError: "Container no longer running",
-              },
+            await this.botInstanceRepo.update(instance.id, {
+              status: "STOPPED",
+              runningSince: null,
+              lastError: "Container no longer running",
             });
           } else if (status.infraState === "error") {
             this.logger.warn(
               `Instance ${instance.id} (${instance.name}) container in error state — marking as ERROR`,
             );
-            await prisma.botInstance.update({
-              where: { id: instance.id },
-              data: {
-                status: "ERROR",
-                runningSince: null,
-                lastError: "Container in error state",
-              },
+            await this.botInstanceRepo.update(instance.id, {
+              status: "ERROR",
+              runningSince: null,
+              lastError: "Container in error state",
             });
           }
         } catch (err) {
@@ -195,16 +193,8 @@ export class ReconcilerScheduler {
       cutoffDate.setDate(cutoffDate.getDate() - MAX_TOKEN_AGE_DAYS);
 
       // Find all running instances and check their secret age
-      const runningInstances = await prisma.botInstance.findMany({
-        where: {
-          status: { in: ["RUNNING", "DEGRADED"] },
-        },
-        select: {
-          id: true,
-          name: true,
-          createdAt: true,
-          lastReconcileAt: true,
-        },
+      const { data: runningInstances } = await this.botInstanceRepo.findMany({
+        status: ["RUNNING", "DEGRADED"],
       });
 
       let staleCount = 0;

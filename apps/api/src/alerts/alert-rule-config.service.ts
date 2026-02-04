@@ -1,5 +1,8 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
+import {
+  PrismaClient,
+  PRISMA_CLIENT,
+} from "@clawster/database";
 import {
   ALERT_RULE_DEFINITIONS,
   getAlertRuleDefinition,
@@ -35,6 +38,10 @@ export class AlertRuleConfigService {
   private configCacheExpiry = 0;
   private static readonly CACHE_TTL_MS = 60_000;
 
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+  ) {}
+
   /**
    * Get all 8 alert rule configs with metadata for the UI.
    * Lazily seeds defaults if none exist.
@@ -42,7 +49,7 @@ export class AlertRuleConfigService {
   async getAlertRuleConfigs(workspaceId: string): Promise<AlertRuleConfigWithMeta[]> {
     await this.ensureSeeded(workspaceId);
 
-    const rows = await prisma.alertRuleConfig.findMany({
+    const rows = await this.prisma.alertRuleConfig.findMany({
       where: { workspaceId },
       orderBy: { rule: "asc" },
     });
@@ -92,7 +99,7 @@ export class AlertRuleConfigService {
     if (dto.severity !== undefined) data.severity = dto.severity;
     if (dto.thresholds !== undefined) data.thresholds = dto.thresholds;
 
-    await prisma.alertRuleConfig.update({
+    await this.prisma.alertRuleConfig.update({
       where: { workspaceId_rule: { workspaceId, rule } },
       data,
     });
@@ -119,7 +126,7 @@ export class AlertRuleConfigService {
 
     await this.ensureSeeded(workspaceId);
 
-    await prisma.alertRuleConfig.update({
+    await this.prisma.alertRuleConfig.update({
       where: { workspaceId_rule: { workspaceId, rule } },
       data: {
         enabled: def.defaultEnabled,
@@ -171,14 +178,14 @@ export class AlertRuleConfigService {
    * Seed all 8 default rule configs for a workspace if none exist.
    */
   private async ensureSeeded(workspaceId: string): Promise<void> {
-    const count = await prisma.alertRuleConfig.count({
+    const count = await this.prisma.alertRuleConfig.count({
       where: { workspaceId },
     });
 
     if (count >= ALERT_RULE_DEFINITIONS.length) return;
 
     // Insert defaults that are missing
-    const existing = await prisma.alertRuleConfig.findMany({
+    const existing = await this.prisma.alertRuleConfig.findMany({
       where: { workspaceId },
       select: { rule: true },
     });
@@ -198,7 +205,7 @@ export class AlertRuleConfigService {
       // Insert individually to handle potential race conditions with unique constraint
       for (const item of toCreate) {
         try {
-          await prisma.alertRuleConfig.create({ data: item });
+          await this.prisma.alertRuleConfig.create({ data: item });
         } catch {
           // Ignore duplicate key errors from concurrent seeding
         }

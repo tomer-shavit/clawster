@@ -1,5 +1,8 @@
-import { Injectable, Logger, NotFoundException, HttpException, HttpStatus } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Injectable, Inject, Logger, NotFoundException, HttpException, HttpStatus } from "@nestjs/common";
+import {
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from "@clawster/database";
 import { GatewayManager } from "@clawster/gateway-client";
 import type { GatewayConnectionOptions, GatewayClient } from "@clawster/gateway-client";
 import { TracesService } from "../traces/traces.service";
@@ -11,7 +14,10 @@ export class A2aMessageService {
   private readonly logger = new Logger(A2aMessageService.name);
   private readonly gatewayManager = new GatewayManager();
 
-  constructor(private readonly tracesService: TracesService) {}
+  constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+    private readonly tracesService: TracesService,
+  ) {}
 
   async sendMessage(
     botInstanceId: string,
@@ -19,9 +25,7 @@ export class A2aMessageService {
     options?: { parentTraceId?: string },
   ): Promise<A2aTask> {
     // 1. Validate bot exists
-    const bot = await prisma.botInstance.findUnique({
-      where: { id: botInstanceId },
-    });
+    const bot = await this.botInstanceRepo.findById(botInstanceId);
 
     if (!bot) {
       throw new NotFoundException(`Bot instance ${botInstanceId} not found`);
@@ -137,9 +141,7 @@ export class A2aMessageService {
 
   private async getGatewayClient(botInstanceId: string): Promise<GatewayClient | null> {
     try {
-      const gwConn = await prisma.gatewayConnection.findUnique({
-        where: { instanceId: botInstanceId },
-      });
+      const gwConn = await this.botInstanceRepo.getGatewayConnection(botInstanceId);
 
       if (!gwConn) {
         this.logger.debug(`No gateway connection for ${botInstanceId}`);

@@ -1,6 +1,11 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Inject, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { prisma } from "@clawster/database";
+import {
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+  SKILL_PACK_REPOSITORY,
+  ISkillPackRepository,
+} from "@clawster/database";
 import { GatewayManager } from "@clawster/gateway-client";
 import type {
   GatewayConnectionOptions,
@@ -26,23 +31,29 @@ export class A2aAgentCardService {
   private readonly gatewayManager = new GatewayManager();
   private readonly identityCache = new Map<string, CachedIdentity>();
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+    @Inject(SKILL_PACK_REPOSITORY) private readonly skillPackRepo: ISkillPackRepository,
+    private readonly configService: ConfigService,
+  ) {}
 
   async generate(botInstanceId: string): Promise<AgentCard> {
-    const bot = await prisma.botInstance.findUnique({
-      where: { id: botInstanceId },
-      include: {
-        skillPacks: {
-          include: {
-            skillPack: true,
-          },
-        },
-      },
-    });
+    const [bot, skillPackBindings] = await Promise.all([
+      this.botInstanceRepo.findById(botInstanceId),
+      this.skillPackRepo.findSkillPacksByBotInstance(botInstanceId),
+    ]);
 
     if (!bot) {
       throw new NotFoundException(`Bot instance ${botInstanceId} not found`);
     }
+
+    // Transform skill pack bindings to the expected format
+    const botWithSkillPacks = {
+      ...bot,
+      skillPacks: skillPackBindings.map((binding) => ({
+        skillPack: binding.skillPack!,
+      })),
+    };
 
     const baseUrl =
       this.configService.get<string>("CLAWSTER_BASE_URL") ||
@@ -58,7 +69,7 @@ export class A2aAgentCardService {
     ]);
 
     // Build skills: live config > desiredManifest > SkillPacks
-    const skills = this.resolveSkills(bot, liveConfig);
+    const skills = this.resolveSkills(botWithSkillPacks, liveConfig);
     const { name, description } = identity;
 
     return {
@@ -90,9 +101,7 @@ export class A2aAgentCardService {
     botInstanceId: string,
   ): Promise<GatewayClient | null> {
     try {
-      const gwConn = await prisma.gatewayConnection.findUnique({
-        where: { instanceId: botInstanceId },
-      });
+      const gwConn = await this.botInstanceRepo.getGatewayConnection(botInstanceId);
 
       if (!gwConn || gwConn.status !== "CONNECTED") {
         return null;

@@ -4,25 +4,44 @@
 import { NotFoundException } from "@nestjs/common";
 import { CredentialVaultService } from "../credential-vault.service";
 import { CredentialEncryptionService } from "../credential-encryption.service";
+import {
+  IConnectorRepository,
+  IAuditRepository,
+} from "@clawster/database";
 
-jest.mock("@clawster/database", () => ({
-  prisma: {
-    integrationConnector: {
-      create: jest.fn(),
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-    },
-    auditEvent: {
-      create: jest.fn().mockResolvedValue({}),
-    },
-  },
-}));
+const mockConnectorRepo = {
+  createConnector: jest.fn(),
+  findManyConnectors: jest.fn(),
+  findConnectorById: jest.fn(),
+  incrementUsageCount: jest.fn(),
+  deleteConnector: jest.fn(),
+  findConnectorsByWorkspace: jest.fn(),
+  countConnectors: jest.fn(),
+  updateConnector: jest.fn(),
+  updateConnectorStatus: jest.fn(),
+  recordTestResult: jest.fn(),
+  findBindingById: jest.fn(),
+  findBindingsByBotInstance: jest.fn(),
+  findBindingsByConnector: jest.fn(),
+  createBinding: jest.fn(),
+  updateBinding: jest.fn(),
+  deleteBinding: jest.fn(),
+  updateBindingHealth: jest.fn(),
+};
 
-import { prisma } from "@clawster/database";
-
-const mockPrisma = prisma as jest.Mocked<typeof prisma>;
+const mockAuditRepo = {
+  create: jest.fn().mockResolvedValue({}),
+  findById: jest.fn(),
+  findMany: jest.fn(),
+  findByWorkspace: jest.fn(),
+  findByResource: jest.fn(),
+  findByActor: jest.fn(),
+  count: jest.fn(),
+  createMany: jest.fn(),
+  deleteOlderThan: jest.fn(),
+  groupByAction: jest.fn(),
+  groupByResourceType: jest.fn(),
+};
 
 const mockEncryption = {
   encrypt: jest.fn((obj: Record<string, unknown>) =>
@@ -47,14 +66,18 @@ describe("CredentialVaultService", () => {
   let service: CredentialVaultService;
 
   beforeEach(() => {
-    service = new CredentialVaultService(mockEncryption);
+    service = new CredentialVaultService(
+      mockConnectorRepo as unknown as IConnectorRepository,
+      mockAuditRepo as unknown as IAuditRepository,
+      mockEncryption,
+    );
     jest.clearAllMocks();
   });
 
   describe("save", () => {
     it("encrypts credentials and creates connector", async () => {
       const now = new Date();
-      (mockPrisma.integrationConnector.create as jest.Mock).mockResolvedValue({
+      mockConnectorRepo.createConnector.mockResolvedValue({
         id: "cred-1",
         name: "My AWS Creds",
         type: "aws-account",
@@ -77,23 +100,20 @@ describe("CredentialVaultService", () => {
       const result = await service.save(dto, "user-1");
 
       expect(mockEncryption.encrypt).toHaveBeenCalledWith(dto.credentials);
-      expect(mockPrisma.integrationConnector.create).toHaveBeenCalledWith(
+      expect(mockConnectorRepo.createConnector).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            workspaceId: "ws-1",
-            name: "My AWS Creds",
-            type: "aws-account",
-            createdBy: "user-1",
-          }),
+          workspace: { connect: { id: "ws-1" } },
+          name: "My AWS Creds",
+          type: "aws-account",
+          createdBy: "user-1",
         }),
       );
-      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
+      expect(mockAuditRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            action: "credential.save",
-            resourceId: "cred-1",
-            actor: "user-1",
-          }),
+          workspace: { connect: { id: "ws-1" } },
+          user: { connect: { id: "user-1" } },
+          action: "credential.save",
+          resourceId: "cred-1",
         }),
       );
       expect(result).toHaveProperty("id", "cred-1");
@@ -106,22 +126,30 @@ describe("CredentialVaultService", () => {
       const credentials = { accessKeyId: "AKIA1234", secretAccessKey: "sec", region: "us-east-1" };
       const encryptedConfig = Buffer.from(JSON.stringify(credentials)).toString("base64");
 
-      (mockPrisma.integrationConnector.findMany as jest.Mock).mockResolvedValue([
-        {
-          id: "cred-1",
-          name: "Cred One",
-          type: "aws-account",
-          config: encryptedConfig,
-          createdAt: new Date(),
-        },
-        {
-          id: "cred-2",
-          name: "Cred Two",
-          type: "aws-account",
-          config: encryptedConfig,
-          createdAt: new Date(),
-        },
-      ]);
+      mockConnectorRepo.findManyConnectors.mockResolvedValue({
+        data: [
+          {
+            id: "cred-1",
+            name: "Cred One",
+            type: "aws-account",
+            config: encryptedConfig,
+            tags: JSON.stringify({ credentialVault: true }),
+            createdAt: new Date(),
+          },
+          {
+            id: "cred-2",
+            name: "Cred Two",
+            type: "aws-account",
+            config: encryptedConfig,
+            tags: JSON.stringify({ credentialVault: true }),
+            createdAt: new Date(),
+          },
+        ],
+        total: 2,
+        page: 1,
+        limit: 20,
+        totalPages: 1,
+      });
 
       const result = await service.listSaved({ workspaceId: "ws-1" });
 
@@ -139,40 +167,32 @@ describe("CredentialVaultService", () => {
       const credentials = { accessKeyId: "AKIA1234", secretAccessKey: "sec", region: "us-east-1" };
       const encryptedConfig = Buffer.from(JSON.stringify(credentials)).toString("base64");
 
-      (mockPrisma.integrationConnector.findUnique as jest.Mock).mockResolvedValue({
+      mockConnectorRepo.findConnectorById.mockResolvedValue({
         id: "cred-1",
         name: "My Cred",
         type: "aws-account",
         config: encryptedConfig,
         workspaceId: "ws-1",
       });
-      (mockPrisma.integrationConnector.update as jest.Mock).mockResolvedValue({});
+      mockConnectorRepo.incrementUsageCount.mockResolvedValue({});
 
       const result = await service.resolve("cred-1", "user-1", "ws-1");
 
       expect(mockEncryption.decrypt).toHaveBeenCalledWith(encryptedConfig);
-      expect(mockPrisma.integrationConnector.update).toHaveBeenCalledWith(
+      expect(mockConnectorRepo.incrementUsageCount).toHaveBeenCalledWith("cred-1");
+      expect(mockAuditRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "cred-1" },
-          data: expect.objectContaining({
-            usageCount: { increment: 1 },
-          }),
-        }),
-      );
-      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            action: "credential.access",
-            resourceId: "cred-1",
-            actor: "user-1",
-          }),
+          workspace: { connect: { id: "ws-1" } },
+          user: { connect: { id: "user-1" } },
+          action: "credential.access",
+          resourceId: "cred-1",
         }),
       );
       expect(result).toEqual(credentials);
     });
 
     it("throws NotFoundException for missing credential", async () => {
-      (mockPrisma.integrationConnector.findUnique as jest.Mock).mockResolvedValue(null);
+      mockConnectorRepo.findConnectorById.mockResolvedValue(null);
 
       await expect(service.resolve("non-existent", "user-1", "ws-1")).rejects.toThrow(
         NotFoundException,
@@ -180,7 +200,7 @@ describe("CredentialVaultService", () => {
     });
 
     it("throws NotFoundException when workspace does not match", async () => {
-      (mockPrisma.integrationConnector.findUnique as jest.Mock).mockResolvedValue({
+      mockConnectorRepo.findConnectorById.mockResolvedValue({
         id: "cred-1",
         name: "My Cred",
         type: "aws-account",
@@ -196,26 +216,23 @@ describe("CredentialVaultService", () => {
 
   describe("delete", () => {
     it("removes credential and creates audit event", async () => {
-      (mockPrisma.integrationConnector.findUnique as jest.Mock).mockResolvedValue({
+      mockConnectorRepo.findConnectorById.mockResolvedValue({
         id: "cred-1",
         name: "My Cred",
         type: "aws-account",
         workspaceId: "ws-1",
       });
-      (mockPrisma.integrationConnector.delete as jest.Mock).mockResolvedValue({});
+      mockConnectorRepo.deleteConnector.mockResolvedValue(undefined);
 
       await service.delete("cred-1", "user-1", "ws-1");
 
-      expect(mockPrisma.integrationConnector.delete).toHaveBeenCalledWith({
-        where: { id: "cred-1" },
-      });
-      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
+      expect(mockConnectorRepo.deleteConnector).toHaveBeenCalledWith("cred-1");
+      expect(mockAuditRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            action: "credential.delete",
-            resourceId: "cred-1",
-            actor: "user-1",
-          }),
+          workspace: { connect: { id: "ws-1" } },
+          user: { connect: { id: "user-1" } },
+          action: "credential.delete",
+          resourceId: "cred-1",
         }),
       );
     });

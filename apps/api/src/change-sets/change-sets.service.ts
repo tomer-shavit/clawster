@@ -1,72 +1,56 @@
-import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
-import { prisma, ChangeSet, BotInstance } from "@clawster/database";
+import { Injectable, NotFoundException, BadRequestException, Inject } from "@nestjs/common";
+import {
+  ChangeSet,
+  CHANGE_SET_REPOSITORY,
+  IChangeSetRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from "@clawster/database";
 import { CreateChangeSetDto, RollbackChangeSetDto, ListChangeSetsQueryDto } from "./change-sets.dto";
 
 @Injectable()
 export class ChangeSetsService {
+  constructor(
+    @Inject(CHANGE_SET_REPOSITORY) private readonly changeSetRepo: IChangeSetRepository,
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+  ) {}
+
   async create(dto: CreateChangeSetDto): Promise<ChangeSet> {
     // Verify bot instance exists
-    const bot = await prisma.botInstance.findUnique({
-      where: { id: dto.botInstanceId },
-    });
+    const bot = await this.botInstanceRepo.findById(dto.botInstanceId);
 
     if (!bot) {
       throw new NotFoundException(`Bot instance ${dto.botInstanceId} not found`);
     }
 
-    const changeSet = await prisma.changeSet.create({
-      data: {
-        botInstanceId: dto.botInstanceId,
-        changeType: dto.changeType,
-        description: dto.description,
-        fromManifest: JSON.stringify(dto.fromManifest),
-        toManifest: JSON.stringify(dto.toManifest),
-        rolloutStrategy: dto.rolloutStrategy || "ALL",
-        rolloutPercentage: dto.rolloutPercentage,
-        canaryInstances: dto.canaryInstances ? JSON.stringify(dto.canaryInstances) : null,
-        status: "PENDING",
-        totalInstances: dto.totalInstances || 1,
-        createdBy: dto.createdBy || "system",
-      },
+    const changeSet = await this.changeSetRepo.create({
+      botInstance: { connect: { id: dto.botInstanceId } },
+      changeType: dto.changeType,
+      description: dto.description,
+      fromManifest: JSON.stringify(dto.fromManifest),
+      toManifest: JSON.stringify(dto.toManifest),
+      rolloutStrategy: dto.rolloutStrategy || "ALL",
+      rolloutPercentage: dto.rolloutPercentage,
+      canaryInstances: dto.canaryInstances ? JSON.stringify(dto.canaryInstances) : null,
+      status: "PENDING",
+      totalInstances: dto.totalInstances || 1,
+      createdBy: dto.createdBy || "system",
     });
 
     return changeSet;
   }
 
   async findAll(query: ListChangeSetsQueryDto): Promise<ChangeSet[]> {
-    return prisma.changeSet.findMany({
-      where: {
-        ...(query.botInstanceId && { botInstanceId: query.botInstanceId }),
-        ...(query.status && { status: query.status }),
-        ...(query.changeType && { changeType: query.changeType }),
-      },
-      orderBy: { createdAt: "desc" },
-      include: {
-        auditEvents: {
-          orderBy: { timestamp: "desc" },
-          take: 10,
-        },
-      },
+    const result = await this.changeSetRepo.findMany({
+      botInstanceId: query.botInstanceId,
+      status: query.status,
+      changeType: query.changeType,
     });
+    return result.data;
   }
 
   async findOne(id: string): Promise<ChangeSet> {
-    const changeSet = await prisma.changeSet.findUnique({
-      where: { id },
-      include: {
-        botInstance: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            fleetId: true,
-          },
-        },
-        auditEvents: {
-          orderBy: { timestamp: "desc" },
-        },
-      },
-    });
+    const changeSet = await this.changeSetRepo.findById(id);
 
     if (!changeSet) {
       throw new NotFoundException(`Change set ${id} not found`);
@@ -82,13 +66,7 @@ export class ChangeSetsService {
       throw new BadRequestException(`Cannot start rollout from status ${changeSet.status}`);
     }
 
-    return prisma.changeSet.update({
-      where: { id },
-      data: {
-        status: "IN_PROGRESS",
-        startedAt: new Date(),
-      },
-    });
+    return this.changeSetRepo.start(id);
   }
 
   async updateProgress(id: string, updated: number, failed: number): Promise<ChangeSet> {
@@ -102,48 +80,34 @@ export class ChangeSetsService {
     const newFailed = changeSet.failedInstances + failed;
     const total = changeSet.totalInstances;
 
-    let newStatus = changeSet.status;
+    // Update progress first
+    await this.changeSetRepo.updateProgress(id, newUpdated, newFailed);
+
+    // Check if rollout is complete and update status accordingly
     if (newUpdated + newFailed >= total) {
-      newStatus = newFailed > 0 ? "FAILED" : "COMPLETED";
+      if (newFailed > 0) {
+        return this.changeSetRepo.fail(id);
+      } else {
+        return this.changeSetRepo.complete(id);
+      }
     }
 
-    return prisma.changeSet.update({
-      where: { id },
-      data: {
-        updatedInstances: newUpdated,
-        failedInstances: newFailed,
-        status: newStatus,
-        ...(newStatus === "COMPLETED" || newStatus === "FAILED" ? {
-          completedAt: new Date(),
-          canRollback: newStatus === "COMPLETED",
-        } : {}),
-      },
-    });
+    // Return the updated change set
+    return this.findOne(id);
   }
 
   async complete(id: string): Promise<ChangeSet> {
-    const changeSet = await this.findOne(id);
+    // Verify change set exists
+    await this.findOne(id);
 
-    return prisma.changeSet.update({
-      where: { id },
-      data: {
-        status: "COMPLETED",
-        completedAt: new Date(),
-        canRollback: true,
-      },
-    });
+    return this.changeSetRepo.complete(id);
   }
 
   async fail(id: string, error: string): Promise<ChangeSet> {
-    const changeSet = await this.findOne(id);
+    // Verify change set exists
+    await this.findOne(id);
 
-    return prisma.changeSet.update({
-      where: { id },
-      data: {
-        status: "FAILED",
-        completedAt: new Date(),
-      },
-    });
+    return this.changeSetRepo.fail(id);
   }
 
   async rollback(id: string, dto: RollbackChangeSetDto): Promise<ChangeSet> {
@@ -158,28 +122,20 @@ export class ChangeSetsService {
     }
 
     // Create a new change set for the rollback
-    const rollbackChangeSet = await prisma.changeSet.create({
-      data: {
-        botInstanceId: changeSet.botInstanceId,
-        changeType: "ROLLBACK",
-        description: `Rollback of ${changeSet.id}: ${dto.reason}`,
-        fromManifest: changeSet.toManifest,
-        toManifest: changeSet.fromManifest,
-        rolloutStrategy: "ALL",
-        status: "PENDING",
-        totalInstances: changeSet.totalInstances,
-        createdBy: dto.rolledBackBy || "system",
-      },
+    const rollbackChangeSet = await this.changeSetRepo.create({
+      botInstance: { connect: { id: changeSet.botInstanceId } },
+      changeType: "ROLLBACK",
+      description: `Rollback of ${changeSet.id}: ${dto.reason}`,
+      fromManifest: changeSet.toManifest,
+      toManifest: changeSet.fromManifest,
+      rolloutStrategy: "ALL",
+      status: "PENDING",
+      totalInstances: changeSet.totalInstances,
+      createdBy: dto.rolledBackBy || "system",
     });
 
     // Mark original as rolled back
-    await prisma.changeSet.update({
-      where: { id },
-      data: {
-        rolledBackAt: new Date(),
-        rolledBackBy: dto.rolledBackBy || "system",
-      },
-    });
+    await this.changeSetRepo.rollback(id, dto.rolledBackBy || "system");
 
     return rollbackChangeSet;
   }

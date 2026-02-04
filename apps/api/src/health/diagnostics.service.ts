@@ -1,6 +1,9 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
-  prisma,
+  PrismaClient,
+  PRISMA_CLIENT,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
 } from "@clawster/database";
 import {
   GatewayClient,
@@ -67,6 +70,11 @@ const DIAG_TIMEOUT_MS = 15_000;
 export class DiagnosticsService {
   private readonly logger = new Logger(DiagnosticsService.name);
 
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+  ) {}
+
   /**
    * Run a full diagnostic check on an instance. This includes:
    * - Gateway connection test
@@ -80,7 +88,7 @@ export class DiagnosticsService {
     const findings: DiagnosticFinding[] = [];
 
     // Load instance with relations
-    const instance = await prisma.botInstance.findUniqueOrThrow({
+    const instance = await this.prisma.botInstance.findUniqueOrThrow({
       where: { id: instanceId },
       include: {
         gatewayConnection: true,
@@ -123,7 +131,7 @@ export class DiagnosticsService {
    * Run a doctor check (simplified openclaw doctor equivalent).
    */
   async runDoctor(instanceId: string): Promise<DoctorResult> {
-    const instance = await prisma.botInstance.findUniqueOrThrow({
+    const instance = await this.prisma.botInstance.findUniqueOrThrow({
       where: { id: instanceId },
       include: {
         gatewayConnection: true,

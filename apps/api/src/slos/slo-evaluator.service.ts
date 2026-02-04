@@ -1,17 +1,37 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Inject } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { prisma, SloDefinition } from "@clawster/database";
+import {
+  SloDefinition,
+  SLO_REPOSITORY,
+  ISloRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+  ALERT_REPOSITORY,
+  IAlertRepository,
+  PRISMA_CLIENT,
+  PrismaClient,
+} from "@clawster/database";
 
 @Injectable()
 export class SloEvaluatorService {
   private readonly logger = new Logger(SloEvaluatorService.name);
 
+  constructor(
+    @Inject(SLO_REPOSITORY)
+    private readonly sloRepo: ISloRepository,
+    @Inject(BOT_INSTANCE_REPOSITORY)
+    private readonly botInstanceRepo: IBotInstanceRepository,
+    @Inject(ALERT_REPOSITORY)
+    private readonly alertRepo: IAlertRepository,
+    @Inject(PRISMA_CLIENT)
+    private readonly prisma: PrismaClient,
+  ) {}
+
   @Cron("*/60 * * * * *")
   async evaluateAllSlos(): Promise<void> {
     try {
-      const activeSlos = await prisma.sloDefinition.findMany({
-        where: { isActive: true },
-      });
+      const result = await this.sloRepo.findMany({ isActive: true });
+      const activeSlos = result.data;
 
       this.logger.debug(`Evaluating ${activeSlos.length} active SLOs`);
 
@@ -45,27 +65,13 @@ export class SloEvaluatorService {
     const wasBreached = slo.isBreached;
     const isBreached = this.checkBreach(slo.metric, currentValue, slo.targetValue);
 
-    const updateData: Record<string, unknown> = {
-      currentValue,
-      isBreached,
-      lastEvaluatedAt: new Date(),
-    };
+    // Use repository method for evaluation update
+    await this.sloRepo.updateEvaluation(slo.id, currentValue, isBreached);
 
-    // If newly breached, set breachedAt and increment count
-    if (isBreached && !wasBreached) {
-      updateData.breachedAt = new Date();
-      updateData.breachCount = { increment: 1 };
-    }
-
-    // If recovered from breach, clear breachedAt
+    // If recovered from breach, clear breachedAt using update
     if (!isBreached && wasBreached) {
-      updateData.breachedAt = null;
+      await this.sloRepo.clearBreach(slo.id);
     }
-
-    await prisma.sloDefinition.update({
-      where: { id: slo.id },
-      data: updateData,
-    });
 
     // Create HealthAlert if SLO breached
     if (isBreached && !wasBreached) {
@@ -131,7 +137,8 @@ export class SloEvaluatorService {
     instanceId: string,
     windowStart: Date,
   ): Promise<number | null> {
-    const snapshots = await prisma.healthSnapshot.findMany({
+    // Note: HealthSnapshot queries use prisma directly as there's no repository for them yet
+    const snapshots = await this.prisma.healthSnapshot.findMany({
       where: {
         instanceId,
         capturedAt: { gte: windowStart },
@@ -150,7 +157,7 @@ export class SloEvaluatorService {
     windowStart: Date,
     percentile: number,
   ): Promise<number | null> {
-    const snapshots = await prisma.healthSnapshot.findMany({
+    const snapshots = await this.prisma.healthSnapshot.findMany({
       where: {
         instanceId,
         capturedAt: { gte: windowStart },
@@ -174,15 +181,12 @@ export class SloEvaluatorService {
     instanceId: string,
     windowStart: Date,
   ): Promise<number | null> {
-    const instance = await prisma.botInstance.findUnique({
-      where: { id: instanceId },
-      select: { errorCount: true },
-    });
+    const instance = await this.botInstanceRepo.findById(instanceId);
 
     if (!instance) return null;
 
     // Calculate error rate from health snapshots in the window
-    const snapshots = await prisma.healthSnapshot.findMany({
+    const snapshots = await this.prisma.healthSnapshot.findMany({
       where: {
         instanceId,
         capturedAt: { gte: windowStart },
@@ -200,7 +204,7 @@ export class SloEvaluatorService {
     instanceId: string,
     windowStart: Date,
   ): Promise<number | null> {
-    const snapshots = await prisma.healthSnapshot.findMany({
+    const snapshots = await this.prisma.healthSnapshot.findMany({
       where: {
         instanceId,
         capturedAt: { gte: windowStart },
@@ -269,39 +273,26 @@ export class SloEvaluatorService {
     const margin = this.calculateBreachMargin(slo, currentValue);
     const severity = this.getSeverityFromMargin(margin);
 
-    await prisma.healthAlert.create({
-      data: {
-        instanceId: slo.instanceId,
-        rule: "slo_breach",
-        severity,
-        title: `SLO Breached: ${slo.name}`,
-        message: `SLO "${slo.name}" (${slo.metric}) breached. Target: ${slo.targetValue}, Current: ${currentValue.toFixed(2)}.`,
-        detail: JSON.stringify({
-          sloId: slo.id,
-          metric: slo.metric,
-          targetValue: slo.targetValue,
-          currentValue,
-          window: slo.window,
-        }),
-        remediationAction: "run-doctor",
-        remediationNote: `Investigate the ${slo.metric} metric for bot instance ${slo.instanceId}.`,
-      },
+    await this.alertRepo.upsertByKey({
+      instanceId: slo.instanceId,
+      rule: "slo_breach",
+      severity,
+      title: `SLO Breached: ${slo.name}`,
+      message: `SLO "${slo.name}" (${slo.metric}) breached. Target: ${slo.targetValue}, Current: ${currentValue.toFixed(2)}.`,
+      detail: JSON.stringify({
+        sloId: slo.id,
+        metric: slo.metric,
+        targetValue: slo.targetValue,
+        currentValue,
+        window: slo.window,
+      }),
+      remediationAction: "run-doctor",
+      remediationNote: `Investigate the ${slo.metric} metric for bot instance ${slo.instanceId}.`,
     });
   }
 
   private async resolveBreachAlert(slo: SloDefinition): Promise<void> {
-    await prisma.healthAlert.updateMany({
-      where: {
-        instanceId: slo.instanceId,
-        rule: "slo_breach",
-        status: "ACTIVE",
-        detail: { contains: slo.id },
-      },
-      data: {
-        status: "RESOLVED",
-        resolvedAt: new Date(),
-      },
-    });
+    await this.alertRepo.resolveByKey("slo_breach", slo.instanceId);
   }
 
   private calculateBreachMargin(

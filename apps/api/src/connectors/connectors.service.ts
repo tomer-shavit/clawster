@@ -1,56 +1,45 @@
-import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
-import { prisma, IntegrationConnector } from "@clawster/database";
+import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
+import {
+  IntegrationConnector,
+  CONNECTOR_REPOSITORY,
+  IConnectorRepository,
+} from "@clawster/database";
 import { CreateConnectorDto, UpdateConnectorDto, ListConnectorsQueryDto, TestConnectionDto } from "./connectors.dto";
 
 @Injectable()
 export class ConnectorsService {
+  constructor(
+    @Inject(CONNECTOR_REPOSITORY) private readonly connectorRepo: IConnectorRepository,
+  ) {}
+
   async create(dto: CreateConnectorDto): Promise<IntegrationConnector> {
-    const connector = await prisma.integrationConnector.create({
-      data: {
-        workspaceId: dto.workspaceId,
-        name: dto.name,
-        description: dto.description,
-        type: dto.type,
-        config: JSON.stringify(dto.config),
-        isShared: dto.isShared ?? true,
-        allowedInstanceIds: JSON.stringify(dto.allowedInstanceIds || []),
-        tags: JSON.stringify(dto.tags || {}),
-        createdBy: dto.createdBy || "system",
-      },
+    const connector = await this.connectorRepo.createConnector({
+      workspace: { connect: { id: dto.workspaceId } },
+      name: dto.name,
+      description: dto.description,
+      type: dto.type,
+      config: JSON.stringify(dto.config),
+      isShared: dto.isShared ?? true,
+      allowedInstanceIds: JSON.stringify(dto.allowedInstanceIds || []),
+      tags: JSON.stringify(dto.tags || {}),
+      createdBy: dto.createdBy || "system",
     });
 
     return connector;
   }
 
   async findAll(query: ListConnectorsQueryDto): Promise<IntegrationConnector[]> {
-    return prisma.integrationConnector.findMany({
-      where: {
-        workspaceId: query.workspaceId,
-        ...(query.type && { type: query.type }),
-        ...(query.status && { status: query.status }),
-        ...(query.isShared !== undefined && { isShared: query.isShared }),
-      },
-      orderBy: { createdAt: "desc" },
+    const result = await this.connectorRepo.findManyConnectors({
+      workspaceId: query.workspaceId,
+      type: query.type,
+      status: query.status,
+      isShared: query.isShared,
     });
+    return result.data;
   }
 
   async findOne(id: string): Promise<IntegrationConnector> {
-    const connector = await prisma.integrationConnector.findUnique({
-      where: { id },
-      include: {
-        botBindings: {
-          include: {
-            botInstance: {
-              select: {
-                id: true,
-                name: true,
-                status: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    const connector = await this.connectorRepo.findConnectorById(id);
 
     if (!connector) {
       throw new NotFoundException(`Connector ${id} not found`);
@@ -62,47 +51,34 @@ export class ConnectorsService {
   async update(id: string, dto: UpdateConnectorDto): Promise<IntegrationConnector> {
     await this.findOne(id);
 
-    return prisma.integrationConnector.update({
-      where: { id },
-      data: {
-        ...(dto.name && { name: dto.name }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.config && { config: JSON.stringify(dto.config) }),
-        ...(dto.isShared !== undefined && { isShared: dto.isShared }),
-        ...(dto.allowedInstanceIds && { allowedInstanceIds: JSON.stringify(dto.allowedInstanceIds) }),
-        ...(dto.tags && { tags: JSON.stringify(dto.tags) }),
-        ...(dto.rotationSchedule && { rotationSchedule: JSON.stringify(dto.rotationSchedule) }),
-      },
+    return this.connectorRepo.updateConnector(id, {
+      ...(dto.name && { name: dto.name }),
+      ...(dto.description !== undefined && { description: dto.description }),
+      ...(dto.config && { config: JSON.stringify(dto.config) }),
+      ...(dto.isShared !== undefined && { isShared: dto.isShared }),
+      ...(dto.allowedInstanceIds && { allowedInstanceIds: JSON.stringify(dto.allowedInstanceIds) }),
+      ...(dto.tags && { tags: JSON.stringify(dto.tags) }),
+      ...(dto.rotationSchedule && { rotationSchedule: JSON.stringify(dto.rotationSchedule) }),
     });
   }
 
   async updateStatus(id: string, status: string, message?: string): Promise<IntegrationConnector> {
     await this.findOne(id);
 
-    return prisma.integrationConnector.update({
-      where: { id },
-      data: {
-        status,
-        ...(message && { statusMessage: message }),
-        ...(status === "ACTIVE" && { lastTestedAt: new Date(), lastTestResult: "SUCCESS" }),
-        ...(status === "ERROR" && { lastTestedAt: new Date(), lastTestResult: "FAILURE" }),
-      },
-    });
+    return this.connectorRepo.updateConnectorStatus(id, status, message);
   }
 
   async remove(id: string): Promise<void> {
     // Check for active bindings
-    const bindingCount = await prisma.botConnectorBinding.count({
-      where: { connectorId: id },
-    });
-    
-    if (bindingCount > 0) {
+    const bindings = await this.connectorRepo.findBindingsByConnector(id);
+
+    if (bindings.length > 0) {
       throw new BadRequestException(
-        `Cannot delete connector with ${bindingCount} active bindings. Remove bindings first.`
+        `Cannot delete connector with ${bindings.length} active bindings. Remove bindings first.`
       );
     }
 
-    await prisma.integrationConnector.delete({ where: { id } });
+    await this.connectorRepo.deleteConnector(id);
   }
 
   async testConnection(id: string, dto: TestConnectionDto): Promise<Record<string, unknown>> {
@@ -113,12 +89,8 @@ export class ConnectorsService {
       // Simulate connection test based on connector type
       // In a real implementation, this would actually test the connection
       const testResult = await this.performConnectionTest(connector);
-      
-      await this.updateStatus(
-        id, 
-        testResult.success ? "ACTIVE" : "ERROR",
-        testResult.message
-      );
+
+      await this.connectorRepo.recordTestResult(id, testResult.success, testResult.message);
 
       return {
         connectorId: id,
@@ -130,8 +102,8 @@ export class ConnectorsService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      await this.updateStatus(id, "ERROR", message);
-      
+      await this.connectorRepo.recordTestResult(id, false, message);
+
       return {
         connectorId: id,
         testedAt: new Date(),

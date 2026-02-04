@@ -3,47 +3,51 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { FleetService } from '../src/fleets/fleets.service';
-
-// Mock the database module
-jest.mock('@clawster/database', () => ({
-  prisma: {
-    fleet: {
-      findFirst: jest.fn(),
-      findUnique: jest.fn(),
-      findMany: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-      count: jest.fn(),
-    },
-    botInstance: {
-      findMany: jest.fn(),
-      count: jest.fn(),
-    },
-  },
-  FleetStatus: {
-    ACTIVE: 'ACTIVE',
-    PAUSED: 'PAUSED',
-    DRAINING: 'DRAINING',
-    ERROR: 'ERROR',
-  },
-  BotStatus: {
-    CREATING: 'CREATING',
-    PENDING: 'PENDING',
-    RUNNING: 'RUNNING',
-  },
-}));
-
-import { prisma } from '@clawster/database';
+import { FleetService } from './fleets.service';
+import {
+  FLEET_REPOSITORY,
+  IFleetRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+  WORKSPACE_REPOSITORY,
+  IWorkspaceRepository,
+} from '@clawster/database';
 
 describe('FleetService', () => {
   let service: FleetService;
-  const mockPrisma = prisma as jest.Mocked<typeof prisma>;
+
+  // Mock repositories
+  const mockFleetRepo: jest.Mocked<IFleetRepository> = {
+    findById: jest.fn(),
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+    count: jest.fn(),
+    getHealthSummary: jest.fn(),
+    findByIdWithInstances: jest.fn(),
+    findManyWithInstances: jest.fn(),
+  };
+
+  const mockBotInstanceRepo: jest.Mocked<Partial<IBotInstanceRepository>> = {
+    findByFleet: jest.fn(),
+    count: jest.fn(),
+    update: jest.fn(),
+  };
+
+  const mockWorkspaceRepo: jest.Mocked<Partial<IWorkspaceRepository>> = {
+    findFirstWorkspace: jest.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [FleetService],
+      providers: [
+        FleetService,
+        { provide: FLEET_REPOSITORY, useValue: mockFleetRepo },
+        { provide: BOT_INSTANCE_REPOSITORY, useValue: mockBotInstanceRepo },
+        { provide: WORKSPACE_REPOSITORY, useValue: mockWorkspaceRepo },
+      ],
     }).compile();
 
     service = module.get<FleetService>(FleetService);
@@ -60,33 +64,44 @@ describe('FleetService', () => {
     };
 
     it('should create a fleet successfully', async () => {
-      mockPrisma.fleet.findFirst.mockResolvedValue(null);
-      mockPrisma.fleet.create.mockResolvedValue({
+      mockFleetRepo.findFirst.mockResolvedValue(null);
+      mockFleetRepo.create.mockResolvedValue({
         id: 'fleet-123',
-        ...createDto,
+        workspaceId: createDto.workspaceId,
+        name: createDto.name,
+        environment: createDto.environment,
+        description: createDto.description,
+        tags: JSON.stringify(createDto.tags),
         status: 'ACTIVE',
+        defaultProfileId: null,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as any);
+      });
 
       const result = await service.create(createDto);
 
       expect(result).toHaveProperty('id');
       expect(result.name).toBe('test-fleet');
-      expect(mockPrisma.fleet.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({
-          workspaceId: 'workspace-123',
-          name: 'test-fleet',
-          status: 'ACTIVE',
-        }),
+      expect(mockFleetRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+        workspace: { connect: { id: 'workspace-123' } },
+        name: 'test-fleet',
+        status: 'ACTIVE',
       }));
     });
 
     it('should throw BadRequestException for duplicate name', async () => {
-      mockPrisma.fleet.findFirst.mockResolvedValue({
+      mockFleetRepo.findFirst.mockResolvedValue({
         id: 'existing-fleet',
         name: 'test-fleet',
-      } as any);
+        workspaceId: 'workspace-123',
+        environment: 'dev',
+        description: null,
+        tags: '{}',
+        status: 'ACTIVE',
+        defaultProfileId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
 
       await expect(service.create(createDto)).rejects.toThrow(BadRequestException);
     });
@@ -94,7 +109,7 @@ describe('FleetService', () => {
 
   describe('findAll', () => {
     it('should return list of fleets', async () => {
-      mockPrisma.fleet.findMany.mockResolvedValue([
+      mockFleetRepo.findManyWithInstances.mockResolvedValue([
         { id: 'fleet-1', name: 'Fleet 1' },
         { id: 'fleet-2', name: 'Fleet 2' },
       ] as any);
@@ -102,38 +117,45 @@ describe('FleetService', () => {
       const result = await service.findAll({ workspaceId: 'workspace-123' });
 
       expect(result).toHaveLength(2);
-      expect(mockPrisma.fleet.findMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: { workspaceId: 'workspace-123' },
-      }));
+      expect(mockFleetRepo.findManyWithInstances).toHaveBeenCalledWith({
+        workspaceId: 'workspace-123',
+        environment: undefined,
+        status: undefined,
+      });
     });
 
     it('should filter by environment', async () => {
-      mockPrisma.fleet.findMany.mockResolvedValue([]);
+      mockFleetRepo.findManyWithInstances.mockResolvedValue([]);
 
       await service.findAll({ workspaceId: 'workspace-123', environment: 'prod' });
 
-      expect(mockPrisma.fleet.findMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: { workspaceId: 'workspace-123', environment: 'prod' },
-      }));
+      expect(mockFleetRepo.findManyWithInstances).toHaveBeenCalledWith({
+        workspaceId: 'workspace-123',
+        environment: 'prod',
+        status: undefined,
+      });
     });
 
     it('should filter by status', async () => {
-      mockPrisma.fleet.findMany.mockResolvedValue([]);
+      mockFleetRepo.findManyWithInstances.mockResolvedValue([]);
 
       await service.findAll({ workspaceId: 'workspace-123', status: 'ACTIVE' });
 
-      expect(mockPrisma.fleet.findMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: { workspaceId: 'workspace-123', status: 'ACTIVE' },
-      }));
+      expect(mockFleetRepo.findManyWithInstances).toHaveBeenCalledWith({
+        workspaceId: 'workspace-123',
+        environment: undefined,
+        status: 'ACTIVE',
+      });
     });
   });
 
   describe('findOne', () => {
     it('should return fleet by id', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue({
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue({
         id: 'fleet-123',
         name: 'Test Fleet',
         instances: [],
+        profiles: [],
       } as any);
 
       const result = await service.findOne('fleet-123');
@@ -143,7 +165,7 @@ describe('FleetService', () => {
     });
 
     it('should throw NotFoundException for non-existent fleet', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue(null);
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue(null);
 
       await expect(service.findOne('non-existent')).rejects.toThrow(NotFoundException);
     });
@@ -155,8 +177,12 @@ describe('FleetService', () => {
     };
 
     it('should update fleet successfully', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue({ id: 'fleet-123' } as any);
-      mockPrisma.fleet.update.mockResolvedValue({
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue({
+        id: 'fleet-123',
+        instances: [],
+        profiles: [],
+      } as any);
+      mockFleetRepo.update.mockResolvedValue({
         id: 'fleet-123',
         description: 'Updated description',
       } as any);
@@ -167,7 +193,7 @@ describe('FleetService', () => {
     });
 
     it('should throw NotFoundException for non-existent fleet', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue(null);
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue(null);
 
       await expect(service.update('non-existent', updateDto)).rejects.toThrow(NotFoundException);
     });
@@ -175,11 +201,13 @@ describe('FleetService', () => {
 
   describe('updateStatus', () => {
     it('should update status successfully', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue({
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue({
         id: 'fleet-123',
         status: 'ACTIVE',
+        instances: [],
+        profiles: [],
       } as any);
-      mockPrisma.fleet.update.mockResolvedValue({
+      mockFleetRepo.update.mockResolvedValue({
         id: 'fleet-123',
         status: 'PAUSED',
       } as any);
@@ -190,16 +218,18 @@ describe('FleetService', () => {
     });
 
     it('should throw BadRequestException for invalid status transition', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue({
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue({
         id: 'fleet-123',
         status: 'DRAINING',
+        instances: [],
+        profiles: [],
       } as any);
 
       await expect(service.updateStatus('fleet-123', 'PAUSED')).rejects.toThrow(BadRequestException);
     });
 
     it('should throw NotFoundException for non-existent fleet', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue(null);
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue(null);
 
       await expect(service.updateStatus('non-existent', 'PAUSED')).rejects.toThrow(NotFoundException);
     });
@@ -207,16 +237,31 @@ describe('FleetService', () => {
 
   describe('getHealth', () => {
     it('should return fleet health breakdown', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue({
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue({
         id: 'fleet-123',
         status: 'ACTIVE',
+        instances: [],
+        profiles: [],
       } as any);
-      mockPrisma.botInstance.findMany.mockResolvedValue([
-        { health: 'HEALTHY' },
-        { health: 'HEALTHY' },
-        { health: 'UNHEALTHY' },
-        { health: 'UNKNOWN' },
-      ] as any);
+      mockFleetRepo.getHealthSummary.mockResolvedValue({
+        fleetId: 'fleet-123',
+        fleetName: 'Test Fleet',
+        totalInstances: 4,
+        healthyCounts: {
+          healthy: 2,
+          unhealthy: 1,
+          degraded: 0,
+          unknown: 1,
+        },
+        statusCounts: {
+          running: 3,
+          stopped: 0,
+          error: 1,
+          creating: 0,
+          pending: 0,
+          other: 0,
+        },
+      });
 
       const result = await service.getHealth('fleet-123');
 
@@ -229,11 +274,31 @@ describe('FleetService', () => {
     });
 
     it('should handle fleet with no instances', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue({
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue({
         id: 'fleet-123',
         status: 'ACTIVE',
+        instances: [],
+        profiles: [],
       } as any);
-      mockPrisma.botInstance.findMany.mockResolvedValue([]);
+      mockFleetRepo.getHealthSummary.mockResolvedValue({
+        fleetId: 'fleet-123',
+        fleetName: 'Test Fleet',
+        totalInstances: 0,
+        healthyCounts: {
+          healthy: 0,
+          unhealthy: 0,
+          degraded: 0,
+          unknown: 0,
+        },
+        statusCounts: {
+          running: 0,
+          stopped: 0,
+          error: 0,
+          creating: 0,
+          pending: 0,
+          other: 0,
+        },
+      });
 
       const result = await service.getHealth('fleet-123');
 
@@ -244,26 +309,34 @@ describe('FleetService', () => {
 
   describe('remove', () => {
     it('should delete fleet successfully', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue({ id: 'fleet-123' } as any);
-      mockPrisma.botInstance.count.mockResolvedValue(0);
-      mockPrisma.fleet.delete.mockResolvedValue({} as any);
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue({
+        id: 'fleet-123',
+        environment: 'dev',
+        instances: [],
+        profiles: [],
+      } as any);
+      mockBotInstanceRepo.count!.mockResolvedValue(0);
+      mockFleetRepo.delete.mockResolvedValue(undefined);
 
       await service.remove('fleet-123');
 
-      expect(mockPrisma.fleet.delete).toHaveBeenCalledWith({
-        where: { id: 'fleet-123' },
-      });
+      expect(mockFleetRepo.delete).toHaveBeenCalledWith('fleet-123');
     });
 
     it('should throw BadRequestException for fleet with instances', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue({ id: 'fleet-123' } as any);
-      mockPrisma.botInstance.count.mockResolvedValue(5);
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue({
+        id: 'fleet-123',
+        environment: 'dev',
+        instances: [],
+        profiles: [],
+      } as any);
+      mockBotInstanceRepo.count!.mockResolvedValue(5);
 
       await expect(service.remove('fleet-123')).rejects.toThrow(BadRequestException);
     });
 
     it('should throw NotFoundException for non-existent fleet', async () => {
-      mockPrisma.fleet.findUnique.mockResolvedValue(null);
+      mockFleetRepo.findByIdWithInstances.mockResolvedValue(null);
 
       await expect(service.remove('non-existent')).rejects.toThrow(NotFoundException);
     });

@@ -1,6 +1,9 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Inject } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { prisma } from "@clawster/database";
+import {
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from "@clawster/database";
 import { OpenClawHealthService } from "../health/openclaw-health.service";
 import { CostsService } from "./costs.service";
 import { CreateCostEventDto } from "./costs.dto";
@@ -11,6 +14,8 @@ export class CostCollectionService {
   private running = false;
 
   constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY)
+    private readonly botInstanceRepo: IBotInstanceRepository,
     private readonly openClawHealthService: OpenClawHealthService,
     private readonly costsService: CostsService,
   ) {}
@@ -31,18 +36,12 @@ export class CostCollectionService {
   }
 
   private async syncAllInstances(): Promise<void> {
-    const instances = await prisma.botInstance.findMany({
-      where: {
-        status: "RUNNING",
-        gatewayConnection: { isNot: null },
-      },
-      select: {
-        id: true,
-        name: true,
-        desiredManifest: true,
-        lastCostSyncDate: true,
-      },
+    const result = await this.botInstanceRepo.findMany({
+      status: "RUNNING",
+      hasGatewayConnection: true,
     });
+
+    const instances = result.data;
 
     if (instances.length === 0) {
       this.logger.debug("No running instances with gateway connections");
@@ -54,7 +53,12 @@ export class CostCollectionService {
 
     for (const instance of instances) {
       try {
-        const count = await this.syncInstance(instance);
+        const count = await this.syncInstance({
+          id: instance.id,
+          name: instance.name,
+          desiredManifest: instance.desiredManifest,
+          lastCostSyncDate: instance.lastCostSyncDate,
+        });
         totalEvents += count;
       } catch (err: unknown) {
         const message =
@@ -126,9 +130,8 @@ export class CostCollectionService {
     }
 
     if (latestDate && latestDate !== lastSyncDate) {
-      await prisma.botInstance.update({
-        where: { id: instance.id },
-        data: { lastCostSyncDate: latestDate },
+      await this.botInstanceRepo.update(instance.id, {
+        lastCostSyncDate: latestDate,
       });
     }
 

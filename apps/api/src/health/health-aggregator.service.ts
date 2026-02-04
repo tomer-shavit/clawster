@@ -1,5 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import {
+  PrismaClient,
+  PRISMA_CLIENT,
+  FLEET_REPOSITORY,
+  IFleetRepository,
+} from "@clawster/database";
 import type { GatewayHealthSnapshot, ChannelHealth } from "@clawster/gateway-client";
 
 // ---- Response types --------------------------------------------------------
@@ -47,11 +52,16 @@ export interface HealthHistoryPoint {
 export class HealthAggregatorService {
   private readonly logger = new Logger(HealthAggregatorService.name);
 
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+    @Inject(FLEET_REPOSITORY) private readonly fleetRepo: IFleetRepository,
+  ) {}
+
   /**
    * Aggregate health for all instances in a fleet.
    */
   async getFleetHealth(fleetId: string): Promise<FleetHealthSummary> {
-    const fleet = await prisma.fleet.findUniqueOrThrow({
+    const fleet = await this.prisma.fleet.findUniqueOrThrow({
       where: { id: fleetId },
       include: {
         instances: {
@@ -111,7 +121,7 @@ export class HealthAggregatorService {
    * Global health overview across the entire workspace.
    */
   async getWorkspaceHealth(): Promise<WorkspaceHealthOverview> {
-    const fleets = await prisma.fleet.findMany({
+    const fleets = await this.prisma.fleet.findMany({
       select: { id: true },
     });
 
@@ -162,7 +172,7 @@ export class HealthAggregatorService {
     from: Date,
     to: Date,
   ): Promise<HealthHistoryPoint[]> {
-    const snapshots = await prisma.healthSnapshot.findMany({
+    const snapshots = await this.prisma.healthSnapshot.findMany({
       where: {
         instanceId,
         capturedAt: { gte: from, lte: to },
@@ -195,7 +205,7 @@ export class HealthAggregatorService {
     // get the most recent snapshot for each instance.
     const latestSnapshots = await Promise.all(
       instanceIds.map((id) =>
-        prisma.healthSnapshot.findFirst({
+        this.prisma.healthSnapshot.findFirst({
           where: { instanceId: id },
           orderBy: { capturedAt: "desc" },
           select: { data: true },

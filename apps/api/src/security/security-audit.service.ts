@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Injectable, Inject, NotFoundException } from "@nestjs/common";
+import { PrismaClient, PRISMA_CLIENT } from "@clawster/database";
 import {
   BUILTIN_OPENCLAW_POLICY_PACKS,
   OpenClawConfig,
@@ -48,12 +48,16 @@ export interface ApplyFixResult {
 
 @Injectable()
 export class OpenClawSecurityAuditService {
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+  ) {}
+
   /**
    * Run a full security audit on an OpenClaw instance.
    * Evaluates all built-in OpenClaw policy packs against the instance config.
    */
   async audit(instanceId: string): Promise<SecurityAuditResult> {
-    const instance = await prisma.botInstance.findUnique({
+    const instance = await this.prisma.botInstance.findUnique({
       where: { id: instanceId },
     });
 
@@ -69,7 +73,7 @@ export class OpenClawSecurityAuditService {
     const environment: "dev" | "staging" | "prod" = rawEnv === "local" ? "dev" : (rawEnv as "dev" | "staging" | "prod");
 
     // Gather other instances for cross-instance checks
-    const otherInstances = await prisma.botInstance.findMany({
+    const otherInstances = await this.prisma.botInstance.findMany({
       where: { id: { not: instanceId } },
       select: { id: true, desiredManifest: true },
     });
@@ -174,7 +178,7 @@ export class OpenClawSecurityAuditService {
     const appliedFixes: string[] = [];
     const failedFixes: Array<{ fixId: string; reason: string }> = [];
 
-    const instance = await prisma.botInstance.findUnique({
+    const instance = await this.prisma.botInstance.findUnique({
       where: { id: instanceId },
     });
 
@@ -210,7 +214,7 @@ export class OpenClawSecurityAuditService {
         ...manifest,
         spec: { ...manifestSpec, openclawConfig: config },
       };
-      await prisma.botInstance.update({
+      await this.prisma.botInstance.update({
         where: { id: instanceId },
         data: { desiredManifest: JSON.stringify(updatedManifest) },
       });

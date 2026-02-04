@@ -7,9 +7,12 @@ import {
   ConnectedSocket,
   MessageBody,
 } from "@nestjs/websockets";
-import { Logger } from "@nestjs/common";
+import { Inject, Logger } from "@nestjs/common";
 import { Server, Socket } from "socket.io";
-import { prisma } from "@clawster/database";
+import {
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from "@clawster/database";
 import {
   GatewayClient,
 } from "@clawster/gateway-client";
@@ -72,6 +75,10 @@ export class LogStreamingGateway implements OnGatewayInit, OnGatewayDisconnect {
    * Used for efficient cleanup on disconnect.
    */
   private readonly socketSubscriptions = new Map<string, Set<string>>();
+
+  constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+  ) {}
 
   // ---- Lifecycle -----------------------------------------------------------
 
@@ -166,9 +173,7 @@ export class LogStreamingGateway implements OnGatewayInit, OnGatewayDisconnect {
   // ---- Internals -----------------------------------------------------------
 
   private async createStream(instanceId: string): Promise<InstanceLogStream> {
-    const connection = await prisma.gatewayConnection.findUnique({
-      where: { instanceId },
-    });
+    const connection = await this.botInstanceRepo.getGatewayConnection(instanceId);
 
     if (!connection) {
       throw new Error("No gateway connection configured for this instance");

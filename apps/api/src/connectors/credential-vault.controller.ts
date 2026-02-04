@@ -9,22 +9,30 @@ import {
   HttpCode,
   HttpStatus,
   Request,
+  Inject,
   BadRequestException,
 } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import {
+  WORKSPACE_REPOSITORY,
+  IWorkspaceRepository,
+} from "@clawster/database";
 import { CredentialVaultService } from "./credential-vault.service";
 import { SaveCredentialDto, ListSavedCredentialsQueryDto } from "./credential-vault.dto";
 
 @Controller("credential-vault")
 export class CredentialVaultController {
-  constructor(private readonly vaultService: CredentialVaultService) {}
+  constructor(
+    @Inject(WORKSPACE_REPOSITORY) private readonly workspaceRepo: IWorkspaceRepository,
+    private readonly vaultService: CredentialVaultService,
+  ) {}
 
   private getUserId(req: any): string {
     return req.user?.sub || req.user?.id || "anonymous";
   }
 
   private async resolveWorkspaceId(): Promise<string> {
-    const workspace = await prisma.workspace.findFirst();
+    const result = await this.workspaceRepo.findManyWorkspaces({}, { page: 1, limit: 1 });
+    const workspace = result.data[0];
     if (!workspace) {
       throw new BadRequestException("No workspace found. Complete onboarding first.");
     }

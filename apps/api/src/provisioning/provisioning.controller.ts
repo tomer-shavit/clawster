@@ -1,10 +1,11 @@
-import { Controller, Get, Param } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Controller, Get, Inject, Param } from "@nestjs/common";
+import { PrismaClient, PRISMA_CLIENT } from "@clawster/database";
 import { ProvisioningEventsService } from "./provisioning-events.service";
 
 @Controller("instances")
 export class ProvisioningController {
   constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
     private readonly provisioningEvents: ProvisioningEventsService,
   ) {}
 
@@ -17,7 +18,7 @@ export class ProvisioningController {
 
     // No in-memory progress — check the DB for instance status.
     // This handles cases where the reconciler fails before provisioning events start.
-    const instance = await prisma.botInstance.findUnique({
+    const instance = await this.prisma.botInstance.findUnique({
       where: { id: instanceId },
       select: { status: true, lastError: true },
     });

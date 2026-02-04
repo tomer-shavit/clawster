@@ -1,5 +1,10 @@
-import { Injectable, Logger, NotFoundException, HttpException, HttpStatus } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Injectable, Inject, Logger, NotFoundException, HttpException, HttpStatus } from "@nestjs/common";
+import {
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+  TRACE_REPOSITORY,
+  ITraceRepository,
+} from "@clawster/database";
 import { GatewayManager } from "@clawster/gateway-client";
 import type { GatewayConnectionOptions, GatewayClient, AgentOutputEvent } from "@clawster/gateway-client";
 import { Subject, Observable } from "rxjs";
@@ -23,7 +28,11 @@ export class A2aStreamingService {
   private readonly gatewayManager = new GatewayManager();
   private readonly activeRuns = new Map<string, ActiveRun>();
 
-  constructor(private readonly tracesService: TracesService) {}
+  constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+    @Inject(TRACE_REPOSITORY) private readonly traceRepo: ITraceRepository,
+    private readonly tracesService: TracesService,
+  ) {}
 
   /**
    * Stream a message to the agent, returning an Observable of SSE events.
@@ -53,10 +62,8 @@ export class A2aStreamingService {
     const run = this.activeRuns.get(taskId);
     if (!run) {
       // Check if it's a completed task
-      const trace = await prisma.trace.findFirst({
-        where: { traceId: taskId, botInstanceId },
-      });
-      if (!trace) {
+      const trace = await this.traceRepo.findByTraceId(taskId);
+      if (!trace || trace.botInstanceId !== botInstanceId) {
         throw new NotFoundException(`Task ${taskId} not found`);
       }
       // Already completed — can't cancel
@@ -89,9 +96,7 @@ export class A2aStreamingService {
     subject: Subject<A2aStreamEvent>,
   ): Promise<void> {
     // 1. Validate bot
-    const bot = await prisma.botInstance.findUnique({
-      where: { id: botInstanceId },
-    });
+    const bot = await this.botInstanceRepo.findById(botInstanceId);
     if (!bot) {
       throw new NotFoundException(`Bot instance ${botInstanceId} not found`);
     }
@@ -280,9 +285,7 @@ export class A2aStreamingService {
 
   private async getGatewayClient(botInstanceId: string): Promise<GatewayClient | null> {
     try {
-      const gwConn = await prisma.gatewayConnection.findUnique({
-        where: { instanceId: botInstanceId },
-      });
+      const gwConn = await this.botInstanceRepo.getGatewayConnection(botInstanceId);
 
       if (!gwConn) {
         this.logger.debug(`No gateway connection for ${botInstanceId}`);

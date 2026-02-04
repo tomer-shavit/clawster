@@ -1,9 +1,16 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { prisma, Trace } from "@clawster/database";
+import { Injectable, Inject, NotFoundException } from "@nestjs/common";
+import {
+  Trace,
+  TRACE_REPOSITORY,
+  ITraceRepository,
+} from "@clawster/database";
 import type { A2aTask, A2aMessage, TaskState } from "./a2a.types";
 
 @Injectable()
 export class A2aTaskService {
+  constructor(
+    @Inject(TRACE_REPOSITORY) private readonly traceRepo: ITraceRepository,
+  ) {}
   /**
    * Get a single A2A task by its task ID (= Trace.traceId), scoped to a bot.
    */
@@ -12,14 +19,9 @@ export class A2aTaskService {
     taskId: string,
     historyLength?: number,
   ): Promise<A2aTask> {
-    const trace = await prisma.trace.findFirst({
-      where: {
-        traceId: taskId,
-        botInstanceId,
-      },
-    });
+    const trace = await this.traceRepo.findByTraceId(taskId);
 
-    if (!trace) {
+    if (!trace || trace.botInstanceId !== botInstanceId) {
       throw new NotFoundException(`Task ${taskId} not found`);
     }
 
@@ -30,17 +32,15 @@ export class A2aTaskService {
    * List recent A2A tasks for a bot instance.
    */
   async listTasks(botInstanceId: string): Promise<A2aTask[]> {
-    const traces = await prisma.trace.findMany({
-      where: {
-        botInstanceId,
-        type: "TASK",
-        name: { startsWith: "a2a:" },
-      },
-      orderBy: { startedAt: "desc" },
-      take: 50,
-    });
+    const result = await this.traceRepo.findMany(
+      { instanceId: botInstanceId, type: "TASK" },
+      { page: 1, limit: 50 },
+    );
 
-    return traces.map((t) => this.traceToTask(t));
+    // Filter by a2a: prefix and convert to tasks
+    return result.data
+      .filter((t) => t.name.startsWith("a2a:"))
+      .map((t) => this.traceToTask(t));
   }
 
   /**

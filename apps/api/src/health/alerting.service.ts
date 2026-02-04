@@ -1,7 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import {
-  prisma,
+  PrismaClient,
+  PRISMA_CLIENT,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
 } from "@clawster/database";
 import { AlertsService } from "../alerts/alerts.service";
 import { NotificationDeliveryService } from "../notification-channels/notification-delivery.service";
@@ -61,6 +64,8 @@ export class AlertingService {
   private readonly logger = new Logger(AlertingService.name);
 
   constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
     private readonly alertsService: AlertsService,
     private readonly notificationDeliveryService: NotificationDeliveryService,
   ) {}
@@ -147,7 +152,7 @@ export class AlertingService {
    * Evaluate all alert rules across all instances.
    */
   async evaluateAlerts(): Promise<void> {
-    const instances = await prisma.botInstance.findMany({
+    const instances = await this.prisma.botInstance.findMany({
       where: {
         status: { notIn: ["DELETING", "CREATING"] },
       },
@@ -331,14 +336,14 @@ export class AlertingService {
     const baselineStart = new Date(recentStart.getTime() - TOKEN_SPIKE_BASELINE_WINDOW_MIN * 60_000);
 
     const [recentEvents, baselineEvents] = await Promise.all([
-      prisma.costEvent.findMany({
+      this.prisma.costEvent.findMany({
         where: {
           instanceId: instance.id,
           occurredAt: { gte: recentStart, lte: now },
         },
         select: { inputTokens: true, outputTokens: true },
       }),
-      prisma.costEvent.findMany({
+      this.prisma.costEvent.findMany({
         where: {
           instanceId: instance.id,
           occurredAt: { gte: baselineStart, lt: recentStart },
@@ -417,7 +422,7 @@ export class AlertingService {
     fleetId: string;
   }): Promise<void> {
     // Find active budgets scoped to this instance or its fleet
-    const budgets = await prisma.budgetConfig.findMany({
+    const budgets = await this.prisma.budgetConfig.findMany({
       where: {
         isActive: true,
         OR: [
@@ -438,7 +443,7 @@ export class AlertingService {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const costAggregate = await prisma.costEvent.aggregate({
+    const costAggregate = await this.prisma.costEvent.aggregate({
       where: {
         instanceId: instance.id,
         occurredAt: { gte: monthStart, lte: now },

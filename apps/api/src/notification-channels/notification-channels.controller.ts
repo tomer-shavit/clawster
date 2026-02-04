@@ -10,8 +10,13 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
+  Inject,
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiParam } from "@nestjs/swagger";
+import {
+  WORKSPACE_REPOSITORY,
+  IWorkspaceRepository,
+} from "@clawster/database";
 import { NotificationChannelsService } from "./notification-channels.service";
 import {
   CreateNotificationChannelDto,
@@ -21,39 +26,39 @@ import {
   NotificationChannelQueryDto,
 } from "./notification-channels.dto";
 
-/**
- * Hardcoded workspace helper — returns the first workspace ID.
- * Replace with proper auth-based workspace resolution later.
- */
-async function getDefaultWorkspaceId(): Promise<string> {
-  const { prisma } = await import("@clawster/database");
-  const workspace = await prisma.workspace.findFirst();
-  if (!workspace) {
-    throw new NotFoundException("No workspace found. Complete onboarding first.");
-  }
-  return workspace.id;
-}
-
 @ApiTags("notification-channels")
 @Controller("notification-channels")
 export class NotificationChannelsController {
   constructor(
     private readonly service: NotificationChannelsService,
+    @Inject(WORKSPACE_REPOSITORY) private readonly workspaceRepo: IWorkspaceRepository,
   ) {}
+
+  /**
+   * Get the default workspace ID.
+   * Replace with proper auth-based workspace resolution later.
+   */
+  private async getDefaultWorkspaceId(): Promise<string> {
+    const workspace = await this.workspaceRepo.findFirstWorkspace();
+    if (!workspace) {
+      throw new NotFoundException("No workspace found. Complete onboarding first.");
+    }
+    return workspace.id;
+  }
 
   // ---- Channel CRUD --------------------------------------------------------
 
   @Get()
   @ApiOperation({ summary: "List notification channels with optional filters" })
   async findAll(@Query() query: NotificationChannelQueryDto) {
-    const workspaceId = await getDefaultWorkspaceId();
+    const workspaceId = await this.getDefaultWorkspaceId();
     return this.service.findAll(workspaceId, query);
   }
 
   @Post()
   @ApiOperation({ summary: "Create a notification channel" })
   async create(@Body() dto: CreateNotificationChannelDto) {
-    const workspaceId = await getDefaultWorkspaceId();
+    const workspaceId = await this.getDefaultWorkspaceId();
     return this.service.create(workspaceId, dto);
   }
 

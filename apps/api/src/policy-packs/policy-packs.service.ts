@@ -1,11 +1,19 @@
-import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
-import { prisma, Prisma, PolicyPack } from "@clawster/database";
-import { validatePolicyPack, PolicyEngine, BUILTIN_POLICY_PACKS, PolicyRule, PolicyViolation } from "@clawster/core";
+import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
+import {
+  CONFIG_LAYER_REPOSITORY,
+  IConfigLayerRepository,
+  PolicyPack,
+} from "@clawster/database";
+import { validatePolicyPack, PolicyEngine, BUILTIN_POLICY_PACKS } from "@clawster/core";
 import { CreatePolicyPackDto, UpdatePolicyPackDto, ListPolicyPacksQueryDto, EvaluatePolicyDto } from "./policy-packs.dto";
 
 @Injectable()
 export class PolicyPacksService {
   private readonly policyEngine = new PolicyEngine();
+
+  constructor(
+    @Inject(CONFIG_LAYER_REPOSITORY) private readonly configLayerRepo: IConfigLayerRepository,
+  ) {}
 
   async create(dto: CreatePolicyPackDto): Promise<PolicyPack> {
     // Validate rules
@@ -27,35 +35,32 @@ export class PolicyPacksService {
       }
     }
 
-    const policyPack = await prisma.policyPack.create({
-      data: {
-        workspaceId: dto.workspaceId,
-        name: dto.name,
-        description: dto.description,
-        autoApply: dto.autoApply ?? false,
-        targetEnvironments: dto.targetEnvironments ? JSON.stringify(dto.targetEnvironments) : null,
-        targetTags: dto.targetTags ? JSON.stringify(dto.targetTags) : null,
-        rules: JSON.stringify(dto.rules),
-        isEnforced: dto.isEnforced ?? false,
-        priority: dto.priority || 0,
-        version: dto.version || "1.0.0",
-        createdBy: dto.createdBy || "system",
-      },
+    const policyPack = await this.configLayerRepo.createPolicyPack({
+      workspace: dto.workspaceId ? { connect: { id: dto.workspaceId } } : undefined,
+      name: dto.name,
+      description: dto.description,
+      autoApply: dto.autoApply ?? false,
+      targetEnvironments: dto.targetEnvironments ? JSON.stringify(dto.targetEnvironments) : null,
+      targetTags: dto.targetTags ? JSON.stringify(dto.targetTags) : null,
+      rules: JSON.stringify(dto.rules),
+      isEnforced: dto.isEnforced ?? false,
+      priority: dto.priority || 0,
+      version: dto.version || "1.0.0",
+      createdBy: dto.createdBy || "system",
     });
 
     return policyPack;
   }
 
   async findAll(query: ListPolicyPacksQueryDto): Promise<PolicyPack[]> {
-    return prisma.policyPack.findMany({
-      where: {
-        workspaceId: query.workspaceId,
-        ...(query.isActive !== undefined && { isActive: query.isActive }),
-        ...(query.isBuiltin !== undefined && { isBuiltin: query.isBuiltin }),
-        ...(query.autoApply !== undefined && { autoApply: query.autoApply }),
+    return this.configLayerRepo.findPolicyPacksByWorkspace(
+      query.workspaceId,
+      {
+        isActive: query.isActive,
+        isBuiltin: query.isBuiltin,
+        autoApply: query.autoApply,
       },
-      orderBy: [{ isBuiltin: "desc" }, { priority: "desc" }],
-    });
+    );
   }
 
   async findOne(id: string): Promise<PolicyPack> {
@@ -65,9 +70,7 @@ export class PolicyPacksService {
       return builtin as unknown as PolicyPack;
     }
 
-    const policyPack = await prisma.policyPack.findUnique({
-      where: { id },
-    });
+    const policyPack = await this.configLayerRepo.findPolicyPackById(id);
 
     if (!policyPack) {
       throw new NotFoundException(`Policy pack ${id} not found`);
@@ -78,35 +81,32 @@ export class PolicyPacksService {
 
   async update(id: string, dto: UpdatePolicyPackDto): Promise<PolicyPack> {
     const existing = await this.findOne(id);
-    
+
     if (existing.isBuiltin) {
       throw new BadRequestException("Cannot modify builtin policy packs");
     }
 
-    return prisma.policyPack.update({
-      where: { id },
-      data: {
-        ...(dto.name && { name: dto.name }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.autoApply !== undefined && { autoApply: dto.autoApply }),
-        ...(dto.targetEnvironments && { targetEnvironments: JSON.stringify(dto.targetEnvironments) }),
-        ...(dto.targetTags && { targetTags: JSON.stringify(dto.targetTags) }),
-        ...(dto.rules && { rules: JSON.stringify(dto.rules) }),
-        ...(dto.isEnforced !== undefined && { isEnforced: dto.isEnforced }),
-        ...(dto.priority !== undefined && { priority: dto.priority }),
-        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-      },
+    return this.configLayerRepo.updatePolicyPack(id, {
+      ...(dto.name && { name: dto.name }),
+      ...(dto.description !== undefined && { description: dto.description }),
+      ...(dto.autoApply !== undefined && { autoApply: dto.autoApply }),
+      ...(dto.targetEnvironments && { targetEnvironments: JSON.stringify(dto.targetEnvironments) }),
+      ...(dto.targetTags && { targetTags: JSON.stringify(dto.targetTags) }),
+      ...(dto.rules && { rules: JSON.stringify(dto.rules) }),
+      ...(dto.isEnforced !== undefined && { isEnforced: dto.isEnforced }),
+      ...(dto.priority !== undefined && { priority: dto.priority }),
+      ...(dto.isActive !== undefined && { isActive: dto.isActive }),
     });
   }
 
   async remove(id: string): Promise<void> {
     const existing = await this.findOne(id);
-    
+
     if (existing.isBuiltin) {
       throw new BadRequestException("Cannot delete builtin policy packs");
     }
 
-    await prisma.policyPack.delete({ where: { id } });
+    await this.configLayerRepo.deletePolicyPack(id);
   }
 
   async evaluate(dto: EvaluatePolicyDto): Promise<Record<string, unknown>> {

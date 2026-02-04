@@ -1,5 +1,5 @@
-import { Injectable } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Injectable, Inject } from "@nestjs/common";
+import { PrismaClient, PRISMA_CLIENT } from "@clawster/database";
 
 interface MetricValue {
   name: string;
@@ -12,11 +12,15 @@ interface MetricValue {
 export class MetricsService {
   private metrics: Map<string, MetricValue[]> = new Map();
 
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+  ) {}
+
   async collectMetrics(): Promise<string> {
     const lines: string[] = [];
 
     // Bot instance counts by status
-    const botInstancesByStatus = await prisma.botInstance.groupBy({
+    const botInstancesByStatus = await this.prisma.botInstance.groupBy({
       by: ["status"],
       _count: { id: true },
     });
@@ -29,7 +33,7 @@ export class MetricsService {
 
     // Audit events in last hour
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const auditEvents = await prisma.auditEvent.count({
+    const auditEvents = await this.prisma.auditEvent.count({
       where: { timestamp: { gte: oneHourAgo } },
     });
 
@@ -39,14 +43,14 @@ export class MetricsService {
     lines.push(`clawster_audit_events_total ${auditEvents}`);
 
     // Template counts
-    const templateCount = await prisma.template.count();
+    const templateCount = await this.prisma.template.count();
     lines.push("");
     lines.push("# HELP clawster_templates_total Total number of templates");
     lines.push("# TYPE clawster_templates_total gauge");
     lines.push(`clawster_templates_total ${templateCount}`);
 
     // Workspace counts
-    const workspaceCount = await prisma.workspace.count();
+    const workspaceCount = await this.prisma.workspace.count();
     lines.push("");
     lines.push("# HELP clawster_workspaces_total Total number of workspaces");
     lines.push("# TYPE clawster_workspaces_total gauge");

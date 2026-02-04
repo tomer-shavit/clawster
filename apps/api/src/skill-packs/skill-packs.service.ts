@@ -1,5 +1,10 @@
-import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
-import { prisma } from '@clawster/database';
+import { Injectable, Inject, Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  SKILL_PACK_REPOSITORY,
+  ISkillPackRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from '@clawster/database';
 import { CreateSkillPackDto, UpdateSkillPackDto, AttachSkillPackDto, BulkAttachSkillPackDto } from './skill-packs.dto';
 import { SkillPackResponse, SkillPackWithBots, BotAttachmentResponse, BulkAttachResult, SyncResult } from './skill-packs.types';
 import { SkillVerificationService } from '../security/skill-verification.service';
@@ -9,27 +14,26 @@ export class SkillPacksService {
   private readonly logger = new Logger(SkillPacksService.name);
 
   constructor(
+    @Inject(SKILL_PACK_REPOSITORY) private readonly skillPackRepo: ISkillPackRepository,
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botRepo: IBotInstanceRepository,
     private readonly skillVerification: SkillVerificationService,
   ) {}
   async create(workspaceId: string, userId: string, dto: CreateSkillPackDto): Promise<SkillPackResponse> {
     // Check for duplicate name
-    const existing = await prisma.skillPack.findFirst({
-      where: { workspaceId, name: dto.name },
-    });
+    const existing = await this.skillPackRepo.findSkillPackByName(workspaceId, dto.name);
 
     if (existing) {
       throw new ConflictException(`SkillPack '${dto.name}' already exists`);
     }
 
-    const skillPack = await prisma.skillPack.create({
-      data: {
-        ...dto,
-        workspaceId,
-        createdBy: userId,
-        skills: JSON.stringify(dto.skills || []),
-        mcps: JSON.stringify(dto.mcps || []),
-        envVars: JSON.stringify(dto.envVars || {}),
-      },
+    const skillPack = await this.skillPackRepo.createSkillPack({
+      name: dto.name,
+      description: dto.description,
+      workspace: { connect: { id: workspaceId } },
+      createdBy: userId,
+      skills: JSON.stringify(dto.skills || []),
+      mcps: JSON.stringify(dto.mcps || []),
+      envVars: JSON.stringify(dto.envVars || {}),
     });
 
     // Warn about unverified skills from non-bundled sources
@@ -47,79 +51,63 @@ export class SkillPacksService {
   }
 
   async findAll(workspaceId: string): Promise<SkillPackResponse[]> {
-    return prisma.skillPack.findMany({
-      where: { workspaceId },
-      include: {
-        _count: {
-          select: { botInstances: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    }) as unknown as Promise<SkillPackResponse[]>;
+    const skillPacks = await this.skillPackRepo.findSkillPacksByWorkspace(workspaceId);
+    return skillPacks as unknown as SkillPackResponse[];
   }
 
   async findOne(workspaceId: string, id: string): Promise<SkillPackWithBots> {
-    const skillPack = await prisma.skillPack.findFirst({
-      where: { id, workspaceId },
-      include: {
-        botInstances: {
-          include: {
-            botInstance: {
-              select: {
-                id: true,
-                name: true,
-                status: true,
-                health: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    const skillPack = await this.skillPackRepo.findSkillPackById(id);
 
-    if (!skillPack) {
+    if (!skillPack || skillPack.workspaceId !== workspaceId) {
       throw new NotFoundException(`SkillPack ${id} not found`);
     }
 
-    return skillPack as unknown as SkillPackWithBots;
+    // Get bot instances attached to this skill pack
+    const botInstanceAssociations = await this.skillPackRepo.findBotInstancesBySkillPack(id);
+
+    return {
+      ...skillPack,
+      botInstances: botInstanceAssociations,
+    } as unknown as SkillPackWithBots;
   }
 
   async update(workspaceId: string, id: string, dto: UpdateSkillPackDto): Promise<SkillPackResponse> {
-    await this.findOne(workspaceId, id);
+    const currentPack = await this.findOne(workspaceId, id);
 
     // Check name uniqueness if changing name
-    if (dto.name && dto.name !== (await prisma.skillPack.findFirst({ where: { id } }))?.name) {
-      const existing = await prisma.skillPack.findFirst({
-        where: { workspaceId, name: dto.name },
-      });
+    if (dto.name && dto.name !== currentPack.name) {
+      const existing = await this.skillPackRepo.findSkillPackByName(workspaceId, dto.name);
       if (existing) {
         throw new ConflictException(`SkillPack '${dto.name}' already exists`);
       }
     }
 
     // Increment version when content changes
-    const versionIncrement = dto.skills || dto.mcps || dto.envVars ? 1 : 0;
+    const shouldIncrementVersion = !!(dto.skills || dto.mcps || dto.envVars);
 
     const { skills, mcps, envVars, ...restDto } = dto;
-    return prisma.skillPack.update({
-      where: { id },
-      data: {
-        ...restDto,
-        ...(skills && { skills: JSON.stringify(skills) }),
-        ...(mcps && { mcps: JSON.stringify(mcps) }),
-        ...(envVars && { envVars: JSON.stringify(envVars) }),
-        version: { increment: versionIncrement },
-        updatedAt: new Date(),
-      },
-    }) as unknown as Promise<SkillPackResponse>;
+    const updatedPack = await this.skillPackRepo.updateSkillPack(id, {
+      ...restDto,
+      ...(skills && { skills: JSON.stringify(skills) }),
+      ...(mcps && { mcps: JSON.stringify(mcps) }),
+      ...(envVars && { envVars: JSON.stringify(envVars) }),
+      updatedAt: new Date(),
+    });
+
+    // Increment version if needed
+    if (shouldIncrementVersion) {
+      await this.skillPackRepo.incrementVersion(id);
+    }
+
+    return updatedPack as unknown as SkillPackResponse;
   }
 
   async remove(workspaceId: string, id: string): Promise<SkillPackResponse> {
-    await this.findOne(workspaceId, id);
+    const skillPack = await this.findOne(workspaceId, id);
 
-    return prisma.skillPack.delete({
-      where: { id },
-    }) as unknown as Promise<SkillPackResponse>;
+    await this.skillPackRepo.deleteSkillPack(id);
+
+    return skillPack as unknown as SkillPackResponse;
   }
 
   async attachToBot(workspaceId: string, skillPackId: string, dto: AttachSkillPackDto): Promise<BotAttachmentResponse> {
@@ -127,35 +115,26 @@ export class SkillPacksService {
     await this.findOne(workspaceId, skillPackId);
 
     // Verify bot exists
-    const bot = await prisma.botInstance.findFirst({
-      where: { id: dto.botInstanceId, workspaceId },
-    });
+    const bot = await this.botRepo.findById(dto.botInstanceId);
 
-    if (!bot) {
+    if (!bot || bot.workspaceId !== workspaceId) {
       throw new NotFoundException(`Bot ${dto.botInstanceId} not found`);
     }
 
     // Check if already attached
-    const existing = await prisma.botInstanceSkillPack.findUnique({
-      where: {
-        botInstanceId_skillPackId: {
-          botInstanceId: dto.botInstanceId,
-          skillPackId,
-        },
-      },
-    });
+    const isAlreadyAttached = await this.skillPackRepo.isAttached(dto.botInstanceId, skillPackId);
 
-    if (existing) {
+    if (isAlreadyAttached) {
       throw new ConflictException(`SkillPack already attached to this bot`);
     }
 
-    return prisma.botInstanceSkillPack.create({
-      data: {
-        botInstanceId: dto.botInstanceId,
-        skillPackId,
-        envOverrides: JSON.stringify(dto.envOverrides || {}),
-      },
-    }) as unknown as Promise<BotAttachmentResponse>;
+    const attachment = await this.skillPackRepo.attachSkillPack(
+      dto.botInstanceId,
+      skillPackId,
+      JSON.stringify(dto.envOverrides || {}),
+    );
+
+    return attachment as unknown as BotAttachmentResponse;
   }
 
   async bulkAttach(workspaceId: string, skillPackId: string, dto: BulkAttachSkillPackDto): Promise<BulkAttachResult> {
@@ -170,37 +149,26 @@ export class SkillPacksService {
     for (const botInstanceId of dto.botInstanceIds) {
       try {
         // Verify bot exists
-        const bot = await prisma.botInstance.findFirst({
-          where: { id: botInstanceId, workspaceId },
-        });
+        const bot = await this.botRepo.findById(botInstanceId);
 
-        if (!bot) {
+        if (!bot || bot.workspaceId !== workspaceId) {
           results.failed.push({ botId: botInstanceId, error: 'Bot not found' });
           continue;
         }
 
         // Check if already attached
-        const existing = await prisma.botInstanceSkillPack.findUnique({
-          where: {
-            botInstanceId_skillPackId: {
-              botInstanceId,
-              skillPackId,
-            },
-          },
-        });
+        const isAlreadyAttached = await this.skillPackRepo.isAttached(botInstanceId, skillPackId);
 
-        if (existing) {
+        if (isAlreadyAttached) {
           results.failed.push({ botId: botInstanceId, error: 'Already attached' });
           continue;
         }
 
-        await prisma.botInstanceSkillPack.create({
-          data: {
-            botInstanceId,
-            skillPackId,
-            envOverrides: JSON.stringify(dto.envOverrides || {}),
-          },
-        });
+        await this.skillPackRepo.attachSkillPack(
+          botInstanceId,
+          skillPackId,
+          JSON.stringify(dto.envOverrides || {}),
+        );
 
         results.successful.push(botInstanceId);
       } catch (error) {
@@ -215,46 +183,45 @@ export class SkillPacksService {
     // Verify skill pack exists
     await this.findOne(workspaceId, skillPackId);
 
-    const attachment = await prisma.botInstanceSkillPack.findUnique({
-      where: {
-        botInstanceId_skillPackId: {
-          botInstanceId,
-          skillPackId,
-        },
-      },
-    });
+    const isAttached = await this.skillPackRepo.isAttached(botInstanceId, skillPackId);
 
-    if (!attachment) {
+    if (!isAttached) {
       throw new NotFoundException(`SkillPack not attached to this bot`);
     }
 
-    return prisma.botInstanceSkillPack.delete({
-      where: { id: attachment.id },
-    }) as unknown as Promise<BotAttachmentResponse>;
+    await this.skillPackRepo.detachSkillPack(botInstanceId, skillPackId);
+
+    // Return a placeholder response since detachSkillPack returns void
+    return {
+      id: `${botInstanceId}_${skillPackId}`,
+      botInstanceId,
+      skillPackId,
+    } as unknown as BotAttachmentResponse;
   }
 
   async getBotsWithPack(workspaceId: string, skillPackId: string): Promise<Array<{ id: string; name: string; status: string; health: string; envOverrides: Record<string, string>; attachedAt: Date }>> {
     await this.findOne(workspaceId, skillPackId);
 
-    const attachments = await prisma.botInstanceSkillPack.findMany({
-      where: { skillPackId },
-      include: {
-        botInstance: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            health: true,
-          },
-        },
-      },
-    });
+    const attachments = await this.skillPackRepo.findBotInstancesBySkillPack(skillPackId);
 
-    return attachments.map(a => ({
-      ...a.botInstance,
-      envOverrides: (typeof a.envOverrides === "string" ? JSON.parse(a.envOverrides) : a.envOverrides) as Record<string, string>,
-      attachedAt: a.attachedAt,
-    }));
+    // Fetch bot details for each attachment
+    const results: Array<{ id: string; name: string; status: string; health: string; envOverrides: Record<string, string>; attachedAt: Date }> = [];
+
+    for (const attachment of attachments) {
+      const bot = await this.botRepo.findById(attachment.botInstanceId);
+      if (bot) {
+        results.push({
+          id: bot.id,
+          name: bot.name,
+          status: bot.status,
+          health: bot.health,
+          envOverrides: (typeof attachment.envOverrides === "string" ? JSON.parse(attachment.envOverrides) : attachment.envOverrides) as Record<string, string>,
+          attachedAt: attachment.attachedAt,
+        });
+      }
+    }
+
+    return results;
   }
 
   async syncPackToBots(workspaceId: string, skillPackId: string): Promise<SyncResult> {

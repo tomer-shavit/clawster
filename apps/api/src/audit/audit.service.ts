@@ -1,20 +1,28 @@
-import { Injectable } from "@nestjs/common";
-import { prisma, AuditEvent } from "@clawster/database";
+import { Injectable, Inject } from "@nestjs/common";
+import {
+  AuditEvent,
+  AUDIT_REPOSITORY,
+  IAuditRepository,
+} from "@clawster/database";
 import { ListAuditEventsQueryDto } from "./audit.dto";
 
 @Injectable()
 export class AuditService {
+  constructor(
+    @Inject(AUDIT_REPOSITORY) private readonly auditRepo: IAuditRepository,
+  ) {}
+
   async findAll(query: ListAuditEventsQueryDto): Promise<AuditEvent[]> {
-    return prisma.auditEvent.findMany({
-      where: {
-        ...(query.instanceId && { resourceId: query.instanceId }),
-        ...(query.actor && { actor: query.actor }),
-        ...(query.from && { timestamp: { gte: new Date(query.from) } }),
-        ...(query.to && { timestamp: { lte: new Date(query.to) } }),
+    const result = await this.auditRepo.findMany(
+      {
+        resourceId: query.instanceId,
+        actor: query.actor,
+        timestampAfter: query.from ? new Date(query.from) : undefined,
+        timestampBefore: query.to ? new Date(query.to) : undefined,
       },
-      orderBy: { timestamp: "desc" },
-      take: 100,
-    });
+      { limit: 100 }
+    );
+    return result.data;
   }
 
   async logEvent(
@@ -26,16 +34,14 @@ export class AuditService {
     diffSummary?: string,
     metadata?: Record<string, unknown>
   ): Promise<AuditEvent> {
-    return prisma.auditEvent.create({
-      data: {
-        actor,
-        action,
-        resourceType,
-        resourceId,
-        workspaceId,
-        diffSummary,
-        metadata: JSON.stringify(metadata || {}),
-      },
+    return this.auditRepo.create({
+      user: { connect: { id: actor } },
+      action,
+      resourceType,
+      resourceId,
+      workspace: { connect: { id: workspaceId } },
+      diffSummary,
+      metadata: JSON.stringify(metadata || {}),
     });
   }
 }

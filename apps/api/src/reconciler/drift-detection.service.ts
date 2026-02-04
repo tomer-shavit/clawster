@@ -1,7 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Inject, Logger } from "@nestjs/common";
 import {
-  prisma,
   BotInstance,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
 } from "@clawster/database";
 import type { OpenClawManifest } from "@clawster/core";
 import { GatewayManager } from "@clawster/gateway-client";
@@ -51,7 +52,10 @@ export class DriftDetectionService {
   private readonly logger = new Logger(DriftDetectionService.name);
   private readonly gatewayManager = new GatewayManager();
 
-  constructor(private readonly configGenerator: ConfigGeneratorService) {}
+  constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+    private readonly configGenerator: ConfigGeneratorService,
+  ) {}
 
   // ------------------------------------------------------------------
   // Per-instance drift check
@@ -174,10 +178,8 @@ export class DriftDetectionService {
   // ------------------------------------------------------------------
 
   async checkAllInstances(): Promise<{ instanceId: string; result: DriftCheckResult }[]> {
-    const instances = await prisma.botInstance.findMany({
-      where: {
-        status: { in: ["RUNNING", "DEGRADED"] },
-      },
+    const { data: instances } = await this.botInstanceRepo.findMany({
+      status: ["RUNNING", "DEGRADED"],
     });
 
     const results: { instanceId: string; result: DriftCheckResult }[] = [];
@@ -217,9 +219,7 @@ export class DriftDetectionService {
   // ------------------------------------------------------------------
 
   private async getGatewayClient(instance: BotInstance) {
-    const gwConn = await prisma.gatewayConnection.findUnique({
-      where: { instanceId: instance.id },
-    });
+    const gwConn = await this.botInstanceRepo.getGatewayConnection(instance.id);
 
     const host = gwConn?.host ?? "localhost";
     const port = gwConn?.port ?? instance.gatewayPort ?? 18789;
@@ -256,13 +256,7 @@ export class DriftDetectionService {
 
     // Only update if health actually changed
     if (instance.health !== newHealth) {
-      await prisma.botInstance.update({
-        where: { id: instance.id },
-        data: {
-          health: newHealth,
-          lastHealthCheckAt: new Date(),
-        },
-      });
+      await this.botInstanceRepo.updateHealth(instance.id, newHealth, new Date());
     }
 
     // Update GatewayConnection status
@@ -270,12 +264,9 @@ export class DriftDetectionService {
       ? "CONNECTED"
       : "DISCONNECTED";
 
-    await prisma.gatewayConnection.updateMany({
-      where: { instanceId: instance.id },
-      data: {
-        status: gwStatus,
-        lastHeartbeat: gatewayReachable ? new Date() : undefined,
-      },
+    await this.botInstanceRepo.upsertGatewayConnection(instance.id, {
+      status: gwStatus,
+      lastHeartbeat: gatewayReachable ? new Date() : undefined,
     });
   }
 }

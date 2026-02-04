@@ -1,7 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
-  prisma,
-  Prisma,
+  ALERT_REPOSITORY,
+  IAlertRepository,
+  AlertFilters,
 } from "@clawster/database";
 import type { AlertQueryDto, AlertSummaryResponse } from "./alerts.dto";
 
@@ -29,6 +30,10 @@ export interface UpsertAlertData {
 export class AlertsService {
   private readonly logger = new Logger(AlertsService.name);
 
+  constructor(
+    @Inject(ALERT_REPOSITORY) private readonly alertRepo: IAlertRepository,
+  ) {}
+
   // ---- Query methods -------------------------------------------------------
 
   /**
@@ -39,50 +44,35 @@ export class AlertsService {
   ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 50;
-    const skip = (page - 1) * limit;
 
-    const where: Prisma.HealthAlertWhereInput = {};
+    const alertFilters: AlertFilters = {};
 
-    if (filters.instanceId) where.instanceId = filters.instanceId;
-    if (filters.fleetId) where.fleetId = filters.fleetId;
-    if (filters.severity) where.severity = filters.severity;
-    if (filters.status) where.status = filters.status;
-    if (filters.rule) where.rule = filters.rule;
+    if (filters.instanceId) alertFilters.instanceId = filters.instanceId;
+    if (filters.fleetId) alertFilters.fleetId = filters.fleetId;
+    if (filters.severity) alertFilters.severity = filters.severity;
+    if (filters.status) alertFilters.status = filters.status;
+    if (filters.rule) alertFilters.rule = filters.rule;
+    if (filters.from) alertFilters.fromDate = new Date(filters.from);
+    if (filters.to) alertFilters.toDate = new Date(filters.to);
 
-    if (filters.from || filters.to) {
-      where.firstTriggeredAt = {};
-      if (filters.from) where.firstTriggeredAt.gte = new Date(filters.from);
-      if (filters.to) where.firstTriggeredAt.lte = new Date(filters.to);
-    }
+    const result = await this.alertRepo.findMany(
+      alertFilters,
+      { page, limit },
+    );
 
-    const [data, total] = await Promise.all([
-      prisma.healthAlert.findMany({
-        where,
-        include: {
-          instance: { select: { id: true, name: true, fleetId: true } },
-          fleet: { select: { id: true, name: true } },
-        },
-        orderBy: { lastTriggeredAt: "desc" },
-        skip,
-        take: limit,
-      }),
-      prisma.healthAlert.count({ where }),
-    ]);
-
-    return { data, total, page, limit };
+    return {
+      data: result.data,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    };
   }
 
   /**
    * Get a single alert by ID with related instance/fleet data.
    */
   async getAlert(id: string) {
-    return prisma.healthAlert.findUnique({
-      where: { id },
-      include: {
-        instance: { select: { id: true, name: true, fleetId: true, health: true, status: true } },
-        fleet: { select: { id: true, name: true } },
-      },
-    });
+    return this.alertRepo.findById(id);
   }
 
   // ---- Status transition methods -------------------------------------------
@@ -91,72 +81,40 @@ export class AlertsService {
    * Acknowledge an alert.
    */
   async acknowledgeAlert(id: string, acknowledgedBy?: string) {
-    return prisma.healthAlert.update({
-      where: { id },
-      data: {
-        status: "ACKNOWLEDGED",
-        acknowledgedAt: new Date(),
-        acknowledgedBy: acknowledgedBy ?? "system",
-      },
-    });
+    return this.alertRepo.acknowledge(id, acknowledgedBy ?? "system");
   }
 
   /**
    * Resolve an alert.
    */
   async resolveAlert(id: string) {
-    return prisma.healthAlert.update({
-      where: { id },
-      data: {
-        status: "RESOLVED",
-        resolvedAt: new Date(),
-      },
-    });
+    return this.alertRepo.resolve(id);
   }
 
   /**
    * Suppress an alert.
    */
   async suppressAlert(id: string) {
-    return prisma.healthAlert.update({
-      where: { id },
-      data: {
-        status: "SUPPRESSED",
-      },
-    });
+    return this.alertRepo.suppress(id);
   }
 
   /**
    * Bulk acknowledge multiple alerts. Only acts on ACTIVE alerts.
    */
   async bulkAcknowledge(ids: string[], acknowledgedBy?: string) {
-    return prisma.healthAlert.updateMany({
-      where: {
-        id: { in: ids },
-        status: "ACTIVE",
-      },
-      data: {
-        status: "ACKNOWLEDGED",
-        acknowledgedAt: new Date(),
-        acknowledgedBy: acknowledgedBy ?? "system",
-      },
-    });
+    const count = await this.alertRepo.bulkAcknowledge(
+      ids,
+      acknowledgedBy ?? "system",
+    );
+    return { count };
   }
 
   /**
    * Bulk resolve multiple alerts. Only acts on ACTIVE or ACKNOWLEDGED alerts.
    */
   async bulkResolve(ids: string[]) {
-    return prisma.healthAlert.updateMany({
-      where: {
-        id: { in: ids },
-        status: { in: ["ACTIVE", "ACKNOWLEDGED"] },
-      },
-      data: {
-        status: "RESOLVED",
-        resolvedAt: new Date(),
-      },
-    });
+    const count = await this.alertRepo.bulkResolve(ids);
+    return { count };
   }
 
   // ---- Upsert (used by the evaluator / alerting service) -------------------
@@ -168,52 +126,16 @@ export class AlertsService {
    * If it was previously RESOLVED or SUPPRESSED, re-activate it.
    */
   async upsertAlert(data: UpsertAlertData) {
-    // Build composite lookup — rule + instanceId
-    const existing = await prisma.healthAlert.findFirst({
-      where: {
-        rule: data.rule,
-        instanceId: data.instanceId ?? null,
-        status: { not: "RESOLVED" },
-      },
-    });
-
-    if (existing) {
-      return prisma.healthAlert.update({
-        where: { id: existing.id },
-        data: {
-          severity: data.severity,
-          title: data.title,
-          message: data.message,
-          detail: data.detail,
-          remediationAction: data.remediationAction,
-          remediationNote: data.remediationNote,
-          lastTriggeredAt: new Date(),
-          consecutiveHits: { increment: 1 },
-          // Re-activate if it was acknowledged or suppressed
-          status: "ACTIVE",
-          acknowledgedAt: null,
-          acknowledgedBy: null,
-        },
-      });
-    }
-
-    // Create new alert
-    return prisma.healthAlert.create({
-      data: {
-        rule: data.rule,
-        instanceId: data.instanceId,
-        fleetId: data.fleetId,
-        severity: data.severity,
-        status: "ACTIVE",
-        title: data.title,
-        message: data.message,
-        detail: data.detail,
-        remediationAction: data.remediationAction,
-        remediationNote: data.remediationNote,
-        firstTriggeredAt: new Date(),
-        lastTriggeredAt: new Date(),
-        consecutiveHits: 1,
-      },
+    return this.alertRepo.upsertByKey({
+      rule: data.rule,
+      instanceId: data.instanceId,
+      fleetId: data.fleetId,
+      severity: data.severity,
+      title: data.title,
+      message: data.message,
+      detail: data.detail,
+      remediationAction: data.remediationAction,
+      remediationNote: data.remediationNote,
     });
   }
 
@@ -222,23 +144,7 @@ export class AlertsService {
    * Used by the evaluator when a condition clears.
    */
   async resolveAlertByKey(rule: string, instanceId: string) {
-    const existing = await prisma.healthAlert.findFirst({
-      where: {
-        rule,
-        instanceId,
-        status: { in: ["ACTIVE", "ACKNOWLEDGED"] },
-      },
-    });
-
-    if (!existing) return null;
-
-    return prisma.healthAlert.update({
-      where: { id: existing.id },
-      data: {
-        status: "RESOLVED",
-        resolvedAt: new Date(),
-      },
-    });
+    return this.alertRepo.resolveByKey(rule, instanceId);
   }
 
   // ---- Summary / counts ----------------------------------------------------
@@ -247,38 +153,30 @@ export class AlertsService {
    * Get counts grouped by severity and status.
    */
   async getAlertSummary(): Promise<AlertSummaryResponse> {
-    const [bySeverityRaw, byStatusRaw, total] = await Promise.all([
-      prisma.healthAlert.groupBy({
-        by: ["severity"],
-        _count: { id: true },
-        where: { status: { not: "RESOLVED" } },
-      }),
-      prisma.healthAlert.groupBy({
-        by: ["status"],
-        _count: { id: true },
-      }),
-      prisma.healthAlert.count({ where: { status: { not: "RESOLVED" } } }),
-    ]);
+    const summary = await this.alertRepo.getSummary();
 
-    const bySeverity: Record<string, number> = {};
-    for (const row of bySeverityRaw) {
-      bySeverity[row.severity] = row._count.id;
-    }
+    // Convert repository summary format to the API response format
+    const bySeverity: Record<string, number> = {
+      CRITICAL: summary.bySeverity.critical,
+      ERROR: summary.bySeverity.error,
+      WARNING: summary.bySeverity.warning,
+      INFO: summary.bySeverity.info,
+    };
 
-    const byStatus: Record<string, number> = {};
-    for (const row of byStatusRaw) {
-      byStatus[row.status] = row._count.id;
-    }
+    const byStatus: Record<string, number> = {
+      ACTIVE: summary.byStatus.active,
+      ACKNOWLEDGED: summary.byStatus.acknowledged,
+      RESOLVED: summary.byStatus.resolved,
+      SUPPRESSED: summary.byStatus.suppressed,
+    };
 
-    return { bySeverity, byStatus, total };
+    return { bySeverity, byStatus, total: summary.total };
   }
 
   /**
    * Return the count of alerts with status = ACTIVE.
    */
   async getActiveAlertCount(): Promise<number> {
-    return prisma.healthAlert.count({
-      where: { status: "ACTIVE" },
-    });
+    return this.alertRepo.getActiveCount();
   }
 }

@@ -1,6 +1,9 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { prisma, Template } from "@clawster/database";
-// Prisma namespace no longer needed after SQLite migration
+import { Injectable, Inject, NotFoundException } from "@nestjs/common";
+import {
+  CONFIG_LAYER_REPOSITORY,
+  IConfigLayerRepository,
+  Template,
+} from "@clawster/database";
 import {
   CreateTemplateDto,
   PreviewConfigDto,
@@ -12,7 +15,6 @@ import {
 import {
   BUILTIN_TEMPLATES,
   getBuiltinTemplate,
-  isBuiltinTemplateId,
   type BuiltinTemplate,
 } from "./builtin-templates";
 import { ConfigGenerator } from "./config-generator";
@@ -58,16 +60,21 @@ function dbToResponse(t: Template): TemplateResponseDto {
 
 @Injectable()
 export class TemplatesService {
-  constructor(private readonly configGenerator: ConfigGenerator) {}
+  constructor(
+    @Inject(CONFIG_LAYER_REPOSITORY) private readonly configLayerRepo: IConfigLayerRepository,
+    private readonly configGenerator: ConfigGenerator,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // List all templates (builtin + DB)
   // ---------------------------------------------------------------------------
 
   async listTemplates(): Promise<TemplateResponseDto[]> {
-    const dbTemplates = await prisma.template.findMany({
-      orderBy: { createdAt: "desc" },
-    });
+    const result = await this.configLayerRepo.findManyTemplates(
+      {},
+      { page: 1, limit: 1000 },
+    );
+    const dbTemplates = result.data;
 
     const builtins = BUILTIN_TEMPLATES.map(builtinToResponse);
     const custom = dbTemplates.map(dbToResponse);
@@ -87,7 +94,7 @@ export class TemplatesService {
     }
 
     // Fall back to DB
-    const template = await prisma.template.findUnique({ where: { id } });
+    const template = await this.configLayerRepo.findTemplateById(id);
     if (!template) {
       throw new NotFoundException(`Template ${id} not found`);
     }
@@ -102,17 +109,15 @@ export class TemplatesService {
   async createCustomTemplate(
     dto: CreateTemplateDto,
   ): Promise<TemplateResponseDto> {
-    const template = await prisma.template.create({
-      data: {
-        name: dto.name,
-        description: dto.description,
-        category: dto.category,
-        manifestTemplate: JSON.stringify(dto.defaultConfig ??
-          dto.manifestTemplate ??
-          {}),
-        isBuiltin: false,
-        workspaceId: "default",
-      },
+    const template = await this.configLayerRepo.createTemplate({
+      name: dto.name,
+      description: dto.description,
+      category: dto.category,
+      manifestTemplate: JSON.stringify(dto.defaultConfig ??
+        dto.manifestTemplate ??
+        {}),
+      isBuiltin: false,
+      workspace: { connect: { id: "default" } },
     });
 
     return dbToResponse(template);
@@ -180,9 +185,7 @@ export class TemplatesService {
     }
 
     // Try DB
-    const dbTemplate = await prisma.template.findUnique({
-      where: { id: templateId },
-    });
+    const dbTemplate = await this.configLayerRepo.findTemplateById(templateId);
     if (!dbTemplate) {
       throw new NotFoundException(`Template ${templateId} not found`);
     }

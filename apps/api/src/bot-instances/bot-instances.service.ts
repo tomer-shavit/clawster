@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, HttpException, HttpStatus } from "@nestjs/common";
+import { Injectable, Inject, NotFoundException, BadRequestException, HttpException, HttpStatus } from "@nestjs/common";
 import {
-  prisma,
   BotInstance,
-  Prisma
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+  FLEET_REPOSITORY,
+  IFleetRepository,
 } from "@clawster/database";
 import {
   PolicyEngine
@@ -31,25 +33,26 @@ import { ReconcilerService } from "../reconciler/reconciler.service";
 export class BotInstancesService {
   private readonly policyEngine = new PolicyEngine();
 
-  constructor(private readonly reconciler: ReconcilerService) {}
+  constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+    @Inject(FLEET_REPOSITORY) private readonly fleetRepo: IFleetRepository,
+    private readonly reconciler: ReconcilerService,
+  ) {}
 
   async create(dto: CreateBotInstanceDto): Promise<BotInstance> {
     // Check for duplicate name in workspace
-    const existing = await prisma.botInstance.findFirst({
-      where: { 
-        workspaceId: dto.workspaceId,
-        name: dto.name 
-      },
+    const existing = await this.botInstanceRepo.findFirst({
+      workspaceId: dto.workspaceId,
+      search: dto.name,
     });
 
-    if (existing) {
+    // Check exact name match (findFirst uses contains for search)
+    if (existing && existing.name === dto.name) {
       throw new BadRequestException(`Bot instance with name '${dto.name}' already exists`);
     }
 
     // Verify fleet exists
-    const fleet = await prisma.fleet.findUnique({
-      where: { id: dto.fleetId },
-    });
+    const fleet = await this.fleetRepo.findById(dto.fleetId);
 
     if (!fleet) {
       throw new NotFoundException(`Fleet ${dto.fleetId} not found`);
@@ -66,89 +69,47 @@ export class BotInstancesService {
     }
 
     // Create instance record
-    const instance = await prisma.botInstance.create({
-      data: {
-        workspaceId: dto.workspaceId,
-        fleetId: dto.fleetId,
-        name: dto.name,
-        templateId: dto.templateId,
-        profileId: dto.profileId,
-        overlayIds: JSON.stringify(dto.overlayIds || []),
-        status: "CREATING",
-        health: "UNKNOWN",
-        desiredManifest: JSON.stringify(dto.desiredManifest),
-        tags: JSON.stringify(dto.tags || {}),
-        metadata: JSON.stringify(dto.metadata || {}),
-        createdBy: dto.createdBy || "system",
-      },
+    const instance = await this.botInstanceRepo.create({
+      workspace: { connect: { id: dto.workspaceId } },
+      fleet: { connect: { id: dto.fleetId } },
+      name: dto.name,
+      templateId: dto.templateId,
+      profileId: dto.profileId,
+      overlayIds: JSON.stringify(dto.overlayIds || []),
+      status: "CREATING",
+      health: "UNKNOWN",
+      desiredManifest: JSON.stringify(dto.desiredManifest),
+      tags: JSON.stringify(dto.tags || {}),
+      metadata: JSON.stringify(dto.metadata || {}),
+      createdBy: dto.createdBy || "system",
     });
 
     return instance;
   }
 
   async findAll(query: ListBotInstancesQueryDto): Promise<BotInstance[]> {
-    const instances = await prisma.botInstance.findMany({
-      where: {
-        ...(query.workspaceId && { workspaceId: query.workspaceId }),
-        ...(query.fleetId && { fleetId: query.fleetId }),
-        ...(query.status && { status: query.status }),
-        ...(query.health && { health: query.health }),
-        ...(query.templateId && { templateId: query.templateId }),
-      },
-      include: {
-        fleet: {
-          select: {
-            id: true,
-            name: true,
-            environment: true,
-          },
-        },
-        deploymentTarget: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-          },
-        },
-        _count: {
-          select: { connectorBindings: true }
-        }
-      },
-      orderBy: { createdAt: "desc" },
+    const instances = await this.botInstanceRepo.findManyWithRelations({
+      workspaceId: query.workspaceId,
+      fleetId: query.fleetId,
+      status: query.status,
+      health: query.health,
+      templateId: query.templateId,
     });
-    return instances.map((i) => this.redactSensitiveFields(i));
+    return instances.map((i) => this.redactSensitiveFields(i as BotInstance));
   }
 
   async findOne(id: string): Promise<BotInstance & { resolvedConfig?: Record<string, unknown> }> {
-    const instance = await prisma.botInstance.findUnique({
-      where: { id },
-      include: {
-        fleet: true,
-        gatewayConnection: true,
-        connectorBindings: {
-          include: {
-            connector: {
-              select: {
-                id: true,
-                name: true,
-                type: true,
-                status: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    const instance = await this.botInstanceRepo.findOneWithRelations(id);
 
     if (!instance) {
       throw new NotFoundException(`Bot instance ${id} not found`);
     }
 
-    return this.redactSensitiveFields(instance);
+    return this.redactSensitiveFields(instance as BotInstance);
   }
 
   async update(id: string, dto: UpdateBotInstanceDto): Promise<BotInstance> {
-    const instance = await this.findOne(id);
+    await this.findOne(id);
 
     // If updating manifest, validate it
     if (dto.desiredManifest) {
@@ -162,79 +123,53 @@ export class BotInstancesService {
       }
     }
 
-    return prisma.botInstance.update({
-      where: { id },
-      data: {
-        ...(dto.name && { name: dto.name }),
-        ...(dto.fleetId && { fleetId: dto.fleetId }),
-        ...(dto.desiredManifest && { desiredManifest: JSON.stringify(dto.desiredManifest) }),
-        ...(dto.tags && { tags: JSON.stringify(dto.tags) }),
-        ...(dto.metadata && { metadata: JSON.stringify(dto.metadata) }),
-        ...(dto.overlayIds && { overlayIds: JSON.stringify(dto.overlayIds) }),
-        ...(dto.profileId !== undefined && { profileId: dto.profileId }),
-      },
+    return this.botInstanceRepo.update(id, {
+      ...(dto.name && { name: dto.name }),
+      ...(dto.fleetId && { fleet: { connect: { id: dto.fleetId } } }),
+      ...(dto.desiredManifest && { desiredManifest: JSON.stringify(dto.desiredManifest) }),
+      ...(dto.tags && { tags: JSON.stringify(dto.tags) }),
+      ...(dto.metadata && { metadata: JSON.stringify(dto.metadata) }),
+      ...(dto.overlayIds && { overlayIds: JSON.stringify(dto.overlayIds) }),
+      ...(dto.profileId !== undefined && { profileId: dto.profileId }),
     });
   }
 
   async updateStatus(id: string, status: string): Promise<BotInstance> {
-    const instance = await this.findOne(id);
+    await this.findOne(id);
 
-    return prisma.botInstance.update({
-      where: { id },
-      data: {
-        status,
-        ...(status === "ERROR" && {
-          errorCount: { increment: 1 }
-        }),
-      },
-    });
+    return this.botInstanceRepo.updateStatus(id, status);
   }
 
   async updateHealth(id: string, health: string): Promise<BotInstance> {
-    const instance = await this.findOne(id);
+    await this.findOne(id);
 
-    return prisma.botInstance.update({
-      where: { id },
-      data: { 
-        health,
-        lastHealthCheckAt: new Date(),
-      },
-    });
+    return this.botInstanceRepo.updateHealth(id, health, new Date());
   }
 
   async restart(id: string): Promise<void> {
-    const instance = await this.findOne(id);
-    
-    await prisma.botInstance.update({
-      where: { id },
-      data: {
-        status: "RECONCILING",
-        runningSince: null,
-        restartCount: { increment: 1 },
-        lastReconcileAt: new Date(),
-      },
+    await this.findOne(id);
+
+    await this.botInstanceRepo.update(id, {
+      status: "RECONCILING",
+      runningSince: null,
+      restartCount: { increment: 1 },
+      lastReconcileAt: new Date(),
     });
   }
 
   async pause(id: string): Promise<void> {
-    const instance = await this.findOne(id);
-    
-    await prisma.botInstance.update({
-      where: { id },
-      data: { status: "PAUSED", runningSince: null },
-    });
+    await this.findOne(id);
+
+    await this.botInstanceRepo.update(id, { status: "PAUSED", runningSince: null });
   }
 
   async resume(id: string): Promise<void> {
-    const instance = await this.findOne(id);
+    await this.findOne(id);
 
-    await prisma.botInstance.update({
-      where: { id },
-      data: { status: "PENDING", runningSince: null },
-    });
+    await this.botInstanceRepo.update(id, { status: "PENDING", runningSince: null });
 
     // Trigger reconciliation to actually start the instance
-    this.reconciler.reconcile(id).catch((err) => {
+    this.reconciler.reconcile(id).catch(() => {
       // Logged by reconciler — don't block the response
     });
   }
@@ -253,30 +188,7 @@ export class BotInstancesService {
   }
 
   async compareBots(instanceIds: string[]): Promise<BotInstance[]> {
-    const instances = await prisma.botInstance.findMany({
-      where: { id: { in: instanceIds } },
-      include: {
-        fleet: {
-          select: {
-            id: true,
-            name: true,
-            environment: true,
-          },
-        },
-        connectorBindings: {
-          include: {
-            connector: {
-              select: {
-                id: true,
-                name: true,
-                type: true,
-                status: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    const instances = await this.botInstanceRepo.findByIds(instanceIds);
 
     if (instances.length !== instanceIds.length) {
       const foundIds = new Set(instances.map((i) => i.id));
@@ -288,7 +200,7 @@ export class BotInstancesService {
 
     // Return in the same order as requested
     const instanceMap = new Map(instances.map((i) => [i.id, i]));
-    return instanceIds.map((id) => instanceMap.get(id)!);
+    return instanceIds.map((id) => instanceMap.get(id) as BotInstance);
   }
 
   async bulkAction(
@@ -343,60 +255,46 @@ export class BotInstancesService {
       totalInstances,
       statusCounts,
       healthCounts,
-      recentInstances,
+      recentInstancesResult,
       fleetDistribution,
     ] = await Promise.all([
-      prisma.botInstance.count({ where: { workspaceId } }),
-      
-      prisma.botInstance.groupBy({
-        by: ['status'],
-        where: { workspaceId },
-        _count: { status: true },
-      }),
-      
-      prisma.botInstance.groupBy({
-        by: ['health'],
-        where: { workspaceId },
-        _count: { health: true },
-      }),
-      
-      prisma.botInstance.findMany({
-        where: { workspaceId },
-        orderBy: { updatedAt: 'desc' },
-        take: 10,
-        select: {
-          id: true,
-          name: true,
-          status: true,
-          health: true,
-          fleet: { select: { name: true, environment: true } },
-          updatedAt: true,
-        },
-      }),
-      
-      prisma.botInstance.groupBy({
-        by: ['fleetId'],
-        where: { workspaceId },
-        _count: { fleetId: true },
-      }),
+      this.botInstanceRepo.count({ workspaceId }),
+
+      this.botInstanceRepo.groupByStatus({ workspaceId }),
+
+      this.botInstanceRepo.groupByHealth({ workspaceId }),
+
+      this.botInstanceRepo.findManyWithRelations({ workspaceId }),
+
+      this.botInstanceRepo.groupByFleet({ workspaceId }),
     ]);
+
+    // Take only the 10 most recent instances
+    const recentInstances = recentInstancesResult.slice(0, 10).map((i) => ({
+      id: i.id,
+      name: i.name,
+      status: i.status,
+      health: i.health,
+      fleet: i.fleet ? { name: i.fleet.name, environment: i.fleet.environment } : null,
+      updatedAt: i.updatedAt,
+    }));
 
     return {
       summary: {
         totalInstances,
         statusBreakdown: statusCounts.reduce((acc, curr) => {
-          acc[curr.status] = curr._count.status;
+          acc[curr.status] = curr._count;
           return acc;
         }, {} as Record<string, number>),
         healthBreakdown: healthCounts.reduce((acc, curr) => {
-          acc[curr.health] = curr._count.health;
+          acc[curr.health] = curr._count;
           return acc;
         }, {} as Record<string, number>),
       },
       recentInstances,
       fleetDistribution: fleetDistribution.map(fd => ({
         fleetId: fd.fleetId,
-        count: fd._count.fleetId,
+        count: fd._count,
       })),
     };
   }
@@ -414,14 +312,11 @@ export class BotInstancesService {
       );
     }
 
-    const updated = await prisma.botInstance.update({
-      where: { id },
-      data: {
-        aiGatewayEnabled: dto.enabled,
-        aiGatewayUrl: dto.gatewayUrl ?? null,
-        aiGatewayApiKey: dto.gatewayApiKey ?? null,
-        aiGatewayProvider: dto.providerName ?? "vercel-ai-gateway",
-      },
+    const updated = await this.botInstanceRepo.update(id, {
+      aiGatewayEnabled: dto.enabled,
+      aiGatewayUrl: dto.gatewayUrl ?? null,
+      aiGatewayApiKey: dto.gatewayApiKey ?? null,
+      aiGatewayProvider: dto.providerName ?? "vercel-ai-gateway",
     });
 
     return this.redactSensitiveFields(updated);
@@ -433,18 +328,14 @@ export class BotInstancesService {
     sessionId?: string,
   ): Promise<{ response: string | undefined; sessionId: string; status: string }> {
     // 1. Verify instance exists
-    const instance = await prisma.botInstance.findUnique({
-      where: { id: instanceId },
-    });
+    const instance = await this.botInstanceRepo.findById(instanceId);
 
     if (!instance) {
       throw new NotFoundException(`Bot instance ${instanceId} not found`);
     }
 
     // 2. Look up GatewayConnection from DB to get host/port/auth
-    const gwConn = await prisma.gatewayConnection.findUnique({
-      where: { instanceId },
-    });
+    const gwConn = await this.botInstanceRepo.getGatewayConnection(instanceId);
 
     if (!gwConn) {
       throw new HttpException(
@@ -513,18 +404,14 @@ export class BotInstancesService {
     patch: Record<string, unknown>,
   ): Promise<{ success: boolean; message: string }> {
     // 1. Verify instance exists
-    const instance = await prisma.botInstance.findUnique({
-      where: { id: instanceId },
-    });
+    const instance = await this.botInstanceRepo.findById(instanceId);
 
     if (!instance) {
       throw new NotFoundException(`Bot instance ${instanceId} not found`);
     }
 
     // 2. Look up GatewayConnection from DB to get host/port/auth
-    const gwConn = await prisma.gatewayConnection.findUnique({
-      where: { instanceId },
-    });
+    const gwConn = await this.botInstanceRepo.getGatewayConnection(instanceId);
 
     if (!gwConn) {
       throw new HttpException(
@@ -601,10 +488,7 @@ export class BotInstancesService {
    * Get current resource allocation for a bot instance.
    */
   async getResources(instanceId: string): Promise<BotResourcesResponseDto> {
-    const instance = await prisma.botInstance.findUnique({
-      where: { id: instanceId },
-      include: { deploymentTarget: true },
-    });
+    const instance = await this.botInstanceRepo.findOneWithRelations(instanceId);
 
     if (!instance) {
       throw new NotFoundException(`Bot instance ${instanceId} not found`);
@@ -635,10 +519,7 @@ export class BotInstancesService {
     instanceId: string,
     dto: UpdateBotResourcesDto
   ): Promise<{ success: boolean; message: string; requiresRestart?: boolean }> {
-    const instance = await prisma.botInstance.findUnique({
-      where: { id: instanceId },
-      include: { deploymentTarget: true },
-    });
+    const instance = await this.botInstanceRepo.findOneWithRelations(instanceId);
 
     if (!instance) {
       throw new NotFoundException(`Bot instance ${instanceId} not found`);
@@ -664,17 +545,14 @@ export class BotInstancesService {
     if (result.success) {
       // Persist the new resource config to metadata
       const metadata = JSON.parse(instance.metadata || "{}") as Record<string, unknown>;
-      await prisma.botInstance.update({
-        where: { id: instanceId },
-        data: {
-          metadata: JSON.stringify({
-            ...metadata,
-            resourceTier: dto.tier,
-            cpu: spec.cpu,
-            memory: spec.memory,
-            dataDiskSizeGb: spec.dataDiskSizeGb,
-          }),
-        },
+      await this.botInstanceRepo.update(instanceId, {
+        metadata: JSON.stringify({
+          ...metadata,
+          resourceTier: dto.tier,
+          cpu: spec.cpu,
+          memory: spec.memory,
+          dataDiskSizeGb: spec.dataDiskSizeGb,
+        }),
       });
     }
 

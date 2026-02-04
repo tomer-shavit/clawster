@@ -1,5 +1,5 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Injectable, Inject, Logger } from "@nestjs/common";
+import { PrismaClient, PRISMA_CLIENT } from "@clawster/database";
 import { GatewayManager } from "@clawster/gateway-client";
 import type { GatewayConnectionOptions } from "@clawster/gateway-client";
 import {
@@ -17,11 +17,15 @@ export class AgentEvolutionService {
   private readonly logger = new Logger(AgentEvolutionService.name);
   private readonly gatewayManager = new GatewayManager();
 
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+  ) {}
+
   /**
    * Capture the live state of a bot instance from its Gateway and store a snapshot.
    */
   async captureState(instanceId: string): Promise<any> {
-    const instance = await prisma.botInstance.findUnique({
+    const instance = await this.prisma.botInstance.findUnique({
       where: { id: instanceId },
     });
 
@@ -56,7 +60,7 @@ export class AgentEvolutionService {
       ? computeEvolutionDiff(deployedConfig, liveConfig)
       : { changes: [], hasEvolved: false, totalChanges: 0 };
 
-    const snapshot = await prisma.agentStateSnapshot.create({
+    const snapshot = await this.prisma.agentStateSnapshot.create({
       data: {
         instanceId,
         liveConfig: JSON.stringify(liveConfig),
@@ -83,7 +87,7 @@ export class AgentEvolutionService {
    * Get the most recent snapshot for an instance.
    */
   async getLatestSnapshot(instanceId: string): Promise<any> {
-    return prisma.agentStateSnapshot.findFirst({
+    return this.prisma.agentStateSnapshot.findFirst({
       where: { instanceId },
       orderBy: { capturedAt: "desc" },
     });
@@ -93,7 +97,7 @@ export class AgentEvolutionService {
    * Get evolution history for an instance.
    */
   async getEvolutionHistory(instanceId: string, limit = 50): Promise<any[]> {
-    return prisma.agentStateSnapshot.findMany({
+    return this.prisma.agentStateSnapshot.findMany({
       where: { instanceId },
       orderBy: { capturedAt: "desc" },
       take: limit,
@@ -104,7 +108,7 @@ export class AgentEvolutionService {
    * Fetch live state directly from Gateway (no caching).
    */
   async getLiveState(instanceId: string): Promise<any> {
-    const instance = await prisma.botInstance.findUnique({
+    const instance = await this.prisma.botInstance.findUnique({
       where: { id: instanceId },
     });
 
@@ -166,7 +170,7 @@ export class AgentEvolutionService {
     cutoff.setDate(cutoff.getDate() - maxAgeDays);
 
     // Delete by age
-    const aged = await prisma.agentStateSnapshot.deleteMany({
+    const aged = await this.prisma.agentStateSnapshot.deleteMany({
       where: { capturedAt: { lt: cutoff } },
     });
 
@@ -177,7 +181,7 @@ export class AgentEvolutionService {
   // --- Helpers ---
 
   private async getGatewayClient(instance: { id: string; gatewayPort?: number | null }) {
-    const gwConn = await prisma.gatewayConnection.findUnique({
+    const gwConn = await this.prisma.gatewayConnection.findUnique({
       where: { instanceId: instance.id },
     });
 

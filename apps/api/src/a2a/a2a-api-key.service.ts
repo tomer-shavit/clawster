@@ -1,10 +1,17 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Injectable, Inject, Logger } from "@nestjs/common";
+import {
+  ROUTING_REPOSITORY,
+  IRoutingRepository,
+} from "@clawster/database";
 import * as crypto from "crypto";
 
 @Injectable()
 export class A2aApiKeyService {
   private readonly logger = new Logger(A2aApiKeyService.name);
+
+  constructor(
+    @Inject(ROUTING_REPOSITORY) private readonly routingRepo: IRoutingRepository,
+  ) {}
 
   /**
    * Generate a new API key for a bot instance.
@@ -23,13 +30,11 @@ export class A2aApiKeyService {
     const keyHash = crypto.createHash("sha256").update(key).digest("hex");
     const keyPrefix = key.slice(0, 12) + "...";
 
-    const record = await prisma.a2aApiKey.create({
-      data: {
-        keyHash,
-        keyPrefix,
-        label: label || null,
-        botInstanceId,
-      },
+    const record = await this.routingRepo.createApiKey({
+      keyHash,
+      keyPrefix,
+      label: label || null,
+      botInstance: { connect: { id: botInstanceId } },
     });
 
     this.logger.log(
@@ -44,30 +49,17 @@ export class A2aApiKeyService {
    * Returns true if valid, false otherwise.
    */
   async validate(botInstanceId: string, key: string): Promise<boolean> {
-    const keyHash = crypto.createHash("sha256").update(key).digest("hex");
+    const verified = await this.routingRepo.verifyApiKey(key);
 
-    const record = await prisma.a2aApiKey.findFirst({
-      where: {
-        keyHash,
-        botInstanceId,
-        isActive: true,
-      },
-    });
+    if (!verified) return false;
 
-    if (!record) return false;
-
-    // Check expiration
-    if (record.expiresAt && record.expiresAt < new Date()) {
+    // Ensure the key belongs to the correct bot instance
+    if (verified.botInstanceId !== botInstanceId) {
       return false;
     }
 
     // Update last used timestamp (fire-and-forget)
-    prisma.a2aApiKey
-      .update({
-        where: { id: record.id },
-        data: { lastUsedAt: new Date() },
-      })
-      .catch(() => {});
+    this.routingRepo.recordApiKeyUsage(verified.id).catch(() => {});
 
     return true;
   }
@@ -76,29 +68,24 @@ export class A2aApiKeyService {
    * List all API keys for a bot instance (no hashes returned).
    */
   async list(botInstanceId: string) {
-    return prisma.a2aApiKey.findMany({
-      where: { botInstanceId },
-      select: {
-        id: true,
-        keyPrefix: true,
-        label: true,
-        lastUsedAt: true,
-        expiresAt: true,
-        isActive: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const keys = await this.routingRepo.findApiKeysByBotInstance(botInstanceId);
+    // Return without sensitive hash data
+    return keys.map((k) => ({
+      id: k.id,
+      keyPrefix: k.keyPrefix,
+      label: k.label,
+      lastUsedAt: k.lastUsedAt,
+      expiresAt: k.expiresAt,
+      isActive: k.isActive,
+      createdAt: k.createdAt,
+    }));
   }
 
   /**
    * Revoke an API key by setting isActive to false.
    */
   async revoke(keyId: string): Promise<void> {
-    await prisma.a2aApiKey.update({
-      where: { id: keyId },
-      data: { isActive: false },
-    });
+    await this.routingRepo.revokeApiKey(keyId);
     this.logger.log(`Revoked API key ${keyId}`);
   }
 }

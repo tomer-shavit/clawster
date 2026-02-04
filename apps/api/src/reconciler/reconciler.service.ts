@@ -1,8 +1,11 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Inject, Logger } from "@nestjs/common";
 import {
-  prisma,
   BotInstance,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+  PRISMA_CLIENT,
 } from "@clawster/database";
+import type { PrismaClient } from "@clawster/database";
 import {
   validateOpenClawManifest,
 } from "@clawster/core";
@@ -72,6 +75,8 @@ export class ReconcilerService {
   private readonly logger = new Logger(ReconcilerService.name);
 
   constructor(
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
     private readonly configGenerator: ConfigGeneratorService,
     private readonly lifecycleManager: LifecycleManagerService,
     private readonly driftDetection: DriftDetectionService,
@@ -89,19 +94,16 @@ export class ReconcilerService {
 
     try {
       // 1. Load instance
-      const instance = await prisma.botInstance.findUnique({
-        where: { id: instanceId },
-        include: { fleet: true },
-      });
+      const instance = await this.botInstanceRepo.findOneWithRelations(instanceId);
 
       if (!instance) {
         throw new Error(`BotInstance ${instanceId} not found`);
       }
 
       // Mark as reconciling
-      await prisma.botInstance.update({
-        where: { id: instanceId },
-        data: { status: "RECONCILING", runningSince: null },
+      await this.botInstanceRepo.update(instanceId, {
+        status: "RECONCILING",
+        runningSince: null,
       });
 
       await this.logEvent(instanceId, "RECONCILE_START", "Starting v2 reconciliation");
@@ -112,7 +114,7 @@ export class ReconcilerService {
       changes.push("Manifest validated");
 
       // 2b. Check for team members and inject delegation config into manifest
-      const teamMembers = await prisma.botTeamMember.findMany({
+      const teamMembers = await this.prisma.botTeamMember.findMany({
         where: { ownerBotId: instanceId, enabled: true },
       });
 
@@ -210,10 +212,11 @@ export class ReconcilerService {
       }
 
       // 6. Health check via Gateway WS
-      const status = await this.lifecycleManager.getStatus(
-        // Re-fetch instance to get latest state
-        (await prisma.botInstance.findUniqueOrThrow({ where: { id: instanceId } })),
-      );
+      const refetchedInstance = await this.botInstanceRepo.findById(instanceId);
+      if (!refetchedInstance) {
+        throw new Error(`BotInstance ${instanceId} not found during health check`);
+      }
+      const status = await this.lifecycleManager.getStatus(refetchedInstance);
 
       if (status.gatewayConnected && status.gatewayHealth?.ok) {
         changes.push("Health check passed");
@@ -228,18 +231,15 @@ export class ReconcilerService {
         : status.gatewayConnected ? "DEGRADED"
         : "UNKNOWN";
 
-      await prisma.botInstance.update({
-        where: { id: instanceId },
-        data: {
-          status: "RUNNING",
-          runningSince: new Date(),
-          health: finalHealth,
-          configHash: desiredHash,
-          lastReconcileAt: new Date(),
-          lastHealthCheckAt: new Date(),
-          lastError: null,
-          errorCount: 0,
-        },
+      await this.botInstanceRepo.update(instanceId, {
+        status: "RUNNING",
+        runningSince: new Date(),
+        health: finalHealth,
+        configHash: desiredHash,
+        lastReconcileAt: new Date(),
+        lastHealthCheckAt: new Date(),
+        lastError: null,
+        errorCount: 0,
       });
 
       const durationMs = Date.now() - startTime;
@@ -262,15 +262,12 @@ export class ReconcilerService {
 
       this.logger.error(`Reconciliation failed for ${instanceId}: ${message}`);
 
-      await prisma.botInstance.update({
-        where: { id: instanceId },
-        data: {
-          status: "ERROR",
-          runningSince: null,
-          lastError: message,
-          errorCount: { increment: 1 },
-          lastReconcileAt: new Date(),
-        },
+      await this.botInstanceRepo.update(instanceId, {
+        status: "ERROR",
+        runningSince: null,
+        lastError: message,
+        errorCount: { increment: 1 },
+        lastReconcileAt: new Date(),
       });
 
       await this.logEvent(instanceId, "RECONCILE_ERROR", message);
@@ -292,10 +289,7 @@ export class ReconcilerService {
     const checks: DoctorCheck[] = [];
 
     // Check 1: Instance exists
-    const instance = await prisma.botInstance.findUnique({
-      where: { id: instanceId },
-      include: { gatewayConnection: true },
-    });
+    const instance = await this.botInstanceRepo.findById(instanceId);
 
     if (!instance) {
       return {
@@ -306,6 +300,22 @@ export class ReconcilerService {
     }
     checks.push({ name: "instance_exists", status: "pass", message: "Instance found in DB" });
 
+    // Check 3: Gateway connection record
+    const gatewayConnection = await this.botInstanceRepo.getGatewayConnection(instanceId);
+    if (gatewayConnection) {
+      checks.push({
+        name: "gateway_record",
+        status: "pass",
+        message: `Gateway record: ${gatewayConnection.host}:${gatewayConnection.port} (${gatewayConnection.status})`,
+      });
+    } else {
+      checks.push({
+        name: "gateway_record",
+        status: "warn",
+        message: "No GatewayConnection record in DB",
+      });
+    }
+
     // Check 2: Manifest valid
     try {
       this.parseManifest(instance);
@@ -315,21 +325,6 @@ export class ReconcilerService {
         name: "manifest_valid",
         status: "fail",
         message: `Invalid manifest: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-
-    // Check 3: Gateway connection record
-    if (instance.gatewayConnection) {
-      checks.push({
-        name: "gateway_record",
-        status: "pass",
-        message: `Gateway record: ${instance.gatewayConnection.host}:${instance.gatewayConnection.port} (${instance.gatewayConnection.status})`,
-      });
-    } else {
-      checks.push({
-        name: "gateway_record",
-        status: "warn",
-        message: "No GatewayConnection record in DB",
       });
     }
 
@@ -394,16 +389,16 @@ export class ReconcilerService {
 
   async updateOpenClawVersion(instanceId: string, newVersion: string): Promise<UpdateOpenClawResult> {
     try {
-      const instance = await prisma.botInstance.findUniqueOrThrow({
-        where: { id: instanceId },
-      });
+      const instance = await this.botInstanceRepo.findById(instanceId);
+      if (!instance) {
+        throw new Error(`BotInstance ${instanceId} not found`);
+      }
 
       const previousVersion = instance.openclawVersion ?? undefined;
 
       // Update version in DB
-      await prisma.botInstance.update({
-        where: { id: instanceId },
-        data: { openclawVersion: newVersion },
+      await this.botInstanceRepo.update(instanceId, {
+        openclawVersion: newVersion,
       });
 
       // Full restart is required for version change — re-provision
@@ -429,9 +424,10 @@ export class ReconcilerService {
   // ------------------------------------------------------------------
 
   async checkDrift(instanceId: string): Promise<DriftCheckResult> {
-    const instance = await prisma.botInstance.findUniqueOrThrow({
-      where: { id: instanceId },
-    });
+    const instance = await this.botInstanceRepo.findById(instanceId);
+    if (!instance) {
+      throw new Error(`BotInstance ${instanceId} not found`);
+    }
 
     const manifest = this.parseManifest(instance);
     return this.driftDetection.checkDrift(instance, manifest);
@@ -442,33 +438,30 @@ export class ReconcilerService {
   // ------------------------------------------------------------------
 
   async stop(instanceId: string): Promise<void> {
-    const instance = await prisma.botInstance.findUniqueOrThrow({
-      where: { id: instanceId },
-    });
+    const instance = await this.botInstanceRepo.findById(instanceId);
+    if (!instance) {
+      throw new Error(`BotInstance ${instanceId} not found`);
+    }
 
     // Stop via lifecycle manager if it's an openclaw-native instance
     if (instance.deploymentType && instance.deploymentType !== "ECS_EC2") {
       await this.lifecycleManager.destroy(instance);
     }
 
-    await prisma.botInstance.update({
-      where: { id: instanceId },
-      data: { status: "STOPPED", runningSince: null },
+    await this.botInstanceRepo.update(instanceId, {
+      status: "STOPPED",
+      runningSince: null,
     });
   }
 
   async delete(instanceId: string): Promise<void> {
-    const instance = await prisma.botInstance.findUnique({
-      where: { id: instanceId },
-    });
+    const instance = await this.botInstanceRepo.findById(instanceId);
 
     if (!instance) return;
 
     await this.lifecycleManager.destroy(instance);
 
-    await prisma.botInstance.delete({
-      where: { id: instanceId },
-    });
+    await this.botInstanceRepo.delete(instanceId);
   }
 
   // ------------------------------------------------------------------
@@ -479,9 +472,10 @@ export class ReconcilerService {
     instanceId: string,
     spec: { cpu: number; memory: number; dataDiskSizeGb?: number }
   ): Promise<{ success: boolean; message: string; requiresRestart: boolean }> {
-    const instance = await prisma.botInstance.findUniqueOrThrow({
-      where: { id: instanceId },
-    });
+    const instance = await this.botInstanceRepo.findById(instanceId);
+    if (!instance) {
+      throw new Error(`BotInstance ${instanceId} not found`);
+    }
 
     return this.lifecycleManager.updateResources(instance, spec);
   }

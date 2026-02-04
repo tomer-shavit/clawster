@@ -1,14 +1,28 @@
-import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
-import { prisma, Fleet, BotInstance } from "@clawster/database";
+import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
+import {
+  Fleet,
+  BotInstance,
+  FLEET_REPOSITORY,
+  IFleetRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+  WORKSPACE_REPOSITORY,
+  IWorkspaceRepository,
+} from "@clawster/database";
 import { CreateFleetDto, UpdateFleetDto, ListFleetsQueryDto } from "./fleets.dto";
 
 @Injectable()
 export class FleetService {
+  constructor(
+    @Inject(FLEET_REPOSITORY) private readonly fleetRepo: IFleetRepository,
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botInstanceRepo: IBotInstanceRepository,
+    @Inject(WORKSPACE_REPOSITORY) private readonly workspaceRepo: IWorkspaceRepository,
+  ) {}
   async create(dto: CreateFleetDto): Promise<Fleet> {
     // Resolve workspaceId — default to first workspace if not provided
     let workspaceId = dto.workspaceId;
     if (!workspaceId) {
-      const workspace = await prisma.workspace.findFirst();
+      const workspace = await this.workspaceRepo.findFirstWorkspace();
       if (!workspace) {
         throw new BadRequestException("No workspace found. Deploy a bot first to create a default workspace.");
       }
@@ -16,11 +30,9 @@ export class FleetService {
     }
 
     // Check for duplicate name in workspace
-    const existing = await prisma.fleet.findFirst({
-      where: {
-        workspaceId,
-        name: dto.name
-      },
+    const existing = await this.fleetRepo.findFirst({
+      workspaceId,
+      name: dto.name,
     });
 
     if (existing) {
@@ -28,86 +40,44 @@ export class FleetService {
     }
 
     // Create fleet record
-    const fleet = await prisma.fleet.create({
-      data: {
-        workspaceId,
-        name: dto.name,
-        environment: dto.environment,
-        description: dto.description,
-        status: "ACTIVE",
-        tags: JSON.stringify(dto.tags || {}),
-      },
+    const fleet = await this.fleetRepo.create({
+      workspace: { connect: { id: workspaceId } },
+      name: dto.name,
+      environment: dto.environment,
+      description: dto.description,
+      status: "ACTIVE",
+      tags: JSON.stringify(dto.tags || {}),
     });
 
     return fleet;
   }
 
   async findAll(query: ListFleetsQueryDto): Promise<Fleet[]> {
-    return prisma.fleet.findMany({
-      where: {
-        ...(query.workspaceId && { workspaceId: query.workspaceId }),
-        ...(query.environment && { environment: query.environment }),
-        ...(query.status && { status: query.status }),
-      },
-      include: {
-        instances: {
-          select: { id: true, status: true, deploymentType: true },
-        },
-        _count: {
-          select: { instances: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
+    return this.fleetRepo.findManyWithInstances({
+      workspaceId: query.workspaceId,
+      environment: query.environment,
+      status: query.status,
     });
   }
 
   async findOne(id: string): Promise<Fleet & { instances: Pick<BotInstance, 'id' | 'name' | 'status' | 'health' | 'createdAt'>[] }> {
-    const fleet = await prisma.fleet.findUnique({
-      where: { id },
-      include: {
-        instances: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            health: true,
-            deploymentType: true,
-            gatewayPort: true,
-            runningSince: true,
-            lastHealthCheckAt: true,
-            createdAt: true,
-            gatewayConnection: {
-              select: {
-                host: true,
-                port: true,
-                status: true,
-              },
-            },
-          },
-          orderBy: { createdAt: "desc" },
-        },
-        profiles: true,
-      },
-    });
+    const fleet = await this.fleetRepo.findByIdWithInstances(id);
 
     if (!fleet) {
       throw new NotFoundException(`Fleet ${id} not found`);
     }
 
-    return fleet;
+    return fleet as Fleet & { instances: Pick<BotInstance, 'id' | 'name' | 'status' | 'health' | 'createdAt'>[] };
   }
 
   async update(id: string, dto: UpdateFleetDto): Promise<Fleet> {
-    const fleet = await this.findOne(id);
+    await this.findOne(id);
 
-    return prisma.fleet.update({
-      where: { id },
-      data: {
-        ...(dto.name && { name: dto.name }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.tags && { tags: JSON.stringify(dto.tags) }),
-        ...(dto.defaultProfileId !== undefined && { defaultProfileId: dto.defaultProfileId }),
-      },
+    return this.fleetRepo.update(id, {
+      ...(dto.name && { name: dto.name }),
+      ...(dto.description !== undefined && { description: dto.description }),
+      ...(dto.tags && { tags: JSON.stringify(dto.tags) }),
+      ...(dto.defaultProfileId !== undefined && { defaultProfileId: dto.defaultProfileId }),
     });
   }
 
@@ -119,10 +89,7 @@ export class FleetService {
       throw new BadRequestException("Cannot transition from DRAINING to any status except ACTIVE");
     }
 
-    return prisma.fleet.update({
-      where: { id },
-      data: { status },
-    });
+    return this.fleetRepo.update(id, { status });
   }
 
   async getHealth(id: string): Promise<{
@@ -135,24 +102,20 @@ export class FleetService {
     status: string;
   }> {
     const fleet = await this.findOne(id);
-    
-    const instances = await prisma.botInstance.findMany({
-      where: { fleetId: id },
-      select: { health: true },
-    });
 
-    const healthCounts = instances.reduce((acc, instance) => {
-      acc[instance.health] = (acc[instance.health] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const healthSummary = await this.fleetRepo.getHealthSummary(id);
+
+    if (!healthSummary) {
+      throw new NotFoundException(`Fleet ${id} not found`);
+    }
 
     return {
       fleetId: id,
-      totalInstances: instances.length,
-      healthyCount: healthCounts["HEALTHY"] || 0,
-      degradedCount: healthCounts["DEGRADED"] || 0,
-      unhealthyCount: healthCounts["UNHEALTHY"] || 0,
-      unknownCount: healthCounts["UNKNOWN"] || 0,
+      totalInstances: healthSummary.totalInstances,
+      healthyCount: healthSummary.healthyCounts.healthy,
+      degradedCount: healthSummary.healthyCounts.degraded,
+      unhealthyCount: healthSummary.healthyCounts.unhealthy,
+      unknownCount: healthSummary.healthyCounts.unknown,
       status: fleet.status,
     };
   }
@@ -180,15 +143,10 @@ export class FleetService {
     }
 
     // Update fleet environment
-    const updatedFleet = await prisma.fleet.update({
-      where: { id },
-      data: { environment: targetEnvironment },
-    });
+    const updatedFleet = await this.fleetRepo.update(id, { environment: targetEnvironment });
 
     // Update all bot instances' manifests and trigger reconciliation
-    const instances = await prisma.botInstance.findMany({
-      where: { fleetId: id },
-    });
+    const instances = await this.botInstanceRepo.findByFleet(id);
 
     let botsReconciling = 0;
 
@@ -203,14 +161,11 @@ export class FleetService {
           manifest.metadata.environment = targetEnvironment;
         }
 
-        await prisma.botInstance.update({
-          where: { id: instance.id },
-          data: {
-            desiredManifest: JSON.stringify(manifest),
-            status: instance.status === "RUNNING" || instance.status === "DEGRADED"
-              ? "PENDING"
-              : instance.status,
-          },
+        await this.botInstanceRepo.update(instance.id, {
+          desiredManifest: JSON.stringify(manifest),
+          status: instance.status === "RUNNING" || instance.status === "DEGRADED"
+            ? "PENDING"
+            : instance.status,
         });
 
         if (instance.status === "RUNNING" || instance.status === "DEGRADED") {
@@ -225,12 +180,9 @@ export class FleetService {
   }
 
   async reconcileAll(id: string): Promise<{ queued: number; skipped: number }> {
-    const fleet = await this.findOne(id);
+    await this.findOne(id);
 
-    const instances = await prisma.botInstance.findMany({
-      where: { fleetId: id },
-      select: { id: true, name: true, status: true },
-    });
+    const instances = await this.botInstanceRepo.findByFleet(id);
 
     let queued = 0;
     let skipped = 0;
@@ -242,10 +194,7 @@ export class FleetService {
         continue;
       }
 
-      await prisma.botInstance.update({
-        where: { id: instance.id },
-        data: { status: "PENDING" },
-      });
+      await this.botInstanceRepo.update(instance.id, { status: "PENDING" });
       queued++;
     }
 
@@ -256,9 +205,7 @@ export class FleetService {
     const fleet = await this.findOne(id);
 
     // Check if fleet has instances
-    const instanceCount = await prisma.botInstance.count({
-      where: { fleetId: id },
-    });
+    const instanceCount = await this.botInstanceRepo.count({ fleetId: id });
 
     if (instanceCount > 0) {
       throw new BadRequestException(
@@ -272,6 +219,6 @@ export class FleetService {
       );
     }
 
-    await prisma.fleet.delete({ where: { id } });
+    await this.fleetRepo.delete(id);
   }
 }

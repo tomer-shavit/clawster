@@ -1,5 +1,5 @@
-import { Injectable } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Inject, Injectable } from "@nestjs/common";
+import { PrismaClient, PRISMA_CLIENT } from "@clawster/database";
 
 export interface HealthCheckResult {
   status: "ok" | "error" | "degraded";
@@ -12,6 +12,10 @@ export interface HealthCheckResult {
 
 @Injectable()
 export class HealthService {
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+  ) {}
+
   async check(): Promise<HealthCheckResult> {
     const checks: HealthCheckResult["checks"] = {
       database: { status: "error", responseTime: 0 },
@@ -20,7 +24,7 @@ export class HealthService {
     // Database check
     const dbStart = Date.now();
     try {
-      await prisma.$queryRaw`SELECT 1`;
+      await this.prisma.$queryRaw`SELECT 1`;
       checks.database = {
         status: "ok",
         responseTime: Date.now() - dbStart,

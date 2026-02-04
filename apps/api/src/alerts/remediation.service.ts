@@ -1,5 +1,10 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  PrismaClient,
+  PRISMA_CLIENT,
+  ALERT_REPOSITORY,
+  IAlertRepository,
+} from "@clawster/database";
 import { ReconcilerService } from "../reconciler/reconciler.service";
 import { OpenClawHealthService } from "../health/openclaw-health.service";
 
@@ -23,6 +28,8 @@ export class RemediationService {
   private readonly logger = new Logger(RemediationService.name);
 
   constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+    @Inject(ALERT_REPOSITORY) private readonly alertRepo: IAlertRepository,
     private readonly reconciler: ReconcilerService,
     private readonly openclawHealth: OpenClawHealthService,
   ) {}
@@ -32,9 +39,7 @@ export class RemediationService {
    * Reads the alert's `remediationAction` field and dispatches accordingly.
    */
   async executeRemediation(alertId: string): Promise<RemediationResult> {
-    const alert = await prisma.healthAlert.findUnique({
-      where: { id: alertId },
-    });
+    const alert = await this.alertRepo.findById(alertId);
 
     if (!alert) {
       throw new NotFoundException(`Alert ${alertId} not found`);
@@ -87,7 +92,7 @@ export class RemediationService {
     }
 
     // Update the alert with remediation results
-    await prisma.healthAlert.update({
+    await this.prisma.healthAlert.update({
       where: { id: alertId },
       data: {
         remediationNote: `${result.success ? "Success" : "Failed"}: ${result.message}`,
@@ -149,7 +154,7 @@ export class RemediationService {
   private async executeRePairChannel(instanceId: string): Promise<RemediationResult> {
     try {
       // Reset all expired/error channel auth sessions to PENDING
-      const result = await prisma.channelAuthSession.updateMany({
+      const result = await this.prisma.channelAuthSession.updateMany({
         where: {
           instanceId,
           state: { in: ["EXPIRED", "ERROR"] },

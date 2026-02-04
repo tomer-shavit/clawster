@@ -1,5 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from "@nestjs/common";
-import { prisma } from "@clawster/database";
+import { Injectable, Inject, NotFoundException, BadRequestException, Logger } from "@nestjs/common";
+import {
+  CHANNEL_REPOSITORY,
+  IChannelRepository,
+  BOT_INSTANCE_REPOSITORY,
+  IBotInstanceRepository,
+} from "@clawster/database";
 import {
   OpenClawChannelType,
   CHANNEL_TYPE_META,
@@ -43,7 +48,11 @@ export class ChannelAuthService {
   /** Token auth session timeout in ms (15 minutes) */
   private readonly TOKEN_TIMEOUT_MS = 15 * 60 * 1000;
 
-  constructor(private readonly authFactory: ChannelAuthFactory) {}
+  constructor(
+    @Inject(CHANNEL_REPOSITORY) private readonly channelRepo: IChannelRepository,
+    @Inject(BOT_INSTANCE_REPOSITORY) private readonly botRepo: IBotInstanceRepository,
+    private readonly authFactory: ChannelAuthFactory,
+  ) {}
 
   // ==========================================
   // Start Auth Flow
@@ -54,9 +63,7 @@ export class ChannelAuthService {
     botInstanceId?: string,
   ): Promise<AuthSession> {
     // Verify the channel exists
-    const channel = await prisma.communicationChannel.findUnique({
-      where: { id: channelId },
-    });
+    const channel = await this.channelRepo.findChannelById(channelId);
 
     if (!channel) {
       throw new NotFoundException(`Channel ${channelId} not found`);
@@ -154,9 +161,7 @@ export class ChannelAuthService {
     token: string,
     appToken?: string,
   ): Promise<AuthSession> {
-    const channel = await prisma.communicationChannel.findUnique({
-      where: { id: channelId },
-    });
+    const channel = await this.channelRepo.findChannelById(channelId);
 
     if (!channel) {
       throw new NotFoundException(`Channel ${channelId} not found`);
@@ -215,13 +220,11 @@ export class ChannelAuthService {
 
     // If validation succeeded, update channel status in DB
     if (result.state === "paired") {
-      await prisma.communicationChannel.update({
-        where: { id: channelId },
-        data: {
-          status: "ACTIVE",
-          statusMessage: `${openclawType} channel validated successfully`,
-        },
-      });
+      await this.channelRepo.updateChannelStatus(
+        channelId,
+        "ACTIVE",
+        `${openclawType} channel validated successfully`,
+      );
     }
 
     return session;
@@ -232,9 +235,7 @@ export class ChannelAuthService {
   // ==========================================
 
   async refreshQr(channelId: string): Promise<AuthSession> {
-    const channel = await prisma.communicationChannel.findUnique({
-      where: { id: channelId },
-    });
+    const channel = await this.channelRepo.findChannelById(channelId);
 
     if (!channel) {
       throw new NotFoundException(`Channel ${channelId} not found`);
@@ -268,9 +269,7 @@ export class ChannelAuthService {
   // ==========================================
 
   async getAuthStatus(channelId: string): Promise<AuthSession> {
-    const channel = await prisma.communicationChannel.findUnique({
-      where: { id: channelId },
-    });
+    const channel = await this.channelRepo.findChannelById(channelId);
 
     if (!channel) {
       throw new NotFoundException(`Channel ${channelId} not found`);
@@ -335,13 +334,11 @@ export class ChannelAuthService {
       this.authFactory.getWhatsAppService().completePairing(channelId);
     }
 
-    await prisma.communicationChannel.update({
-      where: { id: channelId },
-      data: {
-        status: "ACTIVE",
-        statusMessage: `${session.openclawType} channel paired successfully`,
-      },
-    });
+    await this.channelRepo.updateChannelStatus(
+      channelId,
+      "ACTIVE",
+      `${session.openclawType} channel paired successfully`,
+    );
 
     return session;
   }
@@ -366,15 +363,7 @@ export class ChannelAuthService {
       this.authFactory.getWhatsAppService().failPairing(channelId, error);
     }
 
-    await prisma.communicationChannel.update({
-      where: { id: channelId },
-      data: {
-        status: "ERROR",
-        statusMessage: error,
-        lastError: error,
-        errorCount: { increment: 1 },
-      },
-    });
+    await this.channelRepo.updateChannelStatus(channelId, "ERROR", error, error);
 
     return session;
   }
@@ -391,10 +380,7 @@ export class ChannelAuthService {
       return;
     }
 
-    const bot = await prisma.botInstance.findUnique({
-      where: { id: botInstanceId },
-      select: { id: true, name: true, metadata: true },
-    });
+    const bot = await this.botRepo.findById(botInstanceId);
 
     if (!bot) {
       throw new NotFoundException(`Bot instance ${botInstanceId} not found`);

@@ -1,20 +1,23 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Inject, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { prisma } from "@clawster/database";
+import { PrismaClient, PRISMA_CLIENT } from "@clawster/database";
 import { AgentEvolutionService } from "./agent-evolution.service";
 
 @Injectable()
 export class AgentEvolutionScheduler {
   private readonly logger = new Logger(AgentEvolutionScheduler.name);
 
-  constructor(private readonly evolutionService: AgentEvolutionService) {}
+  constructor(
+    @Inject(PRISMA_CLIENT) private readonly prisma: PrismaClient,
+    private readonly evolutionService: AgentEvolutionService,
+  ) {}
 
   /**
    * Sync live state for all connected, running bots every 2 minutes.
    */
   @Cron("0 */2 * * * *")
   async syncAllInstances() {
-    const instances = await prisma.botInstance.findMany({
+    const instances = await this.prisma.botInstance.findMany({
       where: {
         status: { in: ["RUNNING", "DEGRADED"] },
         gatewayConnection: {
@@ -31,7 +34,7 @@ export class AgentEvolutionScheduler {
     for (const instance of instances) {
       try {
         // Skip if a recent snapshot exists (< 90 seconds old)
-        const recent = await prisma.agentStateSnapshot.findFirst({
+        const recent = await this.prisma.agentStateSnapshot.findFirst({
           where: {
             instanceId: instance.id,
             capturedAt: { gt: new Date(Date.now() - 90_000) },
