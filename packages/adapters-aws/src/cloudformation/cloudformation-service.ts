@@ -60,20 +60,12 @@ export type StackStatus =
 const DEFAULT_POLL_INTERVAL_MS = 10_000;
 const DEFAULT_TIMEOUT_MS = 600_000; // 10 minutes
 
+/**
+ * AWS CloudFormation service.
+ * Uses constructor injection for testability.
+ */
 export class CloudFormationService {
-  private client: CloudFormationClient;
-
-  constructor(region: string = "us-east-1", credentials?: CloudFormationCredentials) {
-    this.client = new CloudFormationClient({
-      region,
-      credentials: credentials
-        ? {
-            accessKeyId: credentials.accessKeyId,
-            secretAccessKey: credentials.secretAccessKey,
-          }
-        : undefined,
-    });
-  }
+  constructor(private readonly client: CloudFormationClient) {}
 
   /**
    * Create a new CloudFormation stack.
@@ -392,4 +384,25 @@ export class CloudFormationService {
       timestamp: event.Timestamp || new Date(),
     };
   }
+}
+
+/**
+ * Factory function to create a CloudFormationService with default configuration.
+ * Provides backward compatibility with the old constructor signature.
+ */
+export function createCloudFormationService(
+  region: string = "us-east-1",
+  credentials?: CloudFormationCredentials
+): CloudFormationService {
+  return new CloudFormationService(
+    new CloudFormationClient({
+      region,
+      credentials: credentials
+        ? {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+          }
+        : undefined,
+    })
+  );
 }
