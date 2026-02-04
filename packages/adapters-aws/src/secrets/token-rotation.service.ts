@@ -1,16 +1,29 @@
-import { SecretsManagerClient, DescribeSecretCommand, TagResourceCommand, UpdateSecretCommand, ListSecretsCommand } from "@aws-sdk/client-secrets-manager";
+import {
+  SecretsManagerClient,
+  DescribeSecretCommand,
+  TagResourceCommand,
+  UpdateSecretCommand,
+  ListSecretsCommand,
+} from "@aws-sdk/client-secrets-manager";
+import type { ISecretRotationService, StaleSecret } from "@clawster/adapters-common";
 
-export interface StaleSecret {
-  name: string;
-  lastRotated: Date;
-  ageDays: number;
+export interface TokenRotationServiceOptions {
+  /** Prefix for listing secrets. Default: "/clawster/" */
+  secretPrefix?: string;
 }
 
-export class TokenRotationService {
-  private readonly client: SecretsManagerClient;
+/**
+ * AWS Token Rotation service implementing ISecretRotationService.
+ * Uses constructor injection for testability.
+ */
+export class TokenRotationService implements ISecretRotationService {
+  private readonly secretPrefix: string;
 
-  constructor() {
-    this.client = new SecretsManagerClient({});
+  constructor(
+    private readonly client: SecretsManagerClient,
+    options: TokenRotationServiceOptions = {}
+  ) {
+    this.secretPrefix = options.secretPrefix ?? "/clawster/";
   }
 
   /**
@@ -48,12 +61,12 @@ export class TokenRotationService {
   }
 
   /**
-   * List all secrets in the /clawster/ namespace that are older than maxAgeDays.
+   * List all secrets in the configured namespace that are older than maxAgeDays.
    */
   async listStaleSecrets(maxAgeDays: number): Promise<StaleSecret[]> {
     const stale: StaleSecret[] = [];
     const response = await this.client.send(new ListSecretsCommand({
-      Filters: [{ Key: "name", Values: ["/clawster/"] }],
+      Filters: [{ Key: "name", Values: [this.secretPrefix] }],
     }));
 
     for (const secret of response.SecretList ?? []) {
@@ -74,3 +87,20 @@ export class TokenRotationService {
     return stale;
   }
 }
+
+/**
+ * Factory function to create a TokenRotationService with default configuration.
+ * Provides backward compatibility with the old constructor signature.
+ */
+export function createTokenRotationService(
+  region: string = "us-east-1",
+  options: TokenRotationServiceOptions = {}
+): TokenRotationService {
+  return new TokenRotationService(
+    new SecretsManagerClient({ region }),
+    options
+  );
+}
+
+// Re-export StaleSecret for backward compatibility
+export type { StaleSecret } from "@clawster/adapters-common";

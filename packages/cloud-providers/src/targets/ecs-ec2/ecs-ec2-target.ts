@@ -13,6 +13,9 @@
  */
 
 import {
+  createCloudFormationService,
+  createSecretsManagerService,
+  createCloudWatchLogsService,
   CloudFormationService,
   SecretsManagerService,
   CloudWatchLogsService,
@@ -315,16 +318,16 @@ export class EcsEc2Target implements DeploymentTarget {
       };
       const region = config.region;
 
-      // Create adapters-aws services and wrap them
+      // Create adapters-aws services using factory functions and wrap them
       this.cloudFormationService = new CloudFormationServiceAdapter(
-        new CloudFormationService(region, credentials)
+        createCloudFormationService(region, credentials)
       );
       this.ecsService = new InternalECSService(region, credentials);
       this.secretsManagerService = new SecretsManagerServiceAdapter(
-        new SecretsManagerService(region)
+        createSecretsManagerService(region)
       );
       this.cloudWatchLogsService = new CloudWatchLogsServiceAdapter(
-        new CloudWatchLogsService(region)
+        createCloudWatchLogsService(region)
       );
     }
   }

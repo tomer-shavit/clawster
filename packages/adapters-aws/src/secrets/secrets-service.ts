@@ -6,6 +6,7 @@ import {
   DeleteSecretCommand,
   DescribeSecretCommand,
 } from "@aws-sdk/client-secrets-manager";
+import type { ISecretsService } from "@clawster/adapters-common";
 
 export interface SecretValue {
   name: string;
@@ -13,11 +14,31 @@ export interface SecretValue {
   arn?: string;
 }
 
-export class SecretsManagerService {
-  private client: SecretsManagerClient;
+export interface SecretsManagerServiceOptions {
+  /** Prefix pattern for instance secrets. Default: "/clawster" */
+  prefix?: string;
+  /** AWS region for ARN construction. Default: process.env.AWS_REGION || "us-east-1" */
+  region?: string;
+  /** AWS account ID for ARN construction. Default: process.env.AWS_ACCOUNT_ID || "" */
+  accountId?: string;
+}
 
-  constructor(region: string = "us-east-1") {
-    this.client = new SecretsManagerClient({ region });
+/**
+ * AWS Secrets Manager service implementing ISecretsService.
+ * Uses constructor injection for testability.
+ */
+export class SecretsManagerService implements ISecretsService {
+  private readonly prefix: string;
+  private readonly region: string;
+  private readonly accountId: string;
+
+  constructor(
+    private readonly client: SecretsManagerClient,
+    options: SecretsManagerServiceOptions = {}
+  ) {
+    this.prefix = options.prefix ?? "/clawster";
+    this.region = options.region ?? process.env.AWS_REGION ?? "us-east-1";
+    this.accountId = options.accountId ?? process.env.AWS_ACCOUNT_ID ?? "";
   }
 
   async createSecret(
@@ -73,18 +94,17 @@ export class SecretsManagerService {
     }
   }
 
-  // For Clawster - store secrets and return ARNs for ECS
   async ensureSecretsForInstance(
     workspace: string,
     instanceName: string,
     secrets: Record<string, string>
   ): Promise<Record<string, string>> {
-    const prefix = `/clawster/${workspace}/${instanceName}`;
+    const secretPrefix = `${this.prefix}/${workspace}/${instanceName}`;
     const arns: Record<string, string> = {};
 
     for (const [key, value] of Object.entries(secrets)) {
-      const secretName = `${prefix}/${key}`;
-      
+      const secretName = `${secretPrefix}/${key}`;
+
       if (await this.secretExists(secretName)) {
         await this.updateSecret(secretName, value);
       } else {
@@ -95,12 +115,23 @@ export class SecretsManagerService {
         });
       }
 
-      // Build ARN
-      const region = process.env.AWS_REGION || "us-east-1";
-      const accountId = process.env.AWS_ACCOUNT_ID || "";
-      arns[key] = `arn:aws:secretsmanager:${region}:${accountId}:secret:${secretName}`;
+      arns[key] = `arn:aws:secretsmanager:${this.region}:${this.accountId}:secret:${secretName}`;
     }
 
     return arns;
   }
+}
+
+/**
+ * Factory function to create a SecretsManagerService with default configuration.
+ * Provides backward compatibility with the old constructor signature.
+ */
+export function createSecretsManagerService(
+  region: string = "us-east-1",
+  options: SecretsManagerServiceOptions = {}
+): SecretsManagerService {
+  return new SecretsManagerService(
+    new SecretsManagerClient({ region }),
+    { ...options, region }
+  );
 }
