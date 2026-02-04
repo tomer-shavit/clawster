@@ -13,9 +13,6 @@ import {
 } from "../errors";
 import type {
   GatewayConnectionOptions,
-  ConnectFrame,
-  GatewayMessage,
-  ConnectResultSuccess,
   GatewayHealthSnapshot,
   GatewayStatusSummary,
   ConfigGetResult,
@@ -42,11 +39,23 @@ function defaultOptions(overrides?: Partial<GatewayConnectionOptions>): GatewayC
   };
 }
 
-const connectSuccess: ConnectResultSuccess = {
-  type: "connected",
-  presence: { users: [], stateVersion: 1 },
-  health: { ok: true, channels: [], uptime: 100 },
-  stateVersion: 1,
+// OpenClaw protocol response format
+const connectSuccessResponse = {
+  type: "res",
+  id: "connect-1",
+  ok: true,
+  payload: {
+    presence: { users: [], stateVersion: 1 },
+    health: { ok: true, channels: [], uptime: 100 },
+    stateVersion: 1,
+  },
+};
+
+// Challenge message sent by gateway first
+const connectChallenge = {
+  type: "event",
+  name: "connect.challenge",
+  payload: { nonce: "test-nonce" },
 };
 
 function startServer(handler?: (ws: WebSocket, msg: string) => void): Promise<void> {
@@ -58,12 +67,15 @@ function startServer(handler?: (ws: WebSocket, msg: string) => void): Promise<vo
     });
 
     wss.on("connection", (ws) => {
-      // First message is always the connect frame
+      // First, send the challenge
+      ws.send(JSON.stringify(connectChallenge));
+
+      // Client responds with connect frame, then we send success
       ws.once("message", (raw) => {
-        const frame = JSON.parse(raw.toString()) as ConnectFrame;
-        // Default: accept the connection
-        if (frame.type === "connect") {
-          ws.send(JSON.stringify(connectSuccess));
+        const frame = JSON.parse(raw.toString());
+        // Accept the connection if it's a connect request
+        if (frame.method === "connect") {
+          ws.send(JSON.stringify({ ...connectSuccessResponse, id: frame.id }));
         }
 
         // Subsequent messages handled by optional handler
@@ -104,15 +116,15 @@ describe("GatewayClient", () => {
       const client = new GatewayClient(defaultOptions());
       const result = await client.connect();
 
-      expect(result.type).toBe("connected");
-      expect((result as ConnectResultSuccess).health.ok).toBe(true);
+      expect(result.type).toBe("res");
+      expect(result.ok).toBe(true);
       expect(client.isConnected()).toBe(true);
 
       await client.disconnect();
     });
 
     it("should send correct auth token in connect frame", async () => {
-      let receivedFrame: ConnectFrame | null = null;
+      let receivedFrame: Record<string, unknown> | null = null;
 
       await new Promise<void>((resolve) => {
         wss = new WebSocketServer({ port: 0 }, () => {
@@ -121,9 +133,10 @@ describe("GatewayClient", () => {
         });
 
         wss.on("connection", (ws) => {
+          ws.send(JSON.stringify(connectChallenge));
           ws.once("message", (raw) => {
             receivedFrame = JSON.parse(raw.toString());
-            ws.send(JSON.stringify(connectSuccess));
+            ws.send(JSON.stringify({ ...connectSuccessResponse, id: (receivedFrame as Record<string, unknown>).id }));
           });
         });
       });
@@ -132,13 +145,15 @@ describe("GatewayClient", () => {
       await client.connect();
 
       expect(receivedFrame).not.toBeNull();
-      expect(receivedFrame!.auth).toEqual({ mode: "token", token: "test-token" });
+      expect(receivedFrame!.params).toHaveProperty("auth");
+      const params = receivedFrame!.params as Record<string, unknown>;
+      expect(params.auth).toEqual({ token: "test-token" });
 
       await client.disconnect();
     });
 
     it("should send password auth when configured", async () => {
-      let receivedFrame: ConnectFrame | null = null;
+      let receivedFrame: Record<string, unknown> | null = null;
 
       await new Promise<void>((resolve) => {
         wss = new WebSocketServer({ port: 0 }, () => {
@@ -147,9 +162,10 @@ describe("GatewayClient", () => {
         });
 
         wss.on("connection", (ws) => {
+          ws.send(JSON.stringify(connectChallenge));
           ws.once("message", (raw) => {
             receivedFrame = JSON.parse(raw.toString());
-            ws.send(JSON.stringify(connectSuccess));
+            ws.send(JSON.stringify({ ...connectSuccessResponse, id: (receivedFrame as Record<string, unknown>).id }));
           });
         });
       });
@@ -159,7 +175,8 @@ describe("GatewayClient", () => {
       );
       await client.connect();
 
-      expect(receivedFrame!.auth).toEqual({ mode: "password", password: "secret" });
+      const params = receivedFrame!.params as Record<string, unknown>;
+      expect(params.auth).toEqual({ password: "secret" });
 
       await client.disconnect();
     });
@@ -176,9 +193,9 @@ describe("GatewayClient", () => {
       };
 
       await startServer((ws, msg) => {
-        const parsed = JSON.parse(msg) as GatewayMessage;
+        const parsed = JSON.parse(msg);
         if (parsed.method === "health") {
-          ws.send(JSON.stringify({ id: parsed.id, result: healthData }));
+          ws.send(JSON.stringify({ type: "res", id: parsed.id, ok: true, payload: healthData }));
         }
       });
 
@@ -206,9 +223,9 @@ describe("GatewayClient", () => {
       };
 
       await startServer((ws, msg) => {
-        const parsed = JSON.parse(msg) as GatewayMessage;
+        const parsed = JSON.parse(msg);
         if (parsed.method === "status") {
-          ws.send(JSON.stringify({ id: parsed.id, result: statusData }));
+          ws.send(JSON.stringify({ type: "res", id: parsed.id, ok: true, payload: statusData }));
         }
       });
 
@@ -233,9 +250,9 @@ describe("GatewayClient", () => {
       };
 
       await startServer((ws, msg) => {
-        const parsed = JSON.parse(msg) as GatewayMessage;
+        const parsed = JSON.parse(msg);
         if (parsed.method === "config.get") {
-          ws.send(JSON.stringify({ id: parsed.id, result: configData }));
+          ws.send(JSON.stringify({ type: "res", id: parsed.id, ok: true, payload: configData }));
         }
       });
 
@@ -253,9 +270,9 @@ describe("GatewayClient", () => {
       const applyResult: ConfigApplyResult = { success: true };
 
       await startServer((ws, msg) => {
-        const parsed = JSON.parse(msg) as GatewayMessage;
+        const parsed = JSON.parse(msg);
         if (parsed.method === "config.apply") {
-          ws.send(JSON.stringify({ id: parsed.id, result: applyResult }));
+          ws.send(JSON.stringify({ type: "res", id: parsed.id, ok: true, payload: applyResult }));
         }
       });
 
@@ -280,9 +297,9 @@ describe("GatewayClient", () => {
       };
 
       await startServer((ws, msg) => {
-        const parsed = JSON.parse(msg) as GatewayMessage;
+        const parsed = JSON.parse(msg);
         if (parsed.method === "config.apply") {
-          ws.send(JSON.stringify({ id: parsed.id, result: applyResult }));
+          ws.send(JSON.stringify({ type: "res", id: parsed.id, ok: true, payload: applyResult }));
         }
       });
 
@@ -300,9 +317,9 @@ describe("GatewayClient", () => {
       const patchResult: ConfigPatchResult = { success: true };
 
       await startServer((ws, msg) => {
-        const parsed = JSON.parse(msg) as GatewayMessage;
+        const parsed = JSON.parse(msg);
         if (parsed.method === "config.patch") {
-          ws.send(JSON.stringify({ id: parsed.id, result: patchResult }));
+          ws.send(JSON.stringify({ type: "res", id: parsed.id, ok: true, payload: patchResult }));
         }
       });
 
@@ -330,9 +347,9 @@ describe("GatewayClient", () => {
       };
 
       await startServer((ws, msg) => {
-        const parsed = JSON.parse(msg) as GatewayMessage;
+        const parsed = JSON.parse(msg);
         if (parsed.method === "send") {
-          ws.send(JSON.stringify({ id: parsed.id, result: sendResult }));
+          ws.send(JSON.stringify({ type: "res", id: parsed.id, ok: true, payload: sendResult }));
         }
       });
 
@@ -513,12 +530,18 @@ describe("GatewayClient", () => {
         });
 
         wss.on("connection", (ws) => {
-          ws.once("message", () => {
+          ws.send(JSON.stringify(connectChallenge));
+          ws.once("message", (raw) => {
+            const frame = JSON.parse(raw.toString());
             ws.send(
               JSON.stringify({
-                type: "error",
-                code: GatewayErrorCode.UNAVAILABLE,
-                message: "Authentication failed",
+                type: "res",
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: GatewayErrorCode.UNAVAILABLE,
+                  message: "Authentication failed",
+                },
               }),
             );
             ws.close();
@@ -539,12 +562,18 @@ describe("GatewayClient", () => {
         });
 
         wss.on("connection", (ws) => {
-          ws.once("message", () => {
+          ws.send(JSON.stringify(connectChallenge));
+          ws.once("message", (raw) => {
+            const frame = JSON.parse(raw.toString());
             ws.send(
               JSON.stringify({
-                type: "error",
-                code: GatewayErrorCode.INVALID_REQUEST,
-                message: "Bad protocol version",
+                type: "res",
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: GatewayErrorCode.INVALID_REQUEST,
+                  message: "Bad protocol version",
+                },
               }),
             );
             ws.close();
@@ -569,8 +598,9 @@ describe("GatewayClient", () => {
           resolve();
         });
 
-        wss.on("connection", () => {
-          // intentionally do nothing
+        wss.on("connection", (ws) => {
+          // Send challenge but never respond to connect frame
+          ws.send(JSON.stringify(connectChallenge));
         });
       });
 
@@ -598,10 +628,12 @@ describe("GatewayClient", () => {
   describe("error responses", () => {
     it("should reject with GatewayError on error response", async () => {
       await startServer((ws, msg) => {
-        const parsed = JSON.parse(msg) as GatewayMessage;
+        const parsed = JSON.parse(msg);
         ws.send(
           JSON.stringify({
+            type: "res",
             id: parsed.id,
+            ok: false,
             error: { code: GatewayErrorCode.NOT_LINKED, message: "No channels linked" },
           }),
         );

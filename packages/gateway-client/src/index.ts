@@ -8,11 +8,19 @@ export { GatewayClient } from "./client";
 // Manager
 export { GatewayManager } from "./manager";
 
+// Interfaces for DI
+export type { IGatewayClient } from "./interfaces/gateway-client.interface";
+export type { IGatewayManager } from "./interfaces/gateway-manager.interface";
+export {
+  type IWebSocketFactory,
+  DefaultWebSocketFactory,
+} from "./interfaces/websocket-factory.interface";
+
 // Interceptors
 export * from "./interceptors";
 
 // Auth helpers
-export { buildAuth, buildConnectFrame, buildGatewayUrl } from "./auth";
+export { buildConnectFrame, buildGatewayUrl } from "./auth";
 
 // Errors
 export {
@@ -33,10 +41,6 @@ export type {
   GatewayAuth,
   GatewayConnectionOptions,
   ReconnectOptions,
-  GatewayMessage,
-  GatewayResponse,
-  GatewayResponseSuccess,
-  GatewayResponseError,
   ConnectFrame,
   ConnectResult,
   ConnectResultSuccess,
@@ -56,12 +60,7 @@ export type {
   AgentCompletion,
   AgentResult,
   AgentOutputEvent,
-  PresenceSnapshot,
-  PresenceUser,
   PresenceEvent,
-  PresenceDelta,
-  ShutdownEvent,
-  KeepaliveEvent,
   GatewayEvent,
   AgentIdentityResult,
   CostUsageTotals,

@@ -5,8 +5,10 @@
 import { GatewayClient } from "./client";
 import type { GatewayConnectionOptions } from "./protocol";
 import type { GatewayInterceptor } from "./interceptors/interface";
+import type { IGatewayClient } from "./interfaces/gateway-client.interface";
+import type { IGatewayManager } from "./interfaces/gateway-manager.interface";
 
-export class GatewayManager {
+export class GatewayManager implements IGatewayManager {
   private readonly clients = new Map<string, GatewayClient>();
   private readonly defaultInterceptors: GatewayInterceptor[];
 

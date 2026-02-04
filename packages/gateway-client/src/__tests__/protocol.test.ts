@@ -4,9 +4,6 @@ import {
   GatewayErrorCode,
 } from "../protocol";
 import type {
-  GatewayMessage,
-  GatewayResponseSuccess,
-  GatewayResponseError,
   ConnectFrame,
   ConnectResultSuccess,
   ConnectResultError,
@@ -19,7 +16,6 @@ import type {
   AgentOutputEvent,
   PresenceEvent,
   ShutdownEvent,
-  KeepaliveEvent,
   GatewayEvent,
   GatewayAuth,
   GatewayConnectionOptions,
@@ -31,8 +27,8 @@ describe("Protocol constants", () => {
     expect(DEFAULT_GATEWAY_PORT).toBe(18789);
   });
 
-  it("PROTOCOL_VERSION is 1", () => {
-    expect(PROTOCOL_VERSION).toBe(1);
+  it("PROTOCOL_VERSION is 3", () => {
+    expect(PROTOCOL_VERSION).toBe(3);
   });
 });
 
@@ -59,80 +55,59 @@ describe("GatewayErrorCode", () => {
   });
 });
 
-describe("Message type structures", () => {
-  it("GatewayMessage has required fields", () => {
-    const msg: GatewayMessage = {
-      id: "msg-1",
-      method: "health",
-      params: { deep: true },
-    };
-    expect(msg.id).toBe("msg-1");
-    expect(msg.method).toBe("health");
-    expect(msg.params).toEqual({ deep: true });
-  });
-
-  it("GatewayMessage works without params", () => {
-    const msg: GatewayMessage = { id: "msg-2", method: "status" };
-    expect(msg.params).toBeUndefined();
-  });
-});
-
 describe("Connect frame structure", () => {
-  it("ConnectFrame has correct shape", () => {
+  it("ConnectFrame has correct shape (OpenClaw protocol)", () => {
     const frame: ConnectFrame = {
-      type: "connect",
-      protocolVersion: { min: 1, max: 1 },
-      auth: { mode: "token", token: "test-token" },
-      clientMetadata: { name: "clawster", version: "0.1.0" },
-      capabilities: ["health", "config"],
-    };
-    expect(frame.type).toBe("connect");
-    expect(frame.protocolVersion.min).toBe(1);
-    expect(frame.auth.mode).toBe("token");
-  });
-
-  it("ConnectResultSuccess has type 'connected'", () => {
-    const result: ConnectResultSuccess = {
-      type: "connected",
-      presence: { users: [], stateVersion: 1 },
-      health: { ok: true, channels: [], uptime: 3600 },
-      stateVersion: 1,
-    };
-    expect(result.type).toBe("connected");
-    expect(result.health.ok).toBe(true);
-  });
-
-  it("ConnectResultError has type 'error'", () => {
-    const result: ConnectResultError = {
-      type: "error",
-      code: GatewayErrorCode.UNAVAILABLE,
-      message: "Service unavailable",
-    };
-    expect(result.type).toBe("error");
-    expect(result.code).toBe("UNAVAILABLE");
-  });
-});
-
-describe("Response types", () => {
-  it("success response has result", () => {
-    const response: GatewayResponseSuccess = {
-      id: "resp-1",
-      result: { ok: true },
-    };
-    expect(response.result).toEqual({ ok: true });
-    expect(response.error).toBeUndefined();
-  });
-
-  it("error response has error", () => {
-    const response: GatewayResponseError = {
-      id: "resp-2",
-      error: {
-        code: GatewayErrorCode.INVALID_REQUEST,
-        message: "Bad request",
+      type: "req",
+      id: "connect-1",
+      method: "connect",
+      params: {
+        minProtocol: 3,
+        maxProtocol: 3,
+        client: {
+          id: "clawster",
+          version: "0.1.0",
+          platform: "node",
+          mode: "backend",
+        },
+        auth: { token: "test-token" },
       },
     };
-    expect(response.error.code).toBe("INVALID_REQUEST");
-    expect(response.result).toBeUndefined();
+    expect(frame.type).toBe("req");
+    expect(frame.method).toBe("connect");
+    expect(frame.params.minProtocol).toBe(3);
+    expect(frame.params.auth?.token).toBe("test-token");
+  });
+
+  it("ConnectResultSuccess has type 'res' with ok: true", () => {
+    const result: ConnectResultSuccess = {
+      type: "res",
+      id: "connect-1",
+      ok: true,
+      payload: {
+        presence: { users: [], stateVersion: 1 },
+        health: { ok: true, channels: [], uptime: 3600 },
+        stateVersion: 1,
+      },
+    };
+    expect(result.type).toBe("res");
+    expect(result.ok).toBe(true);
+    expect(result.payload.health?.ok).toBe(true);
+  });
+
+  it("ConnectResultError has type 'res' with ok: false", () => {
+    const result: ConnectResultError = {
+      type: "res",
+      id: "connect-1",
+      ok: false,
+      error: {
+        code: GatewayErrorCode.UNAVAILABLE,
+        message: "Service unavailable",
+      },
+    };
+    expect(result.type).toBe("res");
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe("UNAVAILABLE");
   });
 });
 
@@ -222,14 +197,6 @@ describe("Event types", () => {
     };
     expect(event.type).toBe("shutdown");
   });
-
-  it("KeepaliveEvent has timestamp", () => {
-    const event: KeepaliveEvent = {
-      type: "keepalive",
-      timestamp: Date.now(),
-    };
-    expect(event.type).toBe("keepalive");
-  });
 });
 
 describe("Auth types", () => {
@@ -267,27 +234,28 @@ describe("Connection options", () => {
 });
 
 describe("Message serialization", () => {
-  it("GatewayMessage can be JSON serialized", () => {
-    const msg: GatewayMessage = {
-      id: "test-id",
-      method: "health",
-    };
-    const json = JSON.stringify(msg);
-    const parsed = JSON.parse(json);
-    expect(parsed.id).toBe("test-id");
-    expect(parsed.method).toBe("health");
-  });
-
   it("ConnectFrame can be JSON serialized", () => {
     const frame: ConnectFrame = {
-      type: "connect",
-      protocolVersion: { min: 1, max: 1 },
-      auth: { mode: "token", token: "test" },
+      type: "req",
+      id: "test-id",
+      method: "connect",
+      params: {
+        minProtocol: 3,
+        maxProtocol: 3,
+        client: {
+          id: "test",
+          version: "1.0",
+          platform: "node",
+          mode: "backend",
+        },
+        auth: { token: "test" },
+      },
     };
     const json = JSON.stringify(frame);
     const parsed = JSON.parse(json);
-    expect(parsed.type).toBe("connect");
-    expect(parsed.auth.token).toBe("test");
+    expect(parsed.type).toBe("req");
+    expect(parsed.method).toBe("connect");
+    expect(parsed.params.auth.token).toBe("test");
   });
 
   it("Events can be JSON deserialized", () => {
