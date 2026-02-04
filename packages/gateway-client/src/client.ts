@@ -8,14 +8,15 @@ import { v4 as uuidv4 } from "uuid";
 
 import { InterceptorChain } from "./interceptors/chain";
 import type { GatewayInterceptor, OutboundMessage, InboundMessage, GatewayInterceptorEvent } from "./interceptors/interface";
+import { PendingRequestTracker } from "./connection/pending-request-tracker";
+import type { PendingRequest } from "./connection/pending-request-tracker";
+import type { IGatewayClient } from "./interfaces/gateway-client.interface";
+import { type IWebSocketFactory, DefaultWebSocketFactory } from "./interfaces/websocket-factory.interface";
 
 import type {
   GatewayConnectionOptions,
-  GatewayMessage,
-  GatewayResponse,
   GatewayEvent,
   ConnectResult,
-  ConnectResultSuccess,
   GatewayHealthSnapshot,
   GatewayStatusSummary,
   ConfigGetResult,
@@ -55,20 +56,13 @@ const DEFAULT_RECONNECT: ReconnectOptions = {
   maxDelayMs: 30_000,
 };
 
-// ---- Pending request tracker ----------------------------------------------
-
-interface PendingRequest {
-  resolve: (value: unknown) => void;
-  reject: (reason: unknown) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
 // ---- Client ---------------------------------------------------------------
 
-export class GatewayClient extends EventEmitter {
+export class GatewayClient extends EventEmitter implements IGatewayClient {
   private readonly options: GatewayConnectionOptions;
   private readonly reconnectOpts: ReconnectOptions;
   private readonly timeoutMs: number;
+  private readonly wsFactory: IWebSocketFactory;
 
   private ws: WebSocket | null = null;
   private connected = false;
@@ -76,19 +70,14 @@ export class GatewayClient extends EventEmitter {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private readonly pending = new Map<string, PendingRequest>();
-  private readonly agentCompletions = new Map<
-    string,
-    {
-      resolve: (value: AgentCompletion) => void;
-      reject: (reason: unknown) => void;
-      timer: ReturnType<typeof setTimeout>;
-    }
-  >();
-
+  private readonly pending: PendingRequestTracker;
   private readonly interceptorChain: InterceptorChain;
 
-  constructor(options: GatewayConnectionOptions, interceptors?: GatewayInterceptor[]) {
+  constructor(
+    options: GatewayConnectionOptions,
+    interceptors?: GatewayInterceptor[],
+    wsFactory?: IWebSocketFactory,
+  ) {
     super();
     this.options = options;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -96,6 +85,8 @@ export class GatewayClient extends EventEmitter {
       ? { ...DEFAULT_RECONNECT, ...options.reconnect }
       : DEFAULT_RECONNECT;
     this.interceptorChain = new InterceptorChain(interceptors);
+    this.pending = new PendingRequestTracker();
+    this.wsFactory = wsFactory ?? new DefaultWebSocketFactory();
   }
 
   /** Access the interceptor chain for adding/removing interceptors at runtime. */
@@ -119,7 +110,7 @@ export class GatewayClient extends EventEmitter {
       this.reconnectAttempt = 0;
 
       try {
-        this.ws = new WebSocket(url);
+        this.ws = this.wsFactory.create(url);
       } catch (err) {
         reject(
           new GatewayConnectionError(
@@ -215,7 +206,7 @@ export class GatewayClient extends EventEmitter {
   async disconnect(): Promise<void> {
     this.intentionalClose = true;
     this.cancelReconnectTimer();
-    this.rejectAllPending("Client disconnected");
+    this.pending.rejectAll("Client disconnected");
     await this.closeSocket();
   }
 
@@ -288,11 +279,11 @@ export class GatewayClient extends EventEmitter {
     // Phase 1: Get the ack (first res frame).
     const ack = await new Promise<AgentAck>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id);
+        this.pending.remove(id);
         reject(new GatewayTimeoutError("Agent ack timed out"));
       }, this.timeoutMs);
 
-      this.pending.set(id, {
+      this.pending.add(id, {
         resolve: resolve as (v: unknown) => void,
         reject,
         timer,
@@ -307,11 +298,11 @@ export class GatewayClient extends EventEmitter {
     const agentTimeoutMs = _localTimeoutMs ?? request.timeout ?? 60_000;
     const completion = await new Promise<AgentCompletion>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id);
+        this.pending.remove(id);
         reject(new GatewayTimeoutError("Agent completion timed out"));
       }, agentTimeoutMs);
 
-      this.pending.set(id, {
+      this.pending.add(id, {
         resolve: (raw: unknown) => {
           clearTimeout(timer);
           const payload = raw as Record<string, unknown> | undefined;
@@ -388,11 +379,11 @@ export class GatewayClient extends EventEmitter {
 
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id);
+        this.pending.remove(id);
         reject(new GatewayTimeoutError(`Request "${method}" timed out`));
       }, this.timeoutMs);
 
-      this.pending.set(id, {
+      this.pending.add(id, {
         resolve: resolve as (v: unknown) => void,
         reject,
         timer,
@@ -424,17 +415,6 @@ export class GatewayClient extends EventEmitter {
         return;
       }
 
-      // Agent completion event (legacy format, keyed by runId)
-      const completionRunId = (data.runId ?? data.requestId) as string | undefined;
-      if (
-        typeof completionRunId === "string" &&
-        (data.status === "completed" || data.status === "failed") &&
-        this.agentCompletions.has(completionRunId)
-      ) {
-        this.handleAgentCompletion({ ...data, runId: completionRunId } as unknown as AgentCompletion);
-        return;
-      }
-
       // OpenClaw event: { type: "event", name: "...", payload: {...} }
       // Legacy event: { type: "agentOutput" | "presence" | ... }
       if (data.type === "event" && typeof data.name === "string") {
@@ -455,7 +435,7 @@ export class GatewayClient extends EventEmitter {
     this.ws.on("close", () => {
       this.connected = false;
       this.emit("disconnect");
-      this.rejectAllPending("Connection closed");
+      this.pending.rejectAll("Connection closed");
 
       if (!this.intentionalClose && this.reconnectOpts.enabled) {
         this.scheduleReconnect();
@@ -469,11 +449,11 @@ export class GatewayClient extends EventEmitter {
 
   private handleResponse(response: Record<string, unknown>): void {
     const id = response.id as string;
-    const pending = this.pending.get(id);
-    if (!pending) return;
+    const pendingReq = this.pending.get(id);
+    if (!pendingReq) return;
 
-    clearTimeout(pending.timer);
-    this.pending.delete(id);
+    // Remove from tracker (clears timer)
+    this.pending.remove(id);
 
     // OpenClaw uses { type: "res", id, ok, payload/error }
     // Legacy format uses { id, result/error }
@@ -494,25 +474,16 @@ export class GatewayClient extends EventEmitter {
       .processInbound(inbound)
       .then((processed) => {
         if (processed.error) {
-          pending.reject(
+          pendingReq.reject(
             new GatewayError(processed.error.message, processed.error.code as GatewayErrorCode),
           );
         } else {
-          pending.resolve(processed.result);
+          pendingReq.resolve(processed.result);
         }
       })
       .catch((err) => {
-        pending.reject(err);
+        pendingReq.reject(err);
       });
-  }
-
-  private handleAgentCompletion(completion: AgentCompletion): void {
-    const entry = this.agentCompletions.get(completion.runId);
-    if (!entry) return;
-
-    clearTimeout(entry.timer);
-    this.agentCompletions.delete(completion.runId);
-    entry.resolve(completion);
   }
 
   private handleEvent(event: GatewayEvent): void {
@@ -583,19 +554,6 @@ export class GatewayClient extends EventEmitter {
   // ------------------------------------------------------------------
   // Cleanup helpers
   // ------------------------------------------------------------------
-
-  private rejectAllPending(reason: string): void {
-    for (const [id, pending] of this.pending) {
-      clearTimeout(pending.timer);
-      pending.reject(new GatewayConnectionError(reason));
-      this.pending.delete(id);
-    }
-    for (const [id, entry] of this.agentCompletions) {
-      clearTimeout(entry.timer);
-      entry.reject(new GatewayConnectionError(reason));
-      this.agentCompletions.delete(id);
-    }
-  }
 
   private cleanup(): void {
     this.connected = false;
