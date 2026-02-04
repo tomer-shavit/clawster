@@ -41,8 +41,8 @@ export const DeploymentTargetSchema = z.enum([
   "local",
   "docker",
   "ecs",
-  "kubernetes",
-  "fly",
+  "gce",
+  "azure-vm",
 ]);
 export type DeploymentTarget = z.infer<typeof DeploymentTargetSchema>;
 

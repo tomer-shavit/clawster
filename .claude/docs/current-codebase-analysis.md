@@ -8,7 +8,7 @@ alwaysApply: false
 
 ## Architecture Overview
 
-pnpm + Turbo monorepo with two apps and seven shared packages.
+pnpm + Turbo monorepo with two apps and eight shared packages.
 
 ```
 clawster/
@@ -17,17 +17,20 @@ clawster/
 │   └── web/                  # Next.js 14 frontend (port 3000)
 ├── packages/
 │   ├── core/                 # Zod schemas, types, PolicyEngine, state-sync, AI gateway
-│   ├── database/             # Prisma 5.8.1 + SQLite, 40+ models
-│   ├── adapters-aws/         # ECS, Secrets Manager, CloudWatch, Token Rotation
-│   ├── cloud-providers/      # 6 providers + 7 deployment targets
+│   ├── database/             # Prisma 5.8.1 + SQLite, 45+ models
 │   ├── gateway-client/       # WebSocket-based OpenClaw Gateway protocol client
+│   ├── cloud-providers/      # 5 deployment targets + adapter registry
+│   ├── adapters-aws/         # AWS SDK integrations (ECS, Secrets Manager, CloudWatch)
+│   ├── adapters-azure/       # Azure SDK integrations (Compute, Key Vault, Log Analytics)
+│   ├── adapters-gcp/         # GCP SDK integrations (Compute Engine, Secret Manager, Logging)
+│   ├── adapters-common/      # Shared adapter interfaces
 │   └── cli/                  # bootstrap, auth, doctor, status commands
 ├── scripts/                  # dev-start.sh, deploy.sh
 ├── clawster/infra/terraform/  # Full AWS IaC
 └── .github/workflows/        # CI/CD pipelines
 ```
 
-## API App — 34 Modules, 100+ Endpoints
+## API App — 37 Modules, 100+ Endpoints
 
 ### Module Inventory
 
@@ -47,7 +50,7 @@ clawster/
 | policy-packs | CRUD + evaluate | Security policy enforcement, auto-apply, version tracking |
 | connectors | CRUD + test | Integration credentials (OpenAI, Slack, Discord, etc.), rotation scheduling |
 | skill-packs | CRUD + attach/detach/sync | Skill bundles with MCP servers |
-| channels | CRUD + bind/unbind + test + auth flows + generate-config | 8+ channel types with OAuth/QR pairing |
+| channels | CRUD + bind/unbind + test + auth flows + generate-config | 11 channel types with OAuth/QR pairing |
 | dashboard | metrics + health + activity | Aggregated KPIs |
 | metrics | GET /metrics | Prometheus-compatible |
 | health | HealthService + OpenClawHealthService + HealthAggregator + DiagnosticsService + AlertingService + LogStreamingGateway | Full health stack with WebSocket log streaming |
@@ -64,6 +67,8 @@ clawster/
 | user-context | User stage tracking | Onboarding stage management |
 | notification-channels | CRUD /notification-channels + test | External notification destinations (Slack webhook, generic webhook, email) + delivery service |
 | bot-routing | CRUD /bot-routing-rules + POST /delegate | Bot-to-bot routing rules + delegation execution with trace creation |
+| bot-teams | CRUD /bot-teams + members | Team hierarchy with lead/member bots |
+| a2a | API-to-API communication | Inter-service communication |
 
 ### Request Lifecycle
 CORS → ThrottlerGuard (60s/100req) → ValidationPipe → JwtAuthGuard (if protected) → Controller → Service (Prisma) → Response
@@ -81,7 +86,7 @@ CORS → ThrottlerGuard (60s/100req) → ValidationPipe → JwtAuthGuard (if pro
 - Agent evolution snapshots: periodic (AgentEvolutionScheduler)
 - SLO evaluation: periodic (SloEvaluatorService)
 
-## Web App — 30 Routes, 75+ Components
+## Web App — 24 Routes, 75+ Components
 
 ### Pages
 
@@ -153,7 +158,7 @@ CORS → ThrottlerGuard (60s/100req) → ValidationPipe → JwtAuthGuard (if pro
 
 **UI stack**: Tailwind CSS 3.4 + shadcn/ui + Recharts 3.7 + Lucide icons + date-fns 4.1. SSR default with client-side for interactive pages.
 
-## Database — 40+ Prisma Models
+## Database — 45+ Prisma Models
 
 ### Core Platform
 Workspace → User, AuthUser, Fleet → BotInstance (status machine: CREATING → PENDING → RUNNING → DEGRADED → PAUSED → STOPPED → ERROR → DELETING → RECONCILING)
@@ -171,15 +176,16 @@ Workspace → User, AuthUser, Fleet → BotInstance (status machine: CREATING �
 | Skills | SkillPack, BotInstanceSkillPack |
 | OpenClaw | GatewayConnection, OpenClawProfile, DeploymentTarget, SecurityAuditResult, HealthSnapshot, AgentStateSnapshot, DevicePairing |
 | Cost & SLOs | SloDefinition, BudgetConfig, CostEvent, HealthAlert |
-| Notifications | NotificationChannel, AlertNotificationRule |
-| Routing | BotRoutingRule |
+| Notifications | NotificationChannel, AlertNotificationRule, AlertRuleConfig |
+| Routing & Teams | BotRoutingRule, BotTeamMember |
+| A2A | A2aApiKey |
 
 ### Key Enums
 - `UserRole`: OWNER, ADMIN, OPERATOR, VIEWER
 - `FleetStatus`: ACTIVE, PAUSED, DRAINING, ERROR
 - `BotStatus`: CREATING, PENDING, RUNNING, DEGRADED, STOPPED, PAUSED, DELETING, ERROR, RECONCILING
 - `BotHealth`: HEALTHY, UNHEALTHY, UNKNOWN, DEGRADED
-- `DeploymentType`: LOCAL, REMOTE_VM, DOCKER, ECS_EC2, CLOUD_RUN, ACI, KUBERNETES
+- `DeploymentType`: LOCAL, DOCKER, ECS_EC2, GCE, AZURE_VM
 - `OpenClawChannelType`: WHATSAPP, TELEGRAM, DISCORD, SLACK, SIGNAL, IMESSAGE, MATTERMOST, GOOGLE_CHAT, MS_TEAMS, LINE, MATRIX
 - `GatewayConnectionStatus`: CONNECTED, DISCONNECTED, CONNECTING, ERROR
 - `ChannelAuthState`: PENDING, PAIRING, PAIRED, EXPIRED, ERROR
@@ -224,36 +230,51 @@ Workspace → User, AuthUser, Fleet → BotInstance (status machine: CREATING �
 - **Error types**: GatewayError, GatewayConnectionError, GatewayTimeoutError, GatewayAuthError
 - **Dependencies**: ws 8.16, uuid 9.0
 
-## Cloud Providers — 6 Providers + 7 Deployment Targets
-
-### Providers
-
-| Provider | Status |
-|----------|--------|
-| AWS (ECS EC2 + Secrets Manager + CloudWatch) | Full |
-| Azure (Container Instances + Key Vault + Log Analytics) | Implemented |
-| GCP (Cloud Run + Secret Manager + Cloud Logging) | Implemented |
-| DigitalOcean (App Platform) | Implemented (limited) |
-| Self-Hosted (Docker + filesystem secrets) | Development |
-| Simulated (In-memory) | Testing |
+## Cloud Providers — 5 Deployment Targets
 
 ### Deployment Targets
 
-| Target | Description |
-|--------|-------------|
-| Local | Local development |
-| Remote VM | SSH-based deployment |
-| Docker | Docker container |
-| ECS EC2 | AWS ECS with EC2 launch type |
-| Kubernetes | K8s deployments |
-| Cloudflare Workers | Edge deployment (Wrangler, R2 state sync) |
+| Target | Description | Status |
+|--------|-------------|--------|
+| Local | Local machine (systemd/launchd) | ✅ Ready |
+| Docker | Docker container | ✅ Ready |
+| ECS EC2 | AWS ECS with EC2 launch type | ✅ Ready |
+| GCE | Google Compute Engine VM | ✅ Ready |
+| Azure VM | Azure Virtual Machine | ✅ Ready |
 
-## AWS Adapters
+### Architecture (SOLID-Compliant)
+- **DeploymentTarget interface**: install, configure, start, stop, restart, getStatus, getLogs, getEndpoint, destroy
+- **AdapterRegistry**: Factory pattern for target instantiation with metadata
+- **AdapterMetadata**: Capability discovery (supportsSandbox, supportsNetworkIsolation, etc.)
+- **ResourceSpec**: Standardized resource specifications across targets
 
+### Removed Targets
+- ~~Cloudflare Workers~~ — Removed (not a good fit for OpenClaw containers)
+- ~~Kubernetes~~ — Removed (complexity vs. value tradeoff)
+
+## Adapter Packages (Modular Cloud SDKs)
+
+### @clawster/adapters-aws
+- **Services**: ECS, CloudFormation, Secrets Manager, CloudWatch Logs, EC2, IAM, ALB, STS, ECR
 - `EcsService`: createTaskDefinition (EC2), createService (private subnets), updateService, deleteService, getServiceStatus
 - `SecretsManagerService`: ensureSecretsForInstance at `/clawster/{workspace}/{instance}/{key}`
 - `CloudWatchLogsService`: createLogGroup, getLogs, getConsoleLink
 - `TokenRotationService`: Automated credential rotation with rollback
+- **Export pattern**: PeerDependencies to avoid lock-in
+
+### @clawster/adapters-azure
+- **Services**: Compute, Network, Container Instances, Key Vault, Log Analytics
+- Interfaces: IAzureComputeManager, IAzureNetworkManager, IAzureAppGatewayManager
+- **Export pattern**: PeerDependencies
+
+### @clawster/adapters-gcp
+- **Services**: Compute Engine, Secret Manager, Cloud Logging, Cloud Run
+- Interfaces: IGceComputeManager, IGceSecretManager, IGceLoggingManager, IGceNetworkManager
+- **Export pattern**: PeerDependencies
+
+### @clawster/adapters-common
+- Shared interfaces for cloud adapter SDKs
+- `IContainerService`: Common container operations interface
 
 ## CLI — 4 Commands
 
@@ -264,7 +285,7 @@ Workspace → User, AuthUser, Fleet → BotInstance (status machine: CREATING �
 | `status` | Status checks |
 | `auth` | login, create-user, list, delete |
 
-## Testing — 490 Test Files
+## Testing — 494 Test Files
 
 | Category | Location | Framework |
 |----------|----------|-----------|
@@ -273,7 +294,7 @@ Workspace → User, AuthUser, Fleet → BotInstance (status machine: CREATING �
 | Web E2E tests | `apps/web/e2e/*.spec.ts` (9 flows) | Playwright |
 | Core schemas | `packages/core/src/**/*.test.ts` | Vitest |
 | Gateway client | `packages/gateway-client/src/__tests__/*.test.ts` | Jest |
-| Cloud providers | `packages/cloud-providers/src/targets/__integration__/*.test.ts` | Jest |
+| Cloud providers | `packages/cloud-providers/src/targets/**/*.test.ts` | Jest |
 
 ### E2E Test Flows
 dashboard, bot-flow, fleet-flow, multi-bot-flow, onboarding-flow, alerts-flow, costs-flow, slos-flow, websocket-integration
@@ -307,7 +328,7 @@ dashboard, bot-flow, fleet-flow, multi-bot-flow, onboarding-flow, alerts-flow, c
 - Template → Profile → Overlay layering with deepMerge
 - OpenClaw config schemas (v2 manifest, channels, skills, agents, gateway)
 - Gateway client with WebSocket protocol, interceptors, and reconnect
-- Multi-target deployment (Local, Docker, VM, ECS, K8s, Cloudflare Workers)
+- Multi-target deployment (Local, Docker, ECS, GCE, Azure VM)
 - Channel auth flows (OAuth, QR pairing)
 - Device pairing for DM access control
 - Agent evolution tracking and drift detection
@@ -318,10 +339,10 @@ dashboard, bot-flow, fleet-flow, multi-bot-flow, onboarding-flow, alerts-flow, c
 - State sync with multi-backend support
 - Web UI with full page coverage, deploy wizard, debug tools
 - CI/CD, Docker, Terraform
+- Modular adapter packages (AWS, Azure, GCP) with SOLID compliance
 
 ## What Still Needs Work
 
 1. **RBAC** — Roles defined but not fully enforced at endpoint level
 2. **Reconciler** — OpenClaw-aware but needs deeper Gateway WS integration for real-time sync
 3. **Legacy Instance model** — Still present alongside BotInstance, should be fully migrated
-4. **Some deployment targets** — Kubernetes and Cloudflare Workers are implemented but need production hardening

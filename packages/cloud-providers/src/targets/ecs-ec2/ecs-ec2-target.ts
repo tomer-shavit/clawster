@@ -22,7 +22,6 @@ import {
 } from "@clawster/adapters-aws";
 
 import {
-  DeploymentTarget,
   DeploymentTargetType,
   InstallOptions,
   InstallResult,
@@ -32,7 +31,34 @@ import {
   DeploymentLogOptions,
   GatewayEndpoint,
 } from "../../interface/deployment-target";
-import type { ResourceSpec, ResourceUpdateResult } from "../../interface/resource-spec";
+import { BaseDeploymentTarget } from "../../base/base-deployment-target";
+import type { TransformOptions } from "../../base/config-transformer";
+import type { AdapterMetadata, SelfDescribingDeploymentTarget } from "../../interface/adapter-metadata";
+import type { ResourceSpec, ResourceUpdateResult, ResourceTier, TierSpec } from "../../interface/resource-spec";
+
+/**
+ * ECS EC2 tier specifications.
+ */
+const ECS_TIER_SPECS: Record<Exclude<ResourceTier, "custom">, TierSpec> = {
+  light: {
+    tier: "light",
+    cpu: 512,
+    memory: 1024,
+    dataDiskSizeGb: 5,
+  },
+  standard: {
+    tier: "standard",
+    cpu: 1024,
+    memory: 2048,
+    dataDiskSizeGb: 10,
+  },
+  performance: {
+    tier: "performance",
+    cpu: 2048,
+    memory: 4096,
+    dataDiskSizeGb: 20,
+  },
+};
 import type { EcsEc2Config } from "./ecs-ec2-config";
 import type {
   ICloudFormationService,
@@ -246,7 +272,7 @@ class CloudWatchLogsServiceAdapter implements ICloudWatchLogsService {
  * Uses @clawster/adapters-aws services for all cloud operations.
  * EC2 launch type enables Docker socket mounting for sandbox isolation.
  */
-export class EcsEc2Target implements DeploymentTarget {
+export class EcsEc2Target extends BaseDeploymentTarget implements SelfDescribingDeploymentTarget {
   readonly type = DeploymentTargetType.ECS_EC2;
 
   private readonly config: EcsEc2Config;
@@ -258,9 +284,6 @@ export class EcsEc2Target implements DeploymentTarget {
   private readonly ecsService: IECSService;
   private readonly secretsManagerService: ISecretsManagerService;
   private readonly cloudWatchLogsService: ICloudWatchLogsService;
-
-  /** Log callback for streaming progress to the UI */
-  private onLog?: (line: string, stream: "stdout" | "stderr") => void;
 
   /** Derived resource names — set during install */
   private stackName = "";
@@ -281,6 +304,8 @@ export class EcsEc2Target implements DeploymentTarget {
    */
   constructor(options: EcsEc2TargetOptions);
   constructor(configOrOptions: EcsEc2Config | EcsEc2TargetOptions) {
+    super();
+
     // Determine if we received options or just config (backward compatibility)
     const isOptions = (arg: EcsEc2Config | EcsEc2TargetOptions): arg is EcsEc2TargetOptions =>
       "config" in arg && typeof (arg as EcsEc2TargetOptions).config === "object";
@@ -333,19 +358,29 @@ export class EcsEc2Target implements DeploymentTarget {
   }
 
   // ------------------------------------------------------------------
-  // Log streaming
+  // Config transformation
   // ------------------------------------------------------------------
 
-  setLogCallback(cb: (line: string, stream: "stdout" | "stderr") => void): void {
-    this.onLog = cb;
-  }
-
   /**
-   * Emit a log line to the streaming callback (if registered).
-   * Used to provide real-time feedback during long-running operations.
+   * ECS-specific config transformation options.
+   * Forces gateway.bind = "lan" and removes port (container networking requirement).
    */
-  private log(message: string, stream: "stdout" | "stderr" = "stdout"): void {
-    this.onLog?.(message, stream);
+  protected override getTransformOptions(): TransformOptions {
+    return {
+      customTransforms: [
+        (config) => {
+          // ECS containers MUST bind to 0.0.0.0 (lan) - container networking requirement
+          if (config.gateway && typeof config.gateway === "object") {
+            const gw = { ...(config.gateway as Record<string, unknown>) };
+            gw.bind = "lan";
+            delete gw.host;
+            delete gw.port;
+            return { ...config, gateway: gw };
+          }
+          return config;
+        },
+      ],
+    };
   }
 
   // ------------------------------------------------------------------
@@ -459,50 +494,14 @@ export class EcsEc2Target implements DeploymentTarget {
       this.secretName = `clawster/${profileName}/config`;
     }
 
-    // Apply the same config transformations as the Docker target
-    // so that the openclaw.json written inside the container is valid.
-    const raw = { ...config.config } as Record<string, unknown>;
-
-    // gateway.bind = "lan" — ECS containers MUST bind to 0.0.0.0
-    if (raw.gateway && typeof raw.gateway === "object") {
-      const gw = { ...(raw.gateway as Record<string, unknown>) };
-      gw.bind = "lan";
-      delete gw.host;
-      delete gw.port;
-      raw.gateway = gw;
-    }
-
-    // skills.allowUnverified is not a valid OpenClaw key
-    if (raw.skills && typeof raw.skills === "object") {
-      const skills = { ...(raw.skills as Record<string, unknown>) };
-      delete skills.allowUnverified;
-      raw.skills = skills;
-    }
-
-    // sandbox at root level -> agents.defaults.sandbox
-    if ("sandbox" in raw) {
-      const agents = (raw.agents as Record<string, unknown>) || {};
-      const defaults = (agents.defaults as Record<string, unknown>) || {};
-      defaults.sandbox = raw.sandbox;
-      agents.defaults = defaults;
-      raw.agents = agents;
-      delete raw.sandbox;
-    }
-
-    // channels.*.enabled is not valid — presence means active
-    if (raw.channels && typeof raw.channels === "object") {
-      for (const [key, value] of Object.entries(raw.channels as Record<string, unknown>)) {
-        if (value && typeof value === "object" && "enabled" in (value as Record<string, unknown>)) {
-          const { enabled: _enabled, ...rest } = value as Record<string, unknown>;
-          (raw.channels as Record<string, unknown>)[key] = rest;
-        }
-      }
-    }
+    // Transform Clawster internal schema to valid OpenClaw config format
+    // Uses shared transformer with ECS-specific overrides (gateway.bind = "lan")
+    const transformed = this.transformConfig(config.config as Record<string, unknown>);
 
     // Store the transformed config as JSON — this will be injected as
     // the OPENCLAW_CONFIG env var and written to ~/.openclaw/openclaw.json
     // by the container startup command.
-    const configData = JSON.stringify(raw, null, 2);
+    const configData = JSON.stringify(transformed, null, 2);
 
     try {
       await this.ensureSecret(this.secretName, configData);
@@ -907,6 +906,74 @@ export class EcsEc2Target implements DeploymentTarget {
     return {
       cpu: this.cpu,
       memory: this.memory,
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // getMetadata
+  // ------------------------------------------------------------------
+
+  /**
+   * Return metadata describing this adapter's capabilities and provisioning steps.
+   */
+  getMetadata(): AdapterMetadata {
+    return {
+      type: DeploymentTargetType.ECS_EC2,
+      displayName: "AWS ECS EC2",
+      icon: "aws",
+      description: "Run OpenClaw on AWS ECS with EC2 instances via CloudFormation",
+      status: "ready",
+      provisioningSteps: [
+        { id: "validate_config", name: "Validate configuration" },
+        { id: "security_audit", name: "Security audit" },
+        { id: "create_stack", name: "Create CloudFormation stack", estimatedDurationSec: 300 },
+        { id: "wait_stack_complete", name: "Wait for stack completion", estimatedDurationSec: 300 },
+        { id: "configure_secrets", name: "Configure secrets" },
+        { id: "wait_service_stable", name: "Wait for service stability", estimatedDurationSec: 120 },
+        { id: "wait_for_gateway", name: "Wait for Gateway", estimatedDurationSec: 30 },
+        { id: "health_check", name: "Health check" },
+      ],
+      resourceUpdateSteps: [
+        { id: "validate_resources", name: "Validate resource configuration" },
+        { id: "apply_changes", name: "Apply resource changes", estimatedDurationSec: 300 },
+        { id: "verify_completion", name: "Verify completion" },
+      ],
+      operationSteps: {
+        install: "create_stack",
+        start: "wait_service_stable",
+      },
+      capabilities: {
+        scaling: true,
+        sandbox: true,
+        persistentStorage: true,
+        httpsEndpoint: true,
+        logStreaming: true,
+      },
+      credentials: [
+        {
+          key: "accessKeyId",
+          displayName: "AWS Access Key ID",
+          description: "IAM access key with ECS, CloudFormation, and Secrets Manager permissions",
+          required: true,
+          sensitive: false,
+          pattern: "^AKIA[A-Z0-9]{16}$",
+        },
+        {
+          key: "secretAccessKey",
+          displayName: "AWS Secret Access Key",
+          description: "Secret key for the IAM access key",
+          required: true,
+          sensitive: true,
+        },
+        {
+          key: "region",
+          displayName: "AWS Region",
+          description: "AWS region for deployment (e.g., us-east-1)",
+          required: true,
+          sensitive: false,
+        },
+      ],
+      tierSpecs: ECS_TIER_SPECS,
     };
   }
 }

@@ -35,8 +35,35 @@ import {
   DeploymentLogOptions,
   GatewayEndpoint,
 } from "../../interface/deployment-target";
-import type { ResourceSpec, ResourceUpdateResult } from "../../interface/resource-spec";
-import { AZURE_TIER_SPECS } from "../../interface/resource-spec";
+import type { ResourceSpec, ResourceUpdateResult, ResourceTier, TierSpec } from "../../interface/resource-spec";
+
+/**
+ * Azure VM tier specifications.
+ */
+const AZURE_TIER_SPECS: Record<Exclude<ResourceTier, "custom">, TierSpec> = {
+  light: {
+    tier: "light",
+    cpu: 1024, // 1 vCPU equivalent
+    memory: 1024,
+    dataDiskSizeGb: 5,
+    vmSize: "Standard_B1s",
+  },
+  standard: {
+    tier: "standard",
+    cpu: 2048, // 2 vCPU equivalent
+    memory: 2048,
+    dataDiskSizeGb: 10,
+    vmSize: "Standard_B2s",
+  },
+  performance: {
+    tier: "performance",
+    cpu: 2048, // 2 vCPU equivalent
+    memory: 4096,
+    dataDiskSizeGb: 20,
+    vmSize: "Standard_D2s_v3",
+  },
+};
+import type { AdapterMetadata, SelfDescribingDeploymentTarget } from "../../interface/adapter-metadata";
 import type { AzureVmConfig } from "./azure-vm-config";
 import type { VmStatus } from "./types";
 import type {
@@ -64,7 +91,7 @@ export interface AzureVmTargetOptions {
   managers?: AzureManagers;
 }
 
-export class AzureVmTarget extends BaseDeploymentTarget {
+export class AzureVmTarget extends BaseDeploymentTarget implements SelfDescribingDeploymentTarget {
   readonly type = DeploymentTargetType.AZURE_VM;
 
   private readonly config: AzureVmConfig;
@@ -818,5 +845,102 @@ export class AzureVmTarget extends BaseDeploymentTarget {
         // For unknown sizes, return default
         return { cpu: 1024, memory: 2048, dataDiskSizeGb };
     }
+  }
+
+  // ------------------------------------------------------------------
+  // getMetadata
+  // ------------------------------------------------------------------
+
+  /**
+   * Return metadata describing this adapter's capabilities and provisioning steps.
+   */
+  getMetadata(): AdapterMetadata {
+    return {
+      type: DeploymentTargetType.AZURE_VM,
+      displayName: "Azure Virtual Machine",
+      icon: "azure",
+      description: "Run OpenClaw on Azure VM with managed disk and sandbox support",
+      status: "ready",
+      provisioningSteps: [
+        { id: "validate_config", name: "Validate configuration" },
+        { id: "security_audit", name: "Security audit" },
+        { id: "create_vnet", name: "Create Virtual Network" },
+        { id: "create_nsg", name: "Create Network Security Group" },
+        { id: "create_subnet", name: "Create subnet" },
+        { id: "create_appgw_subnet", name: "Create App Gateway subnet" },
+        { id: "create_public_ip", name: "Create public IP" },
+        { id: "create_appgw", name: "Create Application Gateway", estimatedDurationSec: 120 },
+        { id: "create_disk", name: "Create data disk" },
+        { id: "store_secret", name: "Store config in Key Vault" },
+        { id: "create_vm", name: "Create VM instance", estimatedDurationSec: 120 },
+        { id: "update_backend", name: "Update App Gateway backend" },
+        { id: "wait_for_gateway", name: "Wait for Gateway", estimatedDurationSec: 30 },
+        { id: "health_check", name: "Health check" },
+      ],
+      resourceUpdateSteps: [
+        { id: "validate_resources", name: "Validate resource configuration" },
+        { id: "deallocate_vm", name: "Deallocate VM instance" },
+        { id: "resize_vm", name: "Change VM size", estimatedDurationSec: 60 },
+        { id: "resize_disk", name: "Resize data disk" },
+        { id: "start_vm", name: "Start VM instance", estimatedDurationSec: 60 },
+        { id: "verify_completion", name: "Verify completion" },
+      ],
+      operationSteps: {
+        install: "create_vm",
+        start: "wait_for_gateway",
+      },
+      capabilities: {
+        scaling: true,
+        sandbox: true,
+        persistentStorage: true,
+        httpsEndpoint: true,
+        logStreaming: true,
+      },
+      credentials: [
+        {
+          key: "subscriptionId",
+          displayName: "Azure Subscription ID",
+          description: "Azure subscription identifier",
+          required: true,
+          sensitive: false,
+        },
+        {
+          key: "resourceGroup",
+          displayName: "Resource Group",
+          description: "Azure resource group name",
+          required: true,
+          sensitive: false,
+        },
+        {
+          key: "region",
+          displayName: "Azure Region",
+          description: "Azure region (e.g., eastus, westeurope)",
+          required: true,
+          sensitive: false,
+        },
+        {
+          key: "tenantId",
+          displayName: "Azure Tenant ID",
+          description: "Azure AD tenant ID for service principal auth",
+          required: false,
+          sensitive: false,
+        },
+        {
+          key: "clientId",
+          displayName: "Client ID",
+          description: "Service principal application (client) ID",
+          required: false,
+          sensitive: false,
+        },
+        {
+          key: "clientSecret",
+          displayName: "Client Secret",
+          description: "Service principal secret",
+          required: false,
+          sensitive: true,
+        },
+      ],
+      tierSpecs: AZURE_TIER_SPECS,
+    };
   }
 }

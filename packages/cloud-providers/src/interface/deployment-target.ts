@@ -2,8 +2,8 @@
  * Deployment Target Abstraction for OpenClaw
  *
  * Provides a unified interface for deploying OpenClaw gateway instances
- * across different environments: local machines, remote VMs, Docker
- * containers, and Kubernetes clusters.
+ * across different environments: local machines, Docker containers,
+ * and cloud VMs (AWS ECS, GCE, Azure).
  */
 
 /**
@@ -11,13 +11,10 @@
  */
 export enum DeploymentTargetType {
   LOCAL = "local",
-  REMOTE_VM = "remote-vm",
   DOCKER = "docker",
   ECS_EC2 = "ecs-ec2",
   GCE = "gce",
   AZURE_VM = "azure-vm",
-  KUBERNETES = "kubernetes",
-  CLOUDFLARE_WORKERS = "cloudflare-workers",
 }
 
 /**
@@ -123,7 +120,7 @@ export interface DeploymentLogOptions {
  * Each deployment target represents a distinct environment where a
  * OpenClaw gateway instance can be installed, configured, and managed.
  * Implementations handle the specifics of each environment (systemd,
- * Docker, Kubernetes, etc.) behind this common interface.
+ * Docker, cloud VMs, etc.) behind this common interface.
  */
 export interface DeploymentTarget {
   /** The type of deployment target */
@@ -131,9 +128,9 @@ export interface DeploymentTarget {
 
   /**
    * Install the OpenClaw gateway on this target.
-   * For local/VM: runs `openclaw gateway install`.
+   * For local: runs `openclaw gateway install`.
    * For Docker: ensures the container image is available (check local, build, or pull).
-   * For Kubernetes: generates and applies manifests.
+   * For cloud VMs: provisions infrastructure via CloudFormation/Terraform.
    */
   install(options: InstallOptions): Promise<InstallResult>;
 
@@ -148,7 +145,7 @@ export interface DeploymentTarget {
    * Start the OpenClaw gateway instance.
    * For local: starts the service via systemctl/launchctl.
    * For Docker: runs/starts the container.
-   * For Kubernetes: scales replicas up.
+   * For cloud VMs: starts the VM/ECS service.
    */
   start(): Promise<void>;
 
@@ -211,32 +208,6 @@ export interface DeploymentTarget {
 // ── Configuration types for specific targets ──
 
 /**
- * SSH connection configuration for remote VM targets
- */
-export interface RemoteVMConfig {
-  /** Remote host address */
-  host: string;
-  /** SSH port (default: 22) */
-  port: number;
-  /** SSH username */
-  username: string;
-  /** Path to SSH private key file */
-  privateKey?: string;
-  /** SSH password (prefer privateKey) */
-  password?: string;
-  /** SSH key fingerprint for verification */
-  sshKeyFingerprint?: string;
-  /** Disable password-based SSH authentication (default: true) */
-  disablePasswordAuth?: boolean;
-  /** Additional firewall ports to allow beyond SSH and gateway */
-  firewallPorts?: number[];
-  /** Run host hardening during install (default: true) */
-  hardenOnInstall?: boolean;
-  /** SSH port override — warn if set to 22 (default: 22) */
-  sshPort?: number;
-}
-
-/**
  * Configuration for Docker container targets
  */
 export interface DockerTargetConfig {
@@ -254,55 +225,6 @@ export interface DockerTargetConfig {
   networkName?: string;
 }
 
-/**
- * Configuration for Kubernetes targets
- */
-export interface KubernetesTargetConfig {
-  /** Kubernetes namespace */
-  namespace: string;
-  /** Name for the Deployment resource */
-  deploymentName: string;
-  /** Container image (default: "openclaw:local") */
-  image?: string;
-  /** Gateway port */
-  gatewayPort: number;
-  /** kubectl context to use */
-  kubeContext?: string;
-  /** Number of replicas (default: 1) */
-  replicas?: number;
-}
-
-/**
- * Configuration for Cloudflare Workers deployment targets.
- *
- * Deploys an OpenClaw gateway inside a Cloudflare Workers Sandbox container
- * with optional R2 state persistence.
- */
-export interface CloudflareWorkersConfig {
-  /** Cloudflare account ID */
-  accountId: string;
-  /** Worker name */
-  workerName: string;
-  /** R2 bucket name for state persistence */
-  r2BucketName?: string;
-  /** R2 access key ID */
-  r2AccessKeyId?: string;
-  /** R2 secret access key */
-  r2SecretAccessKey?: string;
-  /** Gateway auth token */
-  gatewayToken: string;
-  /** Gateway port (inside container) */
-  gatewayPort: number;
-  /** Cloudflare AI Gateway base URL (optional) */
-  aiGatewayBaseUrl?: string;
-  /** AI Gateway API key (optional) */
-  aiGatewayApiKey?: string;
-  /** Sandbox instance type (default: standard-4) */
-  sandboxInstanceType?: string;
-  /** Worker custom domain (optional) */
-  customDomain?: string;
-}
-
 import type { EcsEc2Config } from "../targets/ecs-ec2/ecs-ec2-config";
 import type { AzureVmConfig } from "../targets/azure-vm/azure-vm-config";
 import type { GceConfig } from "../targets/gce/gce-config";
@@ -316,25 +238,20 @@ export type {
   ResourceTier,
   TierSpec,
   TierDisplayInfo,
+  TierSpecRegistry,
 } from "./resource-spec";
 export {
-  ECS_TIER_SPECS,
-  GCE_TIER_SPECS,
-  AZURE_TIER_SPECS,
   TIER_DISPLAY_INFO,
-  getTierSpec,
-  specToTier,
+  getTierSpecFromRegistry,
+  specToTierFromRegistry,
 } from "./resource-spec";
 
 export type DeploymentTargetConfig =
   | { type: "local" }
-  | { type: "remote-vm"; ssh: RemoteVMConfig }
   | { type: "docker"; docker: DockerTargetConfig }
-  | { type: "kubernetes"; k8s: KubernetesTargetConfig }
   | { type: "ecs-ec2"; ecs: EcsEc2Config }
   | { type: "gce"; gce: GceConfig }
-  | { type: "azure-vm"; azureVm: AzureVmConfig }
-  | { type: "cloudflare-workers"; cloudflare: CloudflareWorkersConfig };
+  | { type: "azure-vm"; azureVm: AzureVmConfig };
 
 // ── Utility types ──
 

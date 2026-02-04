@@ -248,9 +248,6 @@ export function getSecurityTierForTarget(
     case DeploymentTargetType.ECS_EC2:
     case DeploymentTargetType.GCE:
     case DeploymentTargetType.AZURE_VM:
-    case DeploymentTargetType.KUBERNETES:
-    case DeploymentTargetType.CLOUDFLARE_WORKERS:
-    case DeploymentTargetType.REMOTE_VM:
       return "production";
     default:
       return "development";
@@ -280,13 +277,6 @@ export function targetSupportsSandbox(
     case DeploymentTargetType.ECS_EC2:
     case DeploymentTargetType.GCE:
     case DeploymentTargetType.AZURE_VM:
-    case DeploymentTargetType.REMOTE_VM:
-      return true;
-    // Kubernetes can use sidecar Docker daemon or privileged pods
-    case DeploymentTargetType.KUBERNETES:
-      return true; // Depends on cluster config, assume yes
-    // Cloudflare Workers have their own sandbox mechanism
-    case DeploymentTargetType.CLOUDFLARE_WORKERS:
       return true;
     // Local development with Docker - no DinD without Sysbox
     // NOTE: This is conservative; use async version for Sysbox detection
@@ -314,15 +304,6 @@ export async function targetSupportsSandboxAsync(
     case DeploymentTargetType.ECS_EC2:
     case DeploymentTargetType.GCE:
     case DeploymentTargetType.AZURE_VM:
-    case DeploymentTargetType.REMOTE_VM:
-      return { supported: true };
-
-    // Kubernetes can use sidecar Docker daemon or Sysbox RuntimeClass
-    case DeploymentTargetType.KUBERNETES:
-      return { supported: true, reason: "Depends on cluster configuration" };
-
-    // Cloudflare Workers have their own sandbox mechanism
-    case DeploymentTargetType.CLOUDFLARE_WORKERS:
       return { supported: true };
 
     // Local/Docker targets - check for Sysbox
@@ -358,10 +339,7 @@ export async function isTargetReadyForSecureDeployment(
   if (
     targetType === DeploymentTargetType.ECS_EC2 ||
     targetType === DeploymentTargetType.GCE ||
-    targetType === DeploymentTargetType.AZURE_VM ||
-    targetType === DeploymentTargetType.REMOTE_VM ||
-    targetType === DeploymentTargetType.KUBERNETES ||
-    targetType === DeploymentTargetType.CLOUDFLARE_WORKERS
+    targetType === DeploymentTargetType.AZURE_VM
   ) {
     return { ready: true };
   }

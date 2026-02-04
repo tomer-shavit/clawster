@@ -122,11 +122,11 @@ export class GenerateConfigDto {
 
   @ApiPropertyOptional({
     description: "Deployment target",
-    enum: ["local", "docker", "ecs", "kubernetes", "fly"],
+    enum: ["local", "docker", "ecs-ec2", "gce", "azure-vm"],
   })
   @IsOptional()
   @IsString()
-  deploymentTarget?: "local" | "docker" | "ecs" | "kubernetes" | "fly";
+  deploymentTarget?: "local" | "docker" | "ecs-ec2" | "gce" | "azure-vm";
 
   @ApiPropertyOptional({
     description: "Extra labels for manifest metadata",

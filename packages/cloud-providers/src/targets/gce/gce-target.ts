@@ -28,8 +28,35 @@ import {
   DeploymentLogOptions,
   GatewayEndpoint,
 } from "../../interface/deployment-target";
-import type { ResourceSpec, ResourceUpdateResult } from "../../interface/resource-spec";
-import { GCE_TIER_SPECS } from "../../interface/resource-spec";
+import type { ResourceSpec, ResourceUpdateResult, ResourceTier, TierSpec } from "../../interface/resource-spec";
+
+/**
+ * GCE tier specifications.
+ */
+const GCE_TIER_SPECS: Record<Exclude<ResourceTier, "custom">, TierSpec> = {
+  light: {
+    tier: "light",
+    cpu: 256, // 0.25 vCPU equivalent
+    memory: 1024,
+    dataDiskSizeGb: 5,
+    machineType: "e2-micro",
+  },
+  standard: {
+    tier: "standard",
+    cpu: 2048, // 2 vCPU equivalent
+    memory: 2048,
+    dataDiskSizeGb: 10,
+    machineType: "e2-small",
+  },
+  performance: {
+    tier: "performance",
+    cpu: 2048, // 2 vCPU equivalent
+    memory: 4096,
+    dataDiskSizeGb: 20,
+    machineType: "e2-medium",
+  },
+};
+import type { AdapterMetadata, SelfDescribingDeploymentTarget } from "../../interface/adapter-metadata";
 
 import type {
   IGceOperationManager,
@@ -90,7 +117,7 @@ export interface GceTargetOptions {
 /**
  * GCE deployment target for OpenClaw gateway.
  */
-export class GceTarget extends BaseDeploymentTarget {
+export class GceTarget extends BaseDeploymentTarget implements SelfDescribingDeploymentTarget {
   readonly type = DeploymentTargetType.GCE;
 
   private readonly config: GceConfig;
@@ -902,5 +929,84 @@ docker run -d \\
         // For unknown types, return default
         return { cpu: 1024, memory: 2048, dataDiskSizeGb };
     }
+  }
+
+  // ------------------------------------------------------------------
+  // getMetadata
+  // ------------------------------------------------------------------
+
+  /**
+   * Return metadata describing this adapter's capabilities and provisioning steps.
+   */
+  getMetadata(): AdapterMetadata {
+    return {
+      type: DeploymentTargetType.GCE,
+      displayName: "Google Compute Engine",
+      icon: "gcp",
+      description: "Run OpenClaw on GCE VM with persistent disk and sandbox support",
+      status: "ready",
+      provisioningSteps: [
+        { id: "validate_config", name: "Validate configuration" },
+        { id: "security_audit", name: "Security audit" },
+        { id: "create_secret", name: "Create Secret Manager secret" },
+        { id: "create_vpc", name: "Create VPC network" },
+        { id: "create_subnet", name: "Create subnet" },
+        { id: "create_firewall", name: "Create firewall rules" },
+        { id: "reserve_ip", name: "Reserve external IP" },
+        { id: "create_disk", name: "Create persistent disk" },
+        { id: "create_vm", name: "Create VM instance", estimatedDurationSec: 120 },
+        { id: "create_instance_group", name: "Create instance group" },
+        { id: "create_security_policy", name: "Create Cloud Armor policy" },
+        { id: "create_backend", name: "Create backend service" },
+        { id: "create_url_map", name: "Create URL map" },
+        { id: "create_proxy", name: "Create HTTP(S) proxy" },
+        { id: "create_forwarding_rule", name: "Create forwarding rule" },
+        { id: "wait_for_gateway", name: "Wait for Gateway", estimatedDurationSec: 30 },
+        { id: "health_check", name: "Health check" },
+      ],
+      resourceUpdateSteps: [
+        { id: "validate_resources", name: "Validate resource configuration" },
+        { id: "stop_vm", name: "Stop VM instance" },
+        { id: "resize_machine", name: "Change machine type", estimatedDurationSec: 60 },
+        { id: "resize_disk", name: "Resize data disk" },
+        { id: "start_vm", name: "Start VM instance", estimatedDurationSec: 60 },
+        { id: "verify_completion", name: "Verify completion" },
+      ],
+      operationSteps: {
+        install: "create_vm",
+        start: "wait_for_gateway",
+      },
+      capabilities: {
+        scaling: true,
+        sandbox: true,
+        persistentStorage: true,
+        httpsEndpoint: true,
+        logStreaming: true,
+      },
+      credentials: [
+        {
+          key: "projectId",
+          displayName: "GCP Project ID",
+          description: "Google Cloud project ID",
+          required: true,
+          sensitive: false,
+        },
+        {
+          key: "zone",
+          displayName: "GCP Zone",
+          description: "Compute Engine zone (e.g., us-central1-a)",
+          required: true,
+          sensitive: false,
+        },
+        {
+          key: "keyFilePath",
+          displayName: "Service Account Key File",
+          description: "Path to service account JSON key file",
+          required: false,
+          sensitive: true,
+        },
+      ],
+      tierSpecs: GCE_TIER_SPECS,
+    };
   }
 }

@@ -28,6 +28,6 @@ export const configValidationSchema = Joi.object({
 
   // Default deployment target
   DEFAULT_DEPLOYMENT_TARGET: Joi.string()
-    .valid("docker", "local", "kubernetes", "ecs-ec2", "gce", "azure-vm")
+    .valid("docker", "local", "ecs-ec2", "gce", "azure-vm")
     .default("docker"),
 });

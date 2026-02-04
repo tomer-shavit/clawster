@@ -252,7 +252,7 @@ export interface ConfigGeneratorInput {
   /** Target environment. */
   environment?: "dev" | "staging" | "prod" | "local";
   /** Deployment target. */
-  deploymentTarget?: "local" | "docker" | "ecs" | "kubernetes" | "fly";
+  deploymentTarget?: "local" | "docker" | "ecs-ec2" | "gce" | "azure-vm";
   /** Extra labels for the manifest metadata. */
   labels?: Record<string, string>;
 }

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { ProvisioningEventsGateway } from "./provisioning-events.gateway";
+import { AdapterRegistry, DeploymentTargetType } from "@clawster/cloud-providers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,172 +35,6 @@ export interface ProvisioningLogEntry {
 }
 
 // ---------------------------------------------------------------------------
-// Step definitions per deployment type
-// ---------------------------------------------------------------------------
-
-const STEP_NAMES: Record<string, string> = {
-  // Common steps
-  validate_config: "Validate configuration",
-  security_audit: "Security audit",
-  write_config: "Write configuration",
-  wait_for_gateway: "Wait for Gateway",
-  health_check: "Health check",
-
-  // Docker steps
-  pull_image: "Pull container image",
-  build_image: "Build container image",
-  create_container: "Create container",
-  start_container: "Start container",
-
-  // Local steps
-  install_openclaw: "Install OpenClaw",
-  install_service: "Install service",
-  start_service: "Start service",
-
-  // Kubernetes steps
-  generate_manifests: "Generate Kubernetes manifests",
-  apply_configmap: "Apply ConfigMap",
-  apply_deployment: "Apply Deployment",
-  apply_service: "Apply Service",
-  wait_for_pod: "Wait for pod readiness",
-
-  // AWS ECS steps
-  create_stack: "Create CloudFormation stack",
-  update_stack: "Update CloudFormation stack",
-  wait_stack_complete: "Wait for stack completion",
-  configure_secrets: "Configure secrets",
-  create_task_definition: "Create task definition",
-  create_service: "Create ECS service",
-  update_service: "Update ECS service",
-  wait_for_task: "Wait for task startup",
-  wait_service_stable: "Wait for service stability",
-
-  // GCP GCE steps
-  create_network: "Create network resources",
-  create_disk: "Create data disk",
-  create_instance: "Create VM instance",
-  wait_instance_ready: "Wait for VM ready",
-  configure_instance: "Configure instance",
-  stop_instance: "Stop VM instance",
-  start_instance: "Start VM instance",
-  resize_machine: "Resize machine type",
-  resize_disk: "Resize data disk",
-
-  // Azure VM steps
-  create_resources: "Create Azure resources",
-  create_vm: "Create VM",
-  wait_vm_ready: "Wait for VM ready",
-  configure_vm: "Configure VM",
-  deallocate_vm: "Deallocate VM",
-  resize_vm: "Resize VM",
-  start_vm: "Start VM",
-
-  // Cloudflare Workers steps
-  generate_wrangler_config: "Generate Wrangler config",
-  build_worker: "Build worker",
-  deploy_worker: "Deploy worker",
-  restore_state: "Restore state",
-
-  // Resource update steps (universal)
-  validate_resources: "Validate resource configuration",
-  apply_changes: "Apply resource changes",
-  verify_completion: "Verify completion",
-
-  // Legacy/specific steps (kept for backward compatibility)
-  update_resources: "Update resources",
-  update_task_definition: "Update task definition",
-};
-
-export const PROVISIONING_STEPS: Record<string, string[]> = {
-  docker: [
-    "validate_config",
-    "security_audit",
-    "build_image",
-    "create_container",
-    "write_config",
-    "start_container",
-    "wait_for_gateway",
-    "health_check",
-  ],
-  local: [
-    "validate_config",
-    "security_audit",
-    "install_openclaw",
-    "write_config",
-    "install_service",
-    "start_service",
-    "wait_for_gateway",
-    "health_check",
-  ],
-  kubernetes: [
-    "validate_config",
-    "security_audit",
-    "generate_manifests",
-    "apply_configmap",
-    "apply_deployment",
-    "apply_service",
-    "wait_for_pod",
-    "wait_for_gateway",
-    "health_check",
-  ],
-  "ecs-ec2": [
-    "validate_config",
-    "security_audit",
-    "create_stack",
-    "wait_stack_complete",
-    "configure_secrets",
-    "wait_service_stable",
-    "wait_for_gateway",
-    "health_check",
-  ],
-  gce: [
-    "validate_config",
-    "security_audit",
-    "create_network",
-    "create_disk",
-    "create_instance",
-    "wait_instance_ready",
-    "write_config",
-    "wait_for_gateway",
-    "health_check",
-  ],
-  "azure-vm": [
-    "validate_config",
-    "security_audit",
-    "create_resources",
-    "create_vm",
-    "wait_vm_ready",
-    "write_config",
-    "wait_for_gateway",
-    "health_check",
-  ],
-  "cloudflare-workers": [
-    "validate_config",
-    "security_audit",
-    "generate_wrangler_config",
-    "build_worker",
-    "deploy_worker",
-    "restore_state",
-    "wait_for_gateway",
-    "health_check",
-  ],
-};
-
-/**
- * Step definitions for resource update operations.
- * Uses simplified universal steps that work across all cloud providers.
- * Detailed progress is shown via streaming logs from the cloud providers.
- */
-export const RESOURCE_UPDATE_STEPS: Record<string, string[]> = {
-  // Universal steps for all deployment types
-  default: [
-    "validate_resources",
-    "apply_changes",
-    "verify_completion",
-  ],
-};
-
-// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -219,11 +54,19 @@ export class ProvisioningEventsService {
   }
 
   startProvisioning(instanceId: string, deploymentType: string): void {
-    const stepIds =
-      PROVISIONING_STEPS[deploymentType] ?? PROVISIONING_STEPS["docker"];
-    const steps: ProvisioningStep[] = stepIds.map((id) => ({
-      id,
-      name: STEP_NAMES[id] ?? id,
+    // Get steps from the adapter registry
+    const registrySteps = this.getRegistryProvisioningSteps(deploymentType);
+
+    if (registrySteps.length === 0) {
+      throw new Error(
+        `No provisioning steps found for deployment type "${deploymentType}". ` +
+        `Ensure the adapter is registered with the AdapterRegistry.`
+      );
+    }
+
+    const steps: ProvisioningStep[] = registrySteps.map((step) => ({
+      id: step.id,
+      name: step.name,
       status: "pending" as const,
     }));
 
@@ -250,17 +93,25 @@ export class ProvisioningEventsService {
 
   /**
    * Start tracking a resource update operation.
-   * Uses universal steps that work across all cloud providers.
-   * Detailed provider-specific progress is shown via streaming logs.
+   * Uses steps from the adapter registry. Falls back to universal steps
+   * if the adapter doesn't define resource update steps.
    */
   startResourceUpdate(instanceId: string, deploymentType: string): void {
-    // Always use universal steps - detailed progress shown in streaming logs
-    const stepIds = RESOURCE_UPDATE_STEPS["default"];
-    const steps: ProvisioningStep[] = stepIds.map((id) => ({
-      id,
-      name: STEP_NAMES[id] ?? id,
-      status: "pending" as const,
-    }));
+    // Get resource update steps from the adapter registry
+    const registrySteps = this.getRegistryResourceUpdateSteps(deploymentType);
+
+    // Use registry steps, or universal steps if adapter doesn't define them
+    const steps: ProvisioningStep[] = registrySteps.length > 0
+      ? registrySteps.map((step) => ({
+          id: step.id,
+          name: step.name,
+          status: "pending" as const,
+        }))
+      : [
+          { id: "validate_resources", name: "Validate resource configuration", status: "pending" as const },
+          { id: "apply_changes", name: "Apply resource changes", status: "pending" as const },
+          { id: "verify_completion", name: "Verify completion", status: "pending" as const },
+        ];
 
     const progress: ProvisioningProgress = {
       instanceId,
@@ -436,5 +287,45 @@ export class ProvisioningEventsService {
     if (this.gateway) {
       this.gateway.emitProgress(instanceId, progress);
     }
+  }
+
+  // ---- Registry helpers ----
+
+  /**
+   * Convert string deployment type to DeploymentTargetType enum.
+   */
+  private stringToDeploymentTargetType(type: string): DeploymentTargetType | undefined {
+    const typeMap: Record<string, DeploymentTargetType> = {
+      local: DeploymentTargetType.LOCAL,
+      docker: DeploymentTargetType.DOCKER,
+      "ecs-ec2": DeploymentTargetType.ECS_EC2,
+      gce: DeploymentTargetType.GCE,
+      "azure-vm": DeploymentTargetType.AZURE_VM,
+    };
+    return typeMap[type];
+  }
+
+  /**
+   * Get provisioning steps from the adapter registry.
+   */
+  private getRegistryProvisioningSteps(deploymentType: string): Array<{ id: string; name: string }> {
+    const typeEnum = this.stringToDeploymentTargetType(deploymentType);
+    if (!typeEnum) return [];
+
+    const registry = AdapterRegistry.getInstance();
+    const steps = registry.getProvisioningSteps(typeEnum);
+    return steps.map((step) => ({ id: step.id, name: step.name }));
+  }
+
+  /**
+   * Get resource update steps from the adapter registry.
+   */
+  private getRegistryResourceUpdateSteps(deploymentType: string): Array<{ id: string; name: string }> {
+    const typeEnum = this.stringToDeploymentTargetType(deploymentType);
+    if (!typeEnum) return [];
+
+    const registry = AdapterRegistry.getInstance();
+    const steps = registry.getResourceUpdateSteps(typeEnum);
+    return steps.map((step) => ({ id: step.id, name: step.name }));
   }
 }

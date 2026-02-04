@@ -29,12 +29,6 @@ describe("ProvisioningEventsService", () => {
       expect(progress!.steps[0].status).toBe("pending");
     });
 
-    it("should create progress with correct steps for kubernetes deployment", () => {
-      service.startProvisioning("inst-2", "kubernetes");
-      const progress = service.getProgress("inst-2");
-      expect(progress!.steps).toHaveLength(PROVISIONING_STEPS["kubernetes"].length);
-    });
-
     it("should create progress with correct steps for local deployment", () => {
       service.startProvisioning("inst-3", "local");
       const progress = service.getProgress("inst-3");
@@ -47,10 +41,16 @@ describe("ProvisioningEventsService", () => {
       expect(progress!.steps).toHaveLength(PROVISIONING_STEPS["ecs-ec2"].length);
     });
 
-    it("should create progress with correct steps for cloudflare-workers deployment", () => {
-      service.startProvisioning("inst-5", "cloudflare-workers");
+    it("should create progress with correct steps for gce deployment", () => {
+      service.startProvisioning("inst-5", "gce");
       const progress = service.getProgress("inst-5");
-      expect(progress!.steps).toHaveLength(PROVISIONING_STEPS["cloudflare-workers"].length);
+      expect(progress!.steps).toHaveLength(PROVISIONING_STEPS["gce"].length);
+    });
+
+    it("should create progress with correct steps for azure-vm deployment", () => {
+      service.startProvisioning("inst-6", "azure-vm");
+      const progress = service.getProgress("inst-6");
+      expect(progress!.steps).toHaveLength(PROVISIONING_STEPS["azure-vm"].length);
     });
 
     it("should emit progress via gateway", () => {

@@ -3,20 +3,105 @@ import {
   DeploymentTargetType,
   DeploymentTargetConfig,
 } from "../interface/deployment-target";
+import { AdapterRegistry } from "../registry/adapter-registry";
 import { LocalMachineTarget } from "./local/local-target";
-import { RemoteVMTarget } from "./remote-vm/remote-vm-target";
 import { DockerContainerTarget } from "./docker/docker-target";
-import { KubernetesTarget } from "./kubernetes/kubernetes-target";
 import { EcsEc2Target } from "./ecs-ec2/ecs-ec2-target";
 import { GceTarget } from "./gce/gce-target";
 import { AzureVmTarget } from "./azure-vm/azure-vm-target";
-import { CloudflareWorkersTarget } from "./cloudflare-workers/cloudflare-workers-target";
+
+/**
+ * Register adapters with the registry.
+ * This is called once when the factory module is loaded.
+ */
+function registerBuiltinAdapters(): void {
+  const registry = AdapterRegistry.getInstance();
+
+  // Local - has full getMetadata() support
+  registry.register(
+    DeploymentTargetType.LOCAL,
+    () => new LocalMachineTarget(),
+    new LocalMachineTarget().getMetadata()
+  );
+
+  // Docker - has full getMetadata() support
+  registry.register(
+    DeploymentTargetType.DOCKER,
+    (config: unknown) => {
+      const c = config as DeploymentTargetConfig;
+      if (c.type !== "docker" || !c.docker) {
+        throw new Error("Docker target requires 'docker' configuration");
+      }
+      return new DockerContainerTarget(c.docker);
+    },
+    new DockerContainerTarget({ containerName: "", configPath: "", gatewayPort: 18789 }).getMetadata()
+  );
+
+  // ECS EC2 - has full getMetadata() support
+  registry.register(
+    DeploymentTargetType.ECS_EC2,
+    (config: unknown) => {
+      const c = config as DeploymentTargetConfig;
+      if (c.type !== "ecs-ec2" || !c.ecs) {
+        throw new Error("ECS EC2 target requires 'ecs' configuration");
+      }
+      return new EcsEc2Target(c.ecs);
+    },
+    new EcsEc2Target({
+      accessKeyId: "",
+      secretAccessKey: "",
+      region: "us-east-1",
+      profileName: "temp",
+    }).getMetadata()
+  );
+
+  // GCE - has full getMetadata() support
+  registry.register(
+    DeploymentTargetType.GCE,
+    (config: unknown) => {
+      const c = config as DeploymentTargetConfig;
+      if (c.type !== "gce" || !c.gce) {
+        throw new Error("GCE target requires 'gce' configuration");
+      }
+      return new GceTarget(c.gce);
+    },
+    new GceTarget({
+      projectId: "",
+      zone: "us-central1-a",
+      profileName: "temp",
+    }).getMetadata()
+  );
+
+  // Azure VM - has full getMetadata() support
+  registry.register(
+    DeploymentTargetType.AZURE_VM,
+    (config: unknown) => {
+      const c = config as DeploymentTargetConfig;
+      if (c.type !== "azure-vm" || !c.azureVm) {
+        throw new Error("Azure VM target requires 'azureVm' configuration");
+      }
+      return new AzureVmTarget(c.azureVm);
+    },
+    new AzureVmTarget({
+      subscriptionId: "",
+      resourceGroup: "",
+      region: "eastus",
+      profileName: "temp",
+    }).getMetadata()
+  );
+}
+
+// Register built-in adapters on module load
+registerBuiltinAdapters();
 
 /**
  * Factory for creating DeploymentTarget instances based on configuration.
  *
- * Supports creating targets for local machines, remote VMs (SSH),
- * Docker containers, and Kubernetes deployments.
+ * Supports creating targets for local machines, Docker containers,
+ * and cloud providers (AWS ECS, GCE, Azure).
+ *
+ * All targets are created via the AdapterRegistry, which handles
+ * adapter registration and instantiation.
  */
 export class DeploymentTargetFactory {
   /**
@@ -27,57 +112,8 @@ export class DeploymentTargetFactory {
    * @throws Error if the target type is unknown or configuration is invalid
    */
   static create(config: DeploymentTargetConfig): DeploymentTarget {
-    switch (config.type) {
-      case "local":
-        return new LocalMachineTarget();
-
-      case "remote-vm":
-        if (!config.ssh) {
-          throw new Error("RemoteVM target requires 'ssh' configuration");
-        }
-        return new RemoteVMTarget(config.ssh);
-
-      case "docker":
-        if (!config.docker) {
-          throw new Error("Docker target requires 'docker' configuration");
-        }
-        return new DockerContainerTarget(config.docker);
-
-      case "kubernetes":
-        if (!config.k8s) {
-          throw new Error("Kubernetes target requires 'k8s' configuration");
-        }
-        return new KubernetesTarget(config.k8s);
-
-      case "ecs-ec2":
-        if (!config.ecs) {
-          throw new Error("ECS EC2 target requires 'ecs' configuration");
-        }
-        return new EcsEc2Target(config.ecs);
-
-      case "gce":
-        if (!config.gce) {
-          throw new Error("GCE target requires 'gce' configuration");
-        }
-        return new GceTarget(config.gce);
-
-      case "azure-vm":
-        if (!config.azureVm) {
-          throw new Error("Azure VM target requires 'azureVm' configuration");
-        }
-        return new AzureVmTarget(config.azureVm);
-
-      case "cloudflare-workers":
-        if (!config.cloudflare) {
-          throw new Error("Cloudflare Workers target requires 'cloudflare' configuration");
-        }
-        return new CloudflareWorkersTarget(config.cloudflare);
-
-      default: {
-        const exhaustive: never = config;
-        throw new Error(`Unknown deployment target type: ${(exhaustive as { type: string }).type}`);
-      }
-    }
+    const registry = AdapterRegistry.getInstance();
+    return registry.create(config);
   }
 
   /**
@@ -89,71 +125,26 @@ export class DeploymentTargetFactory {
     description: string;
     status: "ready" | "beta" | "coming_soon";
   }> {
-    return [
-      {
-        type: DeploymentTargetType.LOCAL,
-        name: "Local Machine",
-        description: "Deploy on the current machine using systemd (Linux) or launchctl (macOS)",
-        status: "ready",
-      },
-      {
-        type: DeploymentTargetType.REMOTE_VM,
-        name: "Remote VM (SSH)",
-        description: "Deploy on a remote machine via SSH connection",
-        status: "beta",
-      },
-      {
-        type: DeploymentTargetType.DOCKER,
-        name: "Docker Container",
-        description: "Run in a Docker container with mounted configuration",
-        status: "ready",
-      },
-      {
-        type: DeploymentTargetType.KUBERNETES,
-        name: "Kubernetes",
-        description: "Deploy as a Kubernetes Deployment with Service and ConfigMap",
-        status: "ready",
-      },
-      {
-        type: DeploymentTargetType.ECS_EC2,
-        name: "AWS ECS EC2",
-        description: "Deploy on AWS ECS with EC2 launch type (enables Docker sandbox isolation)",
-        status: "ready",
-      },
-      {
-        type: DeploymentTargetType.GCE,
-        name: "Google Compute Engine",
-        description: "Deploy on GCE VM with persistent disk for WhatsApp sessions and sandbox support",
-        status: "ready",
-      },
-      {
-        type: DeploymentTargetType.AZURE_VM,
-        name: "Azure Virtual Machine",
-        description: "Deploy on Azure VM with managed disk for WhatsApp sessions and sandbox support",
-        status: "ready",
-      },
-      {
-        type: DeploymentTargetType.CLOUDFLARE_WORKERS,
-        name: "Cloudflare Workers",
-        description: "Deploy on Cloudflare Workers with Sandbox containers and R2 state persistence",
-        status: "ready",
-      },
-    ];
+    const registry = AdapterRegistry.getInstance();
+    return registry.getAllMetadata().map((m) => ({
+      type: m.type,
+      name: m.displayName,
+      description: m.description,
+      status: m.status,
+    }));
   }
 
   /**
    * Check if a deployment target type is currently supported.
    */
   static isTargetSupported(type: DeploymentTargetType): boolean {
-    return [
-      DeploymentTargetType.LOCAL,
-      DeploymentTargetType.REMOTE_VM,
-      DeploymentTargetType.DOCKER,
-      DeploymentTargetType.KUBERNETES,
-      DeploymentTargetType.ECS_EC2,
-      DeploymentTargetType.GCE,
-      DeploymentTargetType.AZURE_VM,
-      DeploymentTargetType.CLOUDFLARE_WORKERS,
-    ].includes(type);
+    return AdapterRegistry.getInstance().isRegistered(type);
+  }
+
+  /**
+   * Get the AdapterRegistry instance for direct access to adapter metadata.
+   */
+  static getRegistry(): AdapterRegistry {
+    return AdapterRegistry.getInstance();
   }
 }

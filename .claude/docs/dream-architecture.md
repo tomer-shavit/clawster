@@ -194,14 +194,15 @@ For deploying OpenClaw gateways to remote infrastructure. Clawster still runs lo
 
 | Target | How It Works | Status |
 |--------|-------------|--------|
-| **Docker** | Docker CLI on local/remote host. Config mounted as volume. | Ready |
-| **Local** | systemd/launchctl on the same machine. | Ready |
-| **Remote VM** | SSH to remote host, run Docker/systemd there. | Beta |
-| **Kubernetes** | StatefulSet + ConfigMap + Service. kubectl applies manifests. | Beta |
-| **ECS EC2** | AWS task definition + service. Config in Secrets Manager. | Ready |
-| **Cloudflare Workers** | Wrangler deploy. State in R2. | Beta |
+| **Docker** | Docker CLI on local/remote host. Config mounted as volume. | ✅ Ready |
+| **Local** | systemd/launchctl on the same machine. | ✅ Ready |
+| **ECS EC2** | AWS task definition + service. Config in Secrets Manager. | ✅ Ready |
+| **GCE** | Google Compute Engine VM with persistent disk. | ✅ Ready |
+| **Azure VM** | Azure Virtual Machine with managed disk. | ✅ Ready |
 
-**No Kubernetes required.** K8s is one option among many. The default (Docker or Local) is simpler and sufficient for most users.
+**Removed targets:**
+- ~~Cloudflare Workers~~ — Not a good fit for OpenClaw containers (requires Node.js runtime)
+- ~~Kubernetes~~ — Complexity vs. value tradeoff; direct VM/ECS targets are simpler and sufficient
 
 ---
 
@@ -223,21 +224,35 @@ interface DeploymentTarget {
 }
 ```
 
-The `DeploymentTargetFactory` creates the right implementation based on config:
+The `AdapterRegistry` provides a factory pattern for target instantiation with metadata:
 
 ```typescript
-const target = DeploymentTargetFactory.create({
-  type: "docker",
-  docker: {
-    containerName: "openclaw-support-bot",
-    imageName: "openclaw:local",
-    configPath: "/var/openclaw/support-bot",
-    gatewayPort: 18789,
+// Register an adapter
+AdapterRegistry.register('docker', {
+  factory: (config) => new DockerContainerTarget(config),
+  metadata: {
+    supportsSandbox: true,
+    supportsNetworkIsolation: true,
+    requiresCredentials: false,
+    // ... capability discovery
   }
+});
+
+// Create a target
+const target = AdapterRegistry.create('docker', {
+  containerName: "openclaw-support-bot",
+  imageName: "openclaw:local",
+  configPath: "/var/openclaw/support-bot",
+  gatewayPort: 18789,
 });
 ```
 
-**All targets use CLI tools** (docker, kubectl, aws, wrangler) via `child_process.execFile`. No SDK dependencies for core operations.
+**Architecture is SOLID-compliant:**
+- **AdapterMetadata**: Capability discovery (supportsSandbox, supportsNetworkIsolation, etc.)
+- **ResourceSpec**: Standardized resource specifications across targets
+- **Modular adapter packages**: AWS, Azure, GCP SDKs are in separate packages with peer dependencies to avoid lock-in
+
+**All targets use CLI tools** (docker, aws, gcloud, az) via `child_process.execFile`. SDK dependencies are optional peer dependencies in the adapter packages.
 
 ---
 
@@ -315,7 +330,7 @@ clawster/
 │   │       ├── provisioning/   # Real-time provisioning events (WS)
 │   │       ├── notification-channels/ # External notification destinations + delivery
 │   │       ├── bot-routing/    # Bot-to-bot routing rules + delegation service
-│   │       └── ... (34 modules total)
+│   │       └── ... (37 modules total)
 │   │
 │   └── web/                    # Next.js frontend
 │       └── src/
@@ -326,10 +341,13 @@ clawster/
 │
 ├── packages/
 │   ├── core/                   # Zod schemas, types, PolicyEngine
-│   ├── database/               # Prisma + SQLite
+│   ├── database/               # Prisma + SQLite (45+ models)
 │   ├── gateway-client/         # WebSocket client for OpenClaw Gateway
-│   ├── cloud-providers/        # Deployment target implementations
-│   ├── adapters-aws/           # AWS-specific adapters
+│   ├── cloud-providers/        # 5 deployment target implementations + adapter registry
+│   ├── adapters-aws/           # AWS SDK integrations (ECS, Secrets Manager, CloudWatch)
+│   ├── adapters-azure/         # Azure SDK integrations (Compute, Key Vault, Log Analytics)
+│   ├── adapters-gcp/           # GCP SDK integrations (Compute Engine, Secret Manager, Logging)
+│   ├── adapters-common/        # Shared adapter interfaces
 │   └── cli/                    # CLI tool
 │
 └── docker/
@@ -778,4 +796,3 @@ These must always be true. If your change breaks any of these, something is wron
 7. **The reconciler is the single path for infrastructure changes.** Don't bypass it to manage deployment targets directly.
 8. **SQLite is the database.** Embedded, zero-dependency. No PostgreSQL or external DB required.
 9. **Security defaults are enforced, not optional.** Gateway auth, DM pairing, and sandbox are always configured.
-10. **No Kubernetes required.** K8s is one optional deployment target. The default path is Docker or Local.

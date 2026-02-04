@@ -1,7 +1,6 @@
 import { execFile } from "child_process";
 import { platform } from "os";
 import {
-  DeploymentTarget,
   DeploymentTargetType,
   InstallOptions,
   InstallResult,
@@ -13,6 +12,8 @@ import {
   DetectedOS,
   validatePortSpacing,
 } from "../../interface/deployment-target";
+import { BaseDeploymentTarget } from "../../base/base-deployment-target";
+import type { AdapterMetadata, SelfDescribingDeploymentTarget } from "../../interface/adapter-metadata";
 
 /**
  * Executes a command using child_process.execFile and returns stdout.
@@ -57,7 +58,7 @@ function detectOS(): DetectedOS {
  * Profile-based isolation means each instance gets its own service
  * name, config directory, and port range.
  */
-export class LocalMachineTarget implements DeploymentTarget {
+export class LocalMachineTarget extends BaseDeploymentTarget implements SelfDescribingDeploymentTarget {
   readonly type = DeploymentTargetType.LOCAL;
 
   private profileName: string = "";
@@ -65,6 +66,7 @@ export class LocalMachineTarget implements DeploymentTarget {
   private os: DetectedOS;
 
   constructor() {
+    super();
     this.os = detectOS();
   }
 
@@ -377,6 +379,64 @@ export class LocalMachineTarget implements DeploymentTarget {
 
     this.profileName = "";
     this.port = 0;
+  }
+
+  /**
+   * Return metadata describing this adapter's capabilities,
+   * provisioning steps, and configuration requirements.
+   */
+  getMetadata(): AdapterMetadata {
+    return {
+      type: DeploymentTargetType.LOCAL,
+      displayName: "Local Machine",
+      icon: "computer",
+      description: "Deploy on the current machine using systemd (Linux) or launchctl (macOS)",
+      status: "ready",
+
+      provisioningSteps: [
+        {
+          id: "install_openclaw",
+          name: "Install OpenClaw",
+          description: "Install OpenClaw gateway service on the local machine",
+          estimatedDurationSec: 30,
+        },
+        {
+          id: "configure_gateway",
+          name: "Configure Gateway",
+          description: "Apply OpenClaw configuration",
+          estimatedDurationSec: 5,
+        },
+        {
+          id: "start_service",
+          name: "Start Service",
+          description: "Start the gateway service via systemd/launchctl",
+          estimatedDurationSec: 5,
+        },
+        {
+          id: "connect_gateway",
+          name: "Connect Gateway",
+          description: "Establish WebSocket connection to gateway",
+          estimatedDurationSec: 5,
+        },
+      ],
+
+      resourceUpdateSteps: [],
+
+      operationSteps: {
+        install: "install_openclaw",
+        start: "start_service",
+      },
+
+      capabilities: {
+        scaling: false,
+        sandbox: false,
+        persistentStorage: true,
+        httpsEndpoint: false,
+        logStreaming: true,
+      },
+
+      credentials: [],
+    };
   }
 
   /**

@@ -38,7 +38,7 @@ Organizations that need hundreds of agents across departments, with governance, 
 ## Core Principles
 
 ### 1. Deploy Anywhere
-OpenClaws should run wherever the user wants. Local machines, Docker, Kubernetes, AWS ECS, Azure, GCP — Clawster abstracts the infrastructure through deployment targets. Users bring their own stack. Clawster handles the lifecycle.
+OpenClaws should run wherever the user wants. Local machines, Docker, AWS ECS, GCP Compute Engine, Azure VMs — Clawster abstracts the infrastructure through deployment targets. Users bring their own stack. Clawster handles the lifecycle.
 
 ### 2. Secure by Default
 Every OpenClaw deployed through Clawster starts secure: gateway auth tokens generated and stored properly, no plaintext secrets, policy packs enforcing guardrails, audit logs for every change. Security isn't an add-on — it's the baseline.
@@ -66,7 +66,7 @@ For users who don't want to manage infrastructure, a future hosted SaaS offering
 
 - **One-click setup**: Select your deployment platform (Local/Docker, AWS, Azure, GCP), configure channels, name your bot, deploy. The whole selection becomes a reusable template. A non-technical user can get a production OpenClaw running through a guided wizard.
 - **Lifecycle management**: Start, stop, restart, redeploy, destroy. All through the UI, API, or CLI.
-- **Multi-cloud**: Deploy targets are pluggable. AWS today, Kubernetes tomorrow, Azure next week. Users choose their stack.
+- **Multi-cloud**: Deploy targets are pluggable. AWS today, GCP tomorrow, Azure next week. Users choose their stack.
 - **Bulk operations**: Restart 50 bots. Roll out a config change to a fleet. Pin versions across environments.
 
 ### Configure at Scale

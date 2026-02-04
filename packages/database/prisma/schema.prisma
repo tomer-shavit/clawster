@@ -754,10 +754,10 @@ model DeploymentTarget {
   type String
 
   // Type-specific configuration (JSON)
-  // For remote-vm: { host, sshPort, username, privateKeyRef }
   // For docker: { imageName, networkName }
-  // For kubernetes: { namespace, kubeContext }
-  // For cloud: provider-specific settings
+  // For ecs-ec2: { accessKeyId, secretAccessKey, region }
+  // For gce: { projectId, zone }
+  // For azure-vm: { subscriptionId, resourceGroup, region }
   config String @default("{}")
 
   status        String   @default("active") // "active" | "inactive" | "error"

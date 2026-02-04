@@ -32,11 +32,9 @@ export function formatDeploymentType(
   const labels: Record<string, string> = {
     LOCAL: 'Local',
     DOCKER: 'Docker',
-    REMOTE_VM: 'VM',
     ECS_EC2: 'ECS',
     GCE: 'GCE',
     AZURE_VM: 'Azure VM',
-    KUBERNETES: 'K8s',
   };
   return labels[type.toUpperCase()] || type;
 }

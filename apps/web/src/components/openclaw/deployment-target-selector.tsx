@@ -6,28 +6,21 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   Monitor,
-  Server,
   Container,
   Cloud,
-  Boxes,
   Globe,
 } from "lucide-react";
 
 export type DeploymentTargetType =
   | "local"
-  | "remote-vm"
   | "docker"
-  | "kubernetes"
   | "ecs"
   | "gce"
   | "azure-vm";
 
 export interface DeploymentTargetConfig {
   type: DeploymentTargetType;
-  host?: string;
-  port?: number;
   image?: string;
-  namespace?: string;
   cluster?: string;
   region?: string;
   zone?: string;
@@ -56,22 +49,10 @@ const targetOptions: {
     icon: <Monitor className="w-5 h-5" />,
   },
   {
-    type: "remote-vm",
-    label: "Remote VM",
-    description: "SSH-accessible remote server",
-    icon: <Server className="w-5 h-5" />,
-  },
-  {
     type: "docker",
     label: "Docker",
     description: "Docker container",
     icon: <Container className="w-5 h-5" />,
-  },
-  {
-    type: "kubernetes",
-    label: "Kubernetes",
-    description: "K8s pod deployment",
-    icon: <Boxes className="w-5 h-5" />,
   },
   {
     type: "ecs",
@@ -139,30 +120,6 @@ export function DeploymentTargetSelector({
 
         {/* Per-type config */}
         <div className="space-y-3 pt-3 border-t">
-          {value.type === "remote-vm" && (
-            <>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Host</label>
-                <Input
-                  placeholder="192.168.1.100 or hostname"
-                  value={value.host || ""}
-                  onChange={(e) => handleFieldChange("host", e.target.value)}
-                  className="h-8 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Port</label>
-                <Input
-                  type="number"
-                  placeholder="22"
-                  value={value.port || ""}
-                  onChange={(e) => handleFieldChange("port", e.target.value)}
-                  className="h-8 text-sm"
-                />
-              </div>
-            </>
-          )}
-
           {value.type === "docker" && (
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Image</label>
@@ -173,29 +130,6 @@ export function DeploymentTargetSelector({
                 className="h-8 text-sm"
               />
             </div>
-          )}
-
-          {value.type === "kubernetes" && (
-            <>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Namespace</label>
-                <Input
-                  placeholder="default"
-                  value={value.namespace || ""}
-                  onChange={(e) => handleFieldChange("namespace", e.target.value)}
-                  className="h-8 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Image</label>
-                <Input
-                  placeholder="clawster/openclaw:latest"
-                  value={value.image || ""}
-                  onChange={(e) => handleFieldChange("image", e.target.value)}
-                  className="h-8 text-sm"
-                />
-              </div>
-            </>
           )}
 
           {value.type === "ecs" && (

@@ -13,12 +13,14 @@ import type { GatewayConnectionOptions } from "@clawster/gateway-client";
 import {
   DeploymentTargetFactory,
   DeploymentTargetType,
+  AdapterRegistry,
 } from "@clawster/cloud-providers";
 import type {
   DeploymentTarget,
   DeploymentTargetConfig,
   TargetStatus,
   GatewayEndpoint,
+  SelfDescribingDeploymentTarget,
 } from "@clawster/cloud-providers";
 import { ConfigGeneratorService } from "./config-generator.service";
 import { ProvisioningEventsService } from "../provisioning/provisioning-events.service";
@@ -556,18 +558,62 @@ export class LifecycleManagerService {
    */
   private resolveDeploymentType(instance: BotInstance): string {
     const typeStr = instance.deploymentType ?? "LOCAL";
-    const typeMap: Record<string, string> = { LOCAL: "local", DOCKER: "docker", KUBERNETES: "kubernetes", ECS_EC2: "ecs-ec2", GCE: "gce", AZURE_VM: "azure-vm", CLOUDFLARE_WORKERS: "cloudflare-workers" };
+    const typeMap: Record<string, string> = { LOCAL: "local", DOCKER: "docker", ECS_EC2: "ecs-ec2", GCE: "gce", AZURE_VM: "azure-vm" };
     return typeMap[typeStr] ?? "docker";
   }
 
+  /**
+   * Get the install step ID from the adapter registry.
+   */
   private getInstallStepId(deploymentType: string): string {
-    const stepMap: Record<string, string> = { docker: "build_image", local: "install_openclaw", kubernetes: "generate_manifests", "ecs-ec2": "create_task_definition", gce: "create_vm", "azure-vm": "create_vm", "cloudflare-workers": "generate_wrangler_config" };
-    return stepMap[deploymentType] ?? "build_image";
+    const typeEnum = this.stringToDeploymentTargetType(deploymentType);
+    if (!typeEnum) {
+      throw new Error(`Unknown deployment type: ${deploymentType}`);
+    }
+
+    const stepId = AdapterRegistry.getInstance().getOperationStepId(typeEnum, "install");
+    if (!stepId) {
+      throw new Error(
+        `No install step ID found for deployment type "${deploymentType}". ` +
+        `Ensure the adapter's getMetadata() defines operationSteps.install.`
+      );
+    }
+
+    return stepId;
   }
 
+  /**
+   * Get the start step ID from the adapter registry.
+   */
   private getStartStepId(deploymentType: string): string {
-    const stepMap: Record<string, string> = { docker: "start_container", local: "start_service", kubernetes: "apply_deployment", "ecs-ec2": "create_service", gce: "start_vm", "azure-vm": "start_vm", "cloudflare-workers": "deploy_worker" };
-    return stepMap[deploymentType] ?? "start_container";
+    const typeEnum = this.stringToDeploymentTargetType(deploymentType);
+    if (!typeEnum) {
+      throw new Error(`Unknown deployment type: ${deploymentType}`);
+    }
+
+    const stepId = AdapterRegistry.getInstance().getOperationStepId(typeEnum, "start");
+    if (!stepId) {
+      throw new Error(
+        `No start step ID found for deployment type "${deploymentType}". ` +
+        `Ensure the adapter's getMetadata() defines operationSteps.start.`
+      );
+    }
+
+    return stepId;
+  }
+
+  /**
+   * Convert string deployment type to DeploymentTargetType enum.
+   */
+  private stringToDeploymentTargetType(type: string): DeploymentTargetType | undefined {
+    const typeMap: Record<string, DeploymentTargetType> = {
+      local: DeploymentTargetType.LOCAL,
+      docker: DeploymentTargetType.DOCKER,
+      "ecs-ec2": DeploymentTargetType.ECS_EC2,
+      gce: DeploymentTargetType.GCE,
+      "azure-vm": DeploymentTargetType.AZURE_VM,
+    };
+    return typeMap[type];
   }
 
   private async resolveTarget(instance: BotInstance): Promise<DeploymentTarget> {
@@ -594,14 +640,6 @@ export class LifecycleManagerService {
           imageName: "openclaw:local",
           dockerfilePath: path.join(__dirname, "../../../../../docker/openclaw"),
           configPath: `/var/openclaw/${instance.name}`,
-          gatewayPort: instance.gatewayPort ?? 18789,
-        },
-      },
-      KUBERNETES: {
-        type: "kubernetes",
-        k8s: {
-          namespace: "openclaw",
-          deploymentName: `openclaw-${instance.name}`,
           gatewayPort: instance.gatewayPort ?? 18789,
         },
       },
@@ -665,16 +703,6 @@ export class LifecycleManagerService {
     switch (dbTarget.type) {
       case "LOCAL":
         return { type: "local" };
-      case "REMOTE_VM":
-        return {
-          type: "remote-vm",
-          ssh: {
-            host: (cfg.host as string) ?? "localhost",
-            port: (cfg.sshPort as number) ?? 22,
-            username: (cfg.username as string) ?? "openclaw",
-            privateKey: cfg.privateKeyRef as string | undefined,
-          },
-        };
       case "DOCKER":
         return {
           type: "docker",
@@ -685,16 +713,6 @@ export class LifecycleManagerService {
             configPath: (cfg.configPath as string) ?? "/var/openclaw",
             gatewayPort: (cfg.gatewayPort as number) ?? 18789,
             networkName: cfg.networkName as string | undefined,
-          },
-        };
-      case "KUBERNETES":
-        return {
-          type: "kubernetes",
-          k8s: {
-            namespace: (cfg.namespace as string) ?? "openclaw",
-            deploymentName: (cfg.deploymentName as string) ?? "openclaw",
-            gatewayPort: (cfg.gatewayPort as number) ?? 18789,
-            kubeContext: cfg.kubeContext as string | undefined,
           },
         };
       case "ECS_EC2":

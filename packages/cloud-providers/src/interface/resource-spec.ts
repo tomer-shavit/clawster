@@ -3,7 +3,12 @@
  *
  * Provides a unified abstraction for resource allocation across
  * different cloud providers (ECS, GCE, Azure VM).
+ *
+ * Tier specifications are defined in each adapter's getMetadata() method
+ * and accessed via the AdapterRegistry.
  */
+
+import { DeploymentTargetType } from "./deployment-target";
 
 /**
  * Resource tier for simplified user selection.
@@ -51,129 +56,6 @@ export interface TierSpec {
 }
 
 /**
- * ECS EC2 tier specifications.
- */
-export const ECS_TIER_SPECS: Record<Exclude<ResourceTier, "custom">, TierSpec> = {
-  light: {
-    tier: "light",
-    cpu: 512,
-    memory: 1024,
-    dataDiskSizeGb: 5,
-  },
-  standard: {
-    tier: "standard",
-    cpu: 1024,
-    memory: 2048,
-    dataDiskSizeGb: 10,
-  },
-  performance: {
-    tier: "performance",
-    cpu: 2048,
-    memory: 4096,
-    dataDiskSizeGb: 20,
-  },
-};
-
-/**
- * GCE tier specifications.
- */
-export const GCE_TIER_SPECS: Record<Exclude<ResourceTier, "custom">, TierSpec> = {
-  light: {
-    tier: "light",
-    cpu: 256, // 0.25 vCPU equivalent
-    memory: 1024,
-    dataDiskSizeGb: 5,
-    machineType: "e2-micro",
-  },
-  standard: {
-    tier: "standard",
-    cpu: 2048, // 2 vCPU equivalent
-    memory: 2048,
-    dataDiskSizeGb: 10,
-    machineType: "e2-small",
-  },
-  performance: {
-    tier: "performance",
-    cpu: 2048, // 2 vCPU equivalent
-    memory: 4096,
-    dataDiskSizeGb: 20,
-    machineType: "e2-medium",
-  },
-};
-
-/**
- * Azure VM tier specifications.
- */
-export const AZURE_TIER_SPECS: Record<Exclude<ResourceTier, "custom">, TierSpec> = {
-  light: {
-    tier: "light",
-    cpu: 1024, // 1 vCPU equivalent
-    memory: 1024,
-    dataDiskSizeGb: 5,
-    vmSize: "Standard_B1s",
-  },
-  standard: {
-    tier: "standard",
-    cpu: 2048, // 2 vCPU equivalent
-    memory: 2048,
-    dataDiskSizeGb: 10,
-    vmSize: "Standard_B2s",
-  },
-  performance: {
-    tier: "performance",
-    cpu: 2048, // 2 vCPU equivalent
-    memory: 4096,
-    dataDiskSizeGb: 20,
-    vmSize: "Standard_D2s_v3",
-  },
-};
-
-/**
- * Maps a ResourceTier to provider-specific TierSpec.
- */
-export function getTierSpec(
-  tier: Exclude<ResourceTier, "custom">,
-  provider: "ecs" | "gce" | "azure"
-): TierSpec {
-  switch (provider) {
-    case "ecs":
-      return ECS_TIER_SPECS[tier];
-    case "gce":
-      return GCE_TIER_SPECS[tier];
-    case "azure":
-      return AZURE_TIER_SPECS[tier];
-  }
-}
-
-/**
- * Converts a ResourceSpec to the appropriate tier, or "custom" if it doesn't match.
- */
-export function specToTier(
-  spec: ResourceSpec,
-  provider: "ecs" | "gce" | "azure"
-): ResourceTier {
-  const specs =
-    provider === "ecs"
-      ? ECS_TIER_SPECS
-      : provider === "gce"
-        ? GCE_TIER_SPECS
-        : AZURE_TIER_SPECS;
-
-  for (const [tierName, tierSpec] of Object.entries(specs)) {
-    if (
-      spec.cpu === tierSpec.cpu &&
-      spec.memory === tierSpec.memory &&
-      (spec.dataDiskSizeGb === undefined ||
-        spec.dataDiskSizeGb === tierSpec.dataDiskSizeGb)
-    ) {
-      return tierName as ResourceTier;
-    }
-  }
-
-  return "custom";
-}
-
-/**
  * Tier display information for the UI.
  */
 export interface TierDisplayInfo {
@@ -211,3 +93,70 @@ export const TIER_DISPLAY_INFO: Record<Exclude<ResourceTier, "custom">, TierDisp
     priceRange: "~$40-80/mo",
   },
 };
+
+// ---------------------------------------------------------------------------
+// Registry-based tier lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * Registry interface for tier spec lookups.
+ */
+export interface TierSpecRegistry {
+  getTierSpec: (type: DeploymentTargetType, tier: Exclude<ResourceTier, "custom">) => TierSpec | undefined;
+  getTierSpecs: (type: DeploymentTargetType) => Record<Exclude<ResourceTier, "custom">, TierSpec> | undefined;
+}
+
+/**
+ * Get tier spec from the adapter registry.
+ *
+ * @param tier - The resource tier (light, standard, performance)
+ * @param targetType - The deployment target type
+ * @param registry - The adapter registry instance
+ * @returns TierSpec if found, undefined otherwise
+ *
+ * @example
+ * ```typescript
+ * import { AdapterRegistry } from "../registry/adapter-registry";
+ * const spec = getTierSpecFromRegistry("standard", DeploymentTargetType.ECS_EC2, AdapterRegistry.getInstance());
+ * ```
+ */
+export function getTierSpecFromRegistry(
+  tier: Exclude<ResourceTier, "custom">,
+  targetType: DeploymentTargetType,
+  registry: TierSpecRegistry
+): TierSpec | undefined {
+  return registry.getTierSpec(targetType, tier);
+}
+
+/**
+ * Converts a ResourceSpec to the appropriate tier using the registry,
+ * or "custom" if it doesn't match any tier.
+ *
+ * @param spec - The resource specification to match
+ * @param targetType - The deployment target type
+ * @param registry - The adapter registry instance
+ * @returns The matching ResourceTier or "custom"
+ */
+export function specToTierFromRegistry(
+  spec: ResourceSpec,
+  targetType: DeploymentTargetType,
+  registry: TierSpecRegistry
+): ResourceTier {
+  const tierSpecs = registry.getTierSpecs(targetType);
+  if (!tierSpecs) {
+    return "custom";
+  }
+
+  for (const [tierName, tierSpec] of Object.entries(tierSpecs)) {
+    if (
+      spec.cpu === tierSpec.cpu &&
+      spec.memory === tierSpec.memory &&
+      (spec.dataDiskSizeGb === undefined ||
+        spec.dataDiskSizeGb === tierSpec.dataDiskSizeGb)
+    ) {
+      return tierName as ResourceTier;
+    }
+  }
+
+  return "custom";
+}

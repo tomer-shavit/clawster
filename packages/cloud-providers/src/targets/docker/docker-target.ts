@@ -2,7 +2,6 @@ import { execFile, spawn } from "child_process";
 import * as path from "path";
 import * as readline from "readline";
 import {
-  DeploymentTarget,
   DeploymentTargetType,
   InstallOptions,
   InstallResult,
@@ -13,6 +12,9 @@ import {
   GatewayEndpoint,
   DockerTargetConfig,
 } from "../../interface/deployment-target";
+import { BaseDeploymentTarget } from "../../base/base-deployment-target";
+import type { TransformOptions } from "../../base/config-transformer";
+import type { AdapterMetadata, SelfDescribingDeploymentTarget } from "../../interface/adapter-metadata";
 import { isSysboxAvailable, type ContainerRuntime } from "../../sysbox";
 
 const DEFAULT_IMAGE = "openclaw:local";
@@ -102,13 +104,12 @@ export interface DockerTargetConfigExtended extends DockerTargetConfig {
   allowInsecureWithoutSysbox?: boolean;
 }
 
-export class DockerContainerTarget implements DeploymentTarget {
+export class DockerContainerTarget extends BaseDeploymentTarget implements SelfDescribingDeploymentTarget {
   readonly type = DeploymentTargetType.DOCKER;
 
   private config: DockerTargetConfigExtended;
   private imageName: string;
   private environmentVars: Record<string, string> = {};
-  private onLog?: (line: string, stream: "stdout" | "stderr") => void;
 
   /** Detected runtime - always sysbox-runc in dream architecture */
   private detectedRuntime: ContainerRuntime = "sysbox-runc";
@@ -118,6 +119,7 @@ export class DockerContainerTarget implements DeploymentTarget {
   private sysboxAvailable = false;
 
   constructor(config: DockerTargetConfigExtended) {
+    super();
     this.config = config;
     this.imageName = config.imageName || DEFAULT_IMAGE;
   }
@@ -139,11 +141,11 @@ export class DockerContainerTarget implements DeploymentTarget {
 
     if (this.sysboxAvailable) {
       this.detectedRuntime = "sysbox-runc";
-      this.onLog?.("Sysbox runtime detected - secure sandbox mode enabled", "stdout");
+      this.log("Sysbox runtime detected - secure sandbox mode enabled", "stdout");
     } else if (this.config.allowInsecureWithoutSysbox) {
       // Development/testing escape hatch - NOT for production
       this.detectedRuntime = "runc";
-      this.onLog?.(
+      this.log(
         "WARNING: Sysbox not available, running WITHOUT sandbox protection. " +
         "This is INSECURE and should only be used for development/testing.",
         "stderr"
@@ -193,8 +195,26 @@ export class DockerContainerTarget implements DeploymentTarget {
     return this.runtimeDetected && !this.sysboxAvailable;
   }
 
-  setLogCallback(cb: (line: string, stream: "stdout" | "stderr") => void): void {
-    this.onLog = cb;
+  /**
+   * Docker-specific config transformation options.
+   * Forces gateway.bind = "lan" and removes port (bridge networking requirement).
+   */
+  protected override getTransformOptions(): TransformOptions {
+    return {
+      customTransforms: [
+        (config) => {
+          // Docker containers MUST bind to 0.0.0.0 (lan) - bridge networking cannot reach 127.0.0.1
+          if (config.gateway && typeof config.gateway === "object") {
+            const gw = { ...(config.gateway as Record<string, unknown>) };
+            gw.bind = "lan";
+            delete gw.host;
+            delete gw.port;
+            return { ...config, gateway: gw };
+          }
+          return config;
+        },
+      ],
+    };
   }
 
   /**
@@ -221,7 +241,7 @@ export class DockerContainerTarget implements DeploymentTarget {
 
       if (this.config.dockerfilePath) {
         const resolved = path.resolve(this.config.dockerfilePath);
-        await runCommandStreaming("docker", ["build", "-t", image, resolved], this.onLog);
+        await runCommandStreaming("docker", ["build", "-t", image, resolved], this.logCallback);
         this.imageName = image;
         return {
           success: true,
@@ -231,7 +251,7 @@ export class DockerContainerTarget implements DeploymentTarget {
       }
 
       // Fallback: try to pull (for users with custom registries)
-      await runCommandStreaming("docker", ["pull", image], this.onLog);
+      await runCommandStreaming("docker", ["pull", image], this.logCallback);
       this.imageName = image;
       return {
         success: true,
@@ -264,47 +284,8 @@ export class DockerContainerTarget implements DeploymentTarget {
     }
 
     // Transform Clawster internal schema to valid OpenClaw config format
-    const raw = { ...config.config } as Record<string, unknown>;
-
-    // gateway.host -> gateway.bind (OpenClaw uses "bind" not "host")
-    // Docker containers MUST bind to 0.0.0.0 — bridge networking cannot reach 127.0.0.1 inside the container
-    if (raw.gateway && typeof raw.gateway === "object") {
-      const gw = { ...(raw.gateway as Record<string, unknown>) };
-      gw.bind = "lan";
-      delete gw.host;
-      delete gw.port;
-      raw.gateway = gw;
-    }
-
-    // skills.allowUnverified is not a valid OpenClaw key
-    if (raw.skills && typeof raw.skills === "object") {
-      const skills = { ...(raw.skills as Record<string, unknown>) };
-      delete skills.allowUnverified;
-      raw.skills = skills;
-    }
-
-    // sandbox at root level -> agents.defaults.sandbox
-    if ("sandbox" in raw) {
-      const agents = (raw.agents as Record<string, unknown>) || {};
-      const defaults = (agents.defaults as Record<string, unknown>) || {};
-      defaults.sandbox = raw.sandbox;
-      agents.defaults = defaults;
-      raw.agents = agents;
-      delete raw.sandbox;
-    }
-
-    // channels.*.enabled is not valid for WhatsApp (and unnecessary for others —
-    // presence in the config means the channel is active)
-    if (raw.channels && typeof raw.channels === "object") {
-      for (const [key, value] of Object.entries(raw.channels as Record<string, unknown>)) {
-        if (value && typeof value === "object" && "enabled" in (value as Record<string, unknown>)) {
-          const { enabled: _enabled, ...rest } = value as Record<string, unknown>;
-          (raw.channels as Record<string, unknown>)[key] = rest;
-        }
-      }
-    }
-
-    const configData = raw;
+    // Uses shared transformer with Docker-specific overrides (gateway.bind = "lan")
+    const configData = this.transformConfig(config.config as Record<string, unknown>);
 
     try {
       // Ensure the config directory exists
@@ -375,9 +356,9 @@ export class DockerContainerTarget implements DeploymentTarget {
     // (unless running in insecure dev mode)
     if (runtime === "sysbox-runc") {
       args.push("--runtime=sysbox-runc");
-      this.onLog?.("Using Sysbox runtime for secure Docker-in-Docker", "stdout");
+      this.log("Using Sysbox runtime for secure Docker-in-Docker", "stdout");
     } else {
-      this.onLog?.("WARNING: Running without Sysbox - INSECURE MODE", "stderr");
+      this.log("WARNING: Running without Sysbox - INSECURE MODE", "stderr");
     }
 
     args.push(
@@ -401,7 +382,7 @@ export class DockerContainerTarget implements DeploymentTarget {
 
     args.push(this.imageName);
 
-    await runCommandStreaming("docker", args, this.onLog);
+    await runCommandStreaming("docker", args, this.logCallback);
   }
 
   /**
@@ -528,5 +509,45 @@ export class DockerContainerTarget implements DeploymentTarget {
     } catch {
       // Container may not exist
     }
+  }
+
+  /**
+   * Return metadata describing this adapter's capabilities and provisioning steps.
+   */
+  getMetadata(): AdapterMetadata {
+    return {
+      type: DeploymentTargetType.DOCKER,
+      displayName: "Docker",
+      icon: "docker",
+      description: "Run OpenClaw in a local Docker container",
+      status: "ready",
+      provisioningSteps: [
+        { id: "validate_config", name: "Validate configuration" },
+        { id: "security_audit", name: "Security audit" },
+        { id: "build_image", name: "Build container image", estimatedDurationSec: 60 },
+        { id: "create_container", name: "Create container" },
+        { id: "write_config", name: "Write configuration" },
+        { id: "start_container", name: "Start container" },
+        { id: "wait_for_gateway", name: "Wait for Gateway", estimatedDurationSec: 30 },
+        { id: "health_check", name: "Health check" },
+      ],
+      resourceUpdateSteps: [
+        { id: "validate_resources", name: "Validate resource configuration" },
+        { id: "apply_changes", name: "Apply resource changes" },
+        { id: "verify_completion", name: "Verify completion" },
+      ],
+      operationSteps: {
+        install: "build_image",
+        start: "start_container",
+      },
+      capabilities: {
+        scaling: false,
+        sandbox: true,
+        persistentStorage: true,
+        httpsEndpoint: false,
+        logStreaming: true,
+      },
+      credentials: [],
+    };
   }
 }

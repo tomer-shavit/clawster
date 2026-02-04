@@ -26,13 +26,6 @@ export const ECS_DEFAULT_CPU = "256";
 export const ECS_DEFAULT_MEMORY = "512";
 export const ECS_DEFAULT_DESIRED_COUNT = 1;
 
-// Kubernetes defaults
-export const K8S_DEFAULT_REPLICAS = 1;
-export const K8S_DEFAULT_CPU_REQUEST = "100m";
-export const K8S_DEFAULT_MEMORY_REQUEST = "256Mi";
-export const K8S_DEFAULT_CPU_LIMIT = "500m";
-export const K8S_DEFAULT_MEMORY_LIMIT = "512Mi";
-
 // Network defaults
 export const DEFAULT_GATEWAY_PORT = 18789;
 export const DEFAULT_CONTROL_UI_PORT = 18790;

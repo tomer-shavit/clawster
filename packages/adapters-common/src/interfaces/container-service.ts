@@ -3,7 +3,7 @@
  *
  * Provides abstraction for container orchestration operations across cloud providers.
  * Implemented by AWS ECS Service, Azure Container Instances Service,
- * GCP Cloud Run Service, Kubernetes Service, etc.
+ * GCP Compute Engine Service, etc.
  */
 
 import type {

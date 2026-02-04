@@ -134,14 +134,14 @@ describe("OpenClawEnvironmentSchema", () => {
 
 describe("DeploymentTargetSchema", () => {
   it("accepts all valid targets", () => {
-    for (const target of ["local", "docker", "ecs", "kubernetes", "fly"]) {
+    for (const target of ["local", "docker", "ecs", "gce", "azure-vm"]) {
       expect(DeploymentTargetSchema.safeParse(target).success).toBe(true);
     }
   });
 
   it("rejects invalid targets", () => {
     expect(DeploymentTargetSchema.safeParse("heroku").success).toBe(false);
-    expect(DeploymentTargetSchema.safeParse("aws").success).toBe(false);
+    expect(DeploymentTargetSchema.safeParse("kubernetes").success).toBe(false);
   });
 });
 

@@ -233,9 +233,6 @@ export class OnboardingService {
       "ecs-ec2": DeploymentTargetType.ECS_EC2,
       "gce": DeploymentTargetType.GCE,
       "azure-vm": DeploymentTargetType.AZURE_VM,
-      "kubernetes": DeploymentTargetType.KUBERNETES,
-      "remote-vm": DeploymentTargetType.REMOTE_VM,
-      "cloudflare-workers": DeploymentTargetType.CLOUDFLARE_WORKERS,
     };
     const deploymentTargetType = deploymentTargetTypeMap[targetTypeStr] || DeploymentTargetType.DOCKER;
 
@@ -306,7 +303,8 @@ export class OnboardingService {
       "ecs-ec2": "ECS_EC2",
       docker: "DOCKER",
       local: "LOCAL",
-      kubernetes: "KUBERNETES",
+      gce: "GCE",
+      "azure-vm": "AZURE_VM",
     };
     const deploymentType = deploymentTypeMap[targetType] || "DOCKER";
 

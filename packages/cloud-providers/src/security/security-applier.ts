@@ -63,30 +63,8 @@ export function getSecurityDefaults(
     case DeploymentTargetType.ECS_EC2:
     case DeploymentTargetType.GCE:
     case DeploymentTargetType.AZURE_VM:
-    case DeploymentTargetType.REMOTE_VM:
       return {
         sandbox: getDreamSandboxConfig("sysbox-runc"),
-        gateway: baseGatewayConfig,
-        channels: baseChannelConfig,
-        logging: baseLoggingConfig,
-      };
-
-    // Kubernetes: Use dream config with RuntimeClass
-    case DeploymentTargetType.KUBERNETES:
-      return {
-        sandbox: getDreamSandboxConfig("sysbox-runc"),
-        gateway: baseGatewayConfig,
-        channels: baseChannelConfig,
-        logging: baseLoggingConfig,
-      };
-
-    // Cloudflare Workers: Own isolation model, sandbox "all" but no docker config
-    case DeploymentTargetType.CLOUDFLARE_WORKERS:
-      return {
-        sandbox: {
-          mode: "all",
-          scope: "session",
-        },
         gateway: baseGatewayConfig,
         channels: baseChannelConfig,
         logging: baseLoggingConfig,
@@ -189,31 +167,10 @@ export async function getSecurityDefaultsAsync(
   if (
     targetType === DeploymentTargetType.ECS_EC2 ||
     targetType === DeploymentTargetType.GCE ||
-    targetType === DeploymentTargetType.AZURE_VM ||
-    targetType === DeploymentTargetType.REMOTE_VM
+    targetType === DeploymentTargetType.AZURE_VM
   ) {
     return {
       sandbox: getDreamSandboxConfig("sysbox-runc"),
-      gateway: { bind: "lan", auth: { mode: "token" } },
-      channels: baseChannelConfig,
-      logging: baseLoggingConfig,
-    };
-  }
-
-  // Kubernetes: Use dream config (requires RuntimeClass setup)
-  if (targetType === DeploymentTargetType.KUBERNETES) {
-    return {
-      sandbox: getDreamSandboxConfig("sysbox-runc"),
-      gateway: { bind: "lan", auth: { mode: "token" } },
-      channels: baseChannelConfig,
-      logging: baseLoggingConfig,
-    };
-  }
-
-  // Cloudflare Workers: Own isolation, simplified sandbox
-  if (targetType === DeploymentTargetType.CLOUDFLARE_WORKERS) {
-    return {
-      sandbox: { mode: "all", scope: "session" },
       gateway: { bind: "lan", auth: { mode: "token" } },
       channels: baseChannelConfig,
       logging: baseLoggingConfig,

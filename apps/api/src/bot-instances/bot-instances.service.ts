@@ -12,6 +12,10 @@ import {
 } from "@clawster/gateway-client";
 import type { GatewayConnectionOptions } from "@clawster/gateway-client";
 import {
+  AdapterRegistry,
+  DeploymentTargetType,
+} from "@clawster/cloud-providers";
+import {
   CreateBotInstanceDto,
   UpdateBotInstanceDto,
   UpdateAiGatewaySettingsDto,
@@ -683,6 +687,7 @@ export class BotInstancesService {
 
   /**
    * Convert a resource tier + custom values to a ResourceSpec.
+   * Uses the adapter registry for tier specs.
    */
   private tierToResourceSpec(
     dto: UpdateBotResourcesDto,
@@ -702,47 +707,60 @@ export class BotInstancesService {
       };
     }
 
-    // Map tier to spec based on deployment type
-    const tierSpecs: Record<string, Record<Exclude<ResourceTier, "custom">, { cpu: number; memory: number; dataDiskSizeGb: number }>> = {
-      "ecs-ec2": {
-        light: { cpu: 512, memory: 1024, dataDiskSizeGb: 5 },
-        standard: { cpu: 1024, memory: 2048, dataDiskSizeGb: 10 },
-        performance: { cpu: 2048, memory: 4096, dataDiskSizeGb: 20 },
-      },
-      gce: {
-        light: { cpu: 256, memory: 1024, dataDiskSizeGb: 5 },
-        standard: { cpu: 2048, memory: 2048, dataDiskSizeGb: 10 },
-        performance: { cpu: 2048, memory: 4096, dataDiskSizeGb: 20 },
-      },
-      "azure-vm": {
-        light: { cpu: 1024, memory: 1024, dataDiskSizeGb: 5 },
-        standard: { cpu: 2048, memory: 2048, dataDiskSizeGb: 10 },
-        performance: { cpu: 2048, memory: 4096, dataDiskSizeGb: 20 },
-      },
-    };
+    // Get tier spec from the adapter registry
+    const typeEnum = this.stringToDeploymentTargetType(deploymentType);
+    if (!typeEnum) {
+      throw new BadRequestException(
+        `Unknown deployment type "${deploymentType}"`
+      );
+    }
 
-    const providerSpecs = tierSpecs[deploymentType] ?? tierSpecs["ecs-ec2"];
-    const spec = providerSpecs[dto.tier];
+    const registry = AdapterRegistry.getInstance();
+    const tierSpec = registry.getTierSpec(typeEnum, dto.tier);
+    if (!tierSpec) {
+      throw new BadRequestException(
+        `Tier "${dto.tier}" not found for deployment type "${deploymentType}". ` +
+        `Ensure the adapter is registered with tier specifications.`
+      );
+    }
 
     return {
-      ...spec,
-      dataDiskSizeGb: dto.dataDiskSizeGb ?? spec.dataDiskSizeGb,
+      cpu: tierSpec.cpu,
+      memory: tierSpec.memory,
+      dataDiskSizeGb: dto.dataDiskSizeGb ?? tierSpec.dataDiskSizeGb,
     };
   }
 
   /**
+   * Convert string deployment type to DeploymentTargetType enum.
+   */
+  private stringToDeploymentTargetType(type: string): DeploymentTargetType | undefined {
+    const typeMap: Record<string, DeploymentTargetType> = {
+      local: DeploymentTargetType.LOCAL,
+      docker: DeploymentTargetType.DOCKER,
+      "ecs-ec2": DeploymentTargetType.ECS_EC2,
+      gce: DeploymentTargetType.GCE,
+      "azure-vm": DeploymentTargetType.AZURE_VM,
+    };
+    return typeMap[type];
+  }
+
+  /**
    * Get default resource spec for a deployment type.
+   * Uses the adapter registry for "standard" tier.
    */
   private getDefaultResourceSpec(deploymentType: string): { cpu: number; memory: number } {
-    switch (deploymentType) {
-      case "ecs-ec2":
-        return { cpu: 1024, memory: 2048 };
-      case "gce":
-        return { cpu: 2048, memory: 2048 }; // e2-small equivalent
-      case "azure-vm":
-        return { cpu: 2048, memory: 2048 }; // Standard_B2s equivalent
-      default:
-        return { cpu: 1024, memory: 2048 };
+    // Get "standard" tier from the adapter registry
+    const typeEnum = this.stringToDeploymentTargetType(deploymentType);
+    if (typeEnum) {
+      const registry = AdapterRegistry.getInstance();
+      const tierSpec = registry.getTierSpec(typeEnum, "standard");
+      if (tierSpec) {
+        return { cpu: tierSpec.cpu, memory: tierSpec.memory };
+      }
     }
+
+    // Default for deployment types without tier specs (e.g., local, docker)
+    return { cpu: 1024, memory: 2048 };
   }
 }
