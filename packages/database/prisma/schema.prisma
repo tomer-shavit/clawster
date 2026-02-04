@@ -16,7 +16,6 @@ model Workspace {
   awsAccountId String?
   awsRegion    String   @default("us-east-1")
 
-  users                 User[]
   botInstances          BotInstance[]
   fleets                Fleet[]
   templates             Template[]
@@ -35,33 +34,6 @@ model Workspace {
   @@index([slug])
 }
 
-model User {
-  id          String    @id @default(cuid())
-  email       String
-  name        String
-  role        String  @default("VIEWER")
-  workspaceId String
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  auditEvents AuditEvent[]
-
-  @@unique([email, workspaceId])
-}
-// Auth model for simple JWT-based authentication (single admin user)
-model AuthUser {
-  id          String    @id @default(cuid())
-  username    String    @unique
-  passwordHash String
-  isActive    Boolean   @default(true)
-  lastLoginAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@index([username])
-  @@index([isActive])
-}
 
 // Fleet: Grouping concept for environments
 model Fleet {
@@ -166,7 +138,6 @@ model BotInstance {
   channelAuthSessions ChannelAuthSession[]
   healthSnapshots     HealthSnapshot[]
   agentStateSnapshots AgentStateSnapshot[]
-  securityAudits      SecurityAuditResult[]
   devicePairings      DevicePairing[]
 
   // Phase 2 relations
@@ -438,42 +409,11 @@ model Trace {
   @@index([status])
 }
 
-// Credential Rotation tracking
-model CredentialRotation {
-  id          String @id @default(cuid())
-  connectorId String
-
-  triggeredBy     String // schedule, manual, security
-  triggeredAt     DateTime
-  triggeredByUser String?
-
-  status String // PENDING, IN_PROGRESS, COMPLETED, FAILED, ROLLED_BACK
-
-  startedAt   DateTime?
-  completedAt DateTime?
-
-  oldSecretArn String?
-  newSecretArn String?
-
-  instancesUpdated Int @default(0)
-  instancesTotal   Int @default(0)
-
-  canRollback  Boolean   @default(false)
-  rolledBackAt DateTime?
-
-  error String?
-
-  createdAt DateTime @default(now())
-
-  @@index([connectorId])
-  @@index([status])
-}
 
 
 model AuditEvent {
   id           String    @id @default(cuid())
   actor        String
-  user         User      @relation(fields: [actor], references: [id])
   action       String
   resourceType String
   resourceId   String
@@ -774,26 +714,6 @@ model DeploymentTarget {
   @@index([status])
 }
 
-// SecurityAuditResult: Security audit findings for a bot instance
-model SecurityAuditResult {
-  id         String      @id @default(cuid())
-  instanceId String
-  instance   BotInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-
-  // Findings
-  findings      String // Array of { ruleId, severity, message, field?, suggestedFix? }
-  totalErrors   Int  @default(0)
-  totalWarnings Int  @default(0)
-  totalInfo     Int  @default(0)
-
-  // Context
-  configHash String?
-  auditedAt  DateTime @default(now())
-  auditedBy  String   @default("system")
-
-  @@index([instanceId])
-  @@index([auditedAt])
-}
 
 // ============================================
 // PHASE 2: SLOs, BUDGETS, COSTS, ALERTS
