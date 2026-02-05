@@ -39,6 +39,12 @@ import type {
   ShutdownEvent,
   CostUsageSummary,
   AgentIdentityResult,
+  CronAddRequest,
+  CronAddResult,
+  CronListRequest,
+  CronListResult,
+  CronRemoveRequest,
+  CronRemoveResult,
 } from "./protocol";
 import { GatewayErrorCode } from "./protocol";
 import {
@@ -199,6 +205,25 @@ export class GatewayClient extends EventEmitter implements IGatewayClient {
   /** Send a message via an active channel. */
   async send(message: SendRequest): Promise<SendResult> {
     return this.request<SendResult>("send", message as unknown as Record<string, unknown>);
+  }
+
+  // ------------------------------------------------------------------
+  // Cron job management
+  // ------------------------------------------------------------------
+
+  /** Add a new cron job. */
+  async cronAdd(request: CronAddRequest): Promise<CronAddResult> {
+    return this.request<CronAddResult>("cron.add", request as unknown as Record<string, unknown>);
+  }
+
+  /** List all cron jobs. */
+  async cronList(request?: CronListRequest): Promise<CronListResult> {
+    return this.request<CronListResult>("cron.list", request as Record<string, unknown> | undefined);
+  }
+
+  /** Remove a cron job by ID. */
+  async cronRemove(request: CronRemoveRequest): Promise<CronRemoveResult> {
+    return this.request<CronRemoveResult>("cron.remove", request as unknown as Record<string, unknown>);
   }
 
   /**

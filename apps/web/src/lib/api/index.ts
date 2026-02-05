@@ -116,6 +116,8 @@ export {
   TracesClient,
   userContextClient,
   UserContextClient,
+  personaTemplatesClient,
+  PersonaTemplatesClient,
 } from './clients';
 
 // Backward-compatible facade export

@@ -14,6 +14,7 @@ import { ConnectorsModule } from "./connectors/connectors.module";
 import { ChangeSetsModule } from "./change-sets/change-sets.module";
 import { TracesModule } from "./traces/traces.module";
 import { TemplatesModule } from "./templates/templates.module";
+import { PersonaTemplatesModule } from "./templates/persona/persona-templates.module";
 import { AuditModule } from "./audit/audit.module";
 import { ReconcilerModule } from "./reconciler/reconciler.module";
 import { MetricsModule } from "./metrics/metrics.module";
@@ -65,6 +66,7 @@ import { AdaptersModule } from "./adapters/adapters.module";
     ChangeSetsModule,
     TracesModule,
     TemplatesModule,
+    PersonaTemplatesModule,
     AuditModule,
     ReconcilerModule,
     MetricsModule,

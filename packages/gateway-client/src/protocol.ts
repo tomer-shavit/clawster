@@ -273,6 +273,107 @@ export interface AgentIdentityResult {
   avatar?: string;
 }
 
+// ---- Cron Jobs (OpenClaw cron.* RPCs) --------------------------------------
+
+export interface CronScheduleAt {
+  kind: "at";
+  at: string;
+}
+
+export interface CronScheduleEvery {
+  kind: "every";
+  everyMs: number;
+  anchorMs?: number;
+}
+
+export interface CronScheduleCron {
+  kind: "cron";
+  expr: string;
+  tz?: string;
+}
+
+export type CronSchedule = CronScheduleAt | CronScheduleEvery | CronScheduleCron;
+
+export interface CronPayloadSystemEvent {
+  kind: "systemEvent";
+  text: string;
+}
+
+export interface CronPayloadAgentTurn {
+  kind: "agentTurn";
+  message: string;
+  model?: string;
+  thinking?: string;
+  timeoutSeconds?: number;
+}
+
+export type CronPayload = CronPayloadSystemEvent | CronPayloadAgentTurn;
+
+export interface CronDelivery {
+  channel?: string;
+  to?: string;
+}
+
+export interface CronJobState {
+  nextRunAtMs?: number;
+  runningAtMs?: number;
+  lastRunAtMs?: number;
+  lastStatus?: "ok" | "error" | "skipped";
+  lastError?: string;
+  lastDurationMs?: number;
+}
+
+export interface CronJob {
+  id: string;
+  name: string;
+  agentId?: string;
+  description?: string;
+  enabled: boolean;
+  deleteAfterRun?: boolean;
+  createdAtMs: number;
+  updatedAtMs: number;
+  schedule: CronSchedule;
+  sessionTarget: "main" | "isolated";
+  wakeMode: "next-heartbeat" | "now";
+  payload: CronPayload;
+  delivery?: CronDelivery;
+  state: CronJobState;
+}
+
+export interface CronAddRequest {
+  name: string;
+  schedule: CronSchedule;
+  payload: CronPayload;
+  agentId?: string;
+  description?: string;
+  enabled?: boolean;
+  deleteAfterRun?: boolean;
+  sessionTarget?: "main" | "isolated";
+  wakeMode?: "next-heartbeat" | "now";
+  delivery?: CronDelivery;
+}
+
+export interface CronAddResult {
+  job: CronJob;
+}
+
+export interface CronListRequest {
+  includeDisabled?: boolean;
+}
+
+export interface CronListResult {
+  jobs: CronJob[];
+}
+
+export interface CronRemoveRequest {
+  id?: string;
+  jobId?: string;
+}
+
+export interface CronRemoveResult {
+  removed: boolean;
+}
+
 // ---- Usage / Cost ---------------------------------------------------------
 
 export interface CostUsageTotals {

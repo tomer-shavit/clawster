@@ -18,6 +18,12 @@ import type {
   AgentResult,
   AgentIdentityResult,
   CostUsageSummary,
+  CronAddRequest,
+  CronAddResult,
+  CronListRequest,
+  CronListResult,
+  CronRemoveRequest,
+  CronRemoveResult,
 } from "../protocol";
 
 /**
@@ -40,4 +46,9 @@ export interface IGatewayClient extends EventEmitter {
   usageCost(days?: number): Promise<CostUsageSummary>;
   send(message: SendRequest): Promise<SendResult>;
   agent(request: AgentRequest): Promise<AgentResult>;
+
+  // Cron job management
+  cronAdd(request: CronAddRequest): Promise<CronAddResult>;
+  cronList(request?: CronListRequest): Promise<CronListResult>;
+  cronRemove(request: CronRemoveRequest): Promise<CronRemoveResult>;
 }

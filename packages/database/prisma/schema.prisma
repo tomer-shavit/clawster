@@ -31,6 +31,7 @@ model Workspace {
   botRoutingRules       BotRoutingRule[]
   botTeamMembers        BotTeamMember[]
   alertRuleConfigs      AlertRuleConfig[]
+  personaTemplates      PersonaTemplate[]
 
   @@index([slug])
 }
@@ -162,6 +163,9 @@ model BotInstance {
   // Team relationships
   teamMembers    BotTeamMember[] @relation("TeamOwner")
   memberOfTeams  BotTeamMember[] @relation("TeamMember")
+
+  // Persona template injection
+  templateInjectionSnapshots TemplateInjectionSnapshot[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
@@ -1135,4 +1139,80 @@ model BotTeamMember {
   @@unique([ownerBotId, memberBotId])
   @@index([ownerBotId])
   @@index([memberBotId])
+}
+
+// ============================================
+// PERSONA TEMPLATES
+// Reusable bot archetypes with identity, personality, skills, and cron jobs
+// ============================================
+
+// PersonaTemplate: Full bot personality/behavior template
+model PersonaTemplate {
+  id          String    @id @default(cuid())
+  templateId  String    // External ID, e.g., "builtin/marketer" or "custom/my-bot"
+  version     String    // Semver format: "1.0.0"
+  name        String
+  description String
+  category    String    // marketing, devops, support, assistant, research, creative, custom
+  tags        String    @default("[]") // JSON array of strings
+
+  // Identity configuration (injected via config.apply)
+  identity    String?   // JSON: { name, emoji, creature, vibe, theme, avatar }
+
+  // Soul/personality content (written to SOUL.md)
+  soul        String?   // Markdown content for SOUL.md
+
+  // Skills to enable (JSON array of skill names)
+  skills      String    @default("[]")
+
+  // Scheduled jobs (JSON array of CronJobTemplate objects)
+  cronJobs    String    @default("[]")
+
+  // Config patches to apply via config.apply (JSON object)
+  configPatches String? // Additional config overrides
+
+  // Required secrets (JSON array of RequiredSecret objects)
+  requiredSecrets String @default("[]")
+
+  // Scope
+  isBuiltin   Boolean   @default(false)
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  injectionSnapshots TemplateInjectionSnapshot[]
+
+  @@unique([templateId, version])
+  @@index([workspaceId])
+  @@index([category])
+  @@index([isBuiltin])
+}
+
+// TemplateInjectionSnapshot: Tracks injection state for rollback
+model TemplateInjectionSnapshot {
+  id          String    @id @default(cuid())
+  instanceId  String
+  instance    BotInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  templateId  String
+  template    PersonaTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  // Pre-injection state for rollback
+  configHash  String    // Hash of config before injection
+  configRaw   String    // Full config JSON before injection
+
+  // Created cron job IDs (for removal on rollback)
+  cronJobIds  String    @default("[]") // JSON array of job IDs
+
+  // Injection status
+  status      String    @default("completed") // pending, in_progress, completed, failed, rolled_back
+
+  injectedAt  DateTime  @default(now())
+  rolledBackAt DateTime?
+
+  @@index([instanceId])
+  @@index([templateId])
+  @@index([status])
 }

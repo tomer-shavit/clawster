@@ -13,6 +13,7 @@ export * from "./openclaw-profile";
 export * from "./state-sync";
 export * from "./agent-evolution";
 export * from "./ai-gateway";
+export * from "./persona-template";
 export * from "./constants";
 export * from "./tool-security";
 

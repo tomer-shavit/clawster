@@ -48,3 +48,4 @@ export { teamsClient, TeamsClient } from './teams.client';
 export { templatesClient, TemplatesClient } from './templates.client';
 export { tracesClient, TracesClient } from './traces.client';
 export { userContextClient, UserContextClient } from './user-context.client';
+export { personaTemplatesClient, PersonaTemplatesClient } from './persona-templates.client';
