@@ -1,5 +1,6 @@
 import { SecretClient } from "@azure/keyvault-secrets";
 import { DefaultAzureCredential, TokenCredential } from "@azure/identity";
+import type { ISecretsService } from "@clawster/adapters-common";
 
 export interface SecretValue {
   name: string;
@@ -7,7 +8,11 @@ export interface SecretValue {
   id?: string;
 }
 
-export class KeyVaultService {
+/**
+ * Azure Key Vault service implementing ISecretsService.
+ * Provides pluggable secrets storage for Azure deployments.
+ */
+export class KeyVaultService implements ISecretsService {
   private client: SecretClient;
 
   constructor(vaultName: string, credential?: TokenCredential) {

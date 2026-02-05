@@ -1,121 +1,92 @@
-import {
-  CloudWatchLogsClient,
-  CreateLogGroupCommand,
-  DescribeLogGroupsCommand,
-  DescribeLogStreamsCommand,
-  GetLogEventsCommand,
-  DeleteLogGroupCommand,
-} from "@aws-sdk/client-cloudwatch-logs";
+/**
+ * CloudWatch Logs Service Facade
+ *
+ * Unified facade implementing ILoggingService by composing focused services.
+ * Each focused service handles a single responsibility:
+ * - LogGroupService: Log group lifecycle
+ * - LogQueryService: Log querying
+ * - LogConsoleService: Console link generation
+ */
+
+import { CloudWatchLogsClient } from "@aws-sdk/client-cloudwatch-logs";
 import type {
   ILoggingService,
+  ILogGroupService,
+  ILogQueryService,
+  ILogConsoleService,
   LogQueryOptions,
   LogQueryResult,
-  LogEvent,
 } from "@clawster/adapters-common";
+
+import { LogGroupService } from "./services/log-group-service";
+import { LogQueryService } from "./services/log-query-service";
+import { LogConsoleService } from "./services/log-console-service";
 
 /**
  * AWS CloudWatch Logs service implementing ILoggingService.
- * Uses constructor injection for testability.
+ * Composes focused services following Single Responsibility Principle.
  */
-export class CloudWatchLogsService implements ILoggingService {
-  private readonly region: string;
+export class CloudWatchLogsService
+  implements ILoggingService, ILogGroupService, ILogQueryService, ILogConsoleService
+{
+  private readonly logGroupService: LogGroupService;
+  private readonly logQueryService: LogQueryService;
+  private readonly logConsoleService: LogConsoleService;
 
   constructor(
     private readonly client: CloudWatchLogsClient,
-    region: string = "us-east-1"
+    private readonly region: string = "us-east-1"
   ) {
-    this.region = region;
+    this.logGroupService = new LogGroupService(client);
+    this.logQueryService = new LogQueryService(client);
+    this.logConsoleService = new LogConsoleService(region);
   }
 
-  async createLogGroup(logGroupName: string, tags?: Record<string, string>): Promise<void> {
-    try {
-      await this.client.send(new CreateLogGroupCommand({
-        logGroupName,
-        tags,
-      }));
-    } catch (error) {
-      // Ignore if already exists
-      if ((error as Error).name !== "ResourceAlreadyExistsException") {
-        throw error;
-      }
-    }
+  // --- ILogGroupService ---
+
+  async createLogGroup(
+    logGroupName: string,
+    tags?: Record<string, string>
+  ): Promise<void> {
+    return this.logGroupService.createLogGroup(logGroupName, tags);
   }
 
   async deleteLogGroup(logGroupName: string): Promise<void> {
-    await this.client.send(new DeleteLogGroupCommand({
-      logGroupName,
-    }));
+    return this.logGroupService.deleteLogGroup(logGroupName);
   }
 
   async logGroupExists(logGroupName: string): Promise<boolean> {
-    try {
-      const result = await this.client.send(new DescribeLogGroupsCommand({
-        logGroupNamePattern: logGroupName,
-      }));
-      return result.logGroups?.some(lg => lg.logGroupName === logGroupName) || false;
-    } catch {
-      return false;
-    }
+    return this.logGroupService.logGroupExists(logGroupName);
   }
 
-  async getLogStreams(logGroupName: string): Promise<string[]> {
-    const result = await this.client.send(new DescribeLogStreamsCommand({
-      logGroupName,
-      orderBy: "LastEventTime",
-      descending: true,
-      limit: 10,
-    }));
+  // --- ILogQueryService ---
 
-    return result.logStreams?.map(s => s.logStreamName || "") || [];
+  async getLogStreams(logGroupName: string): Promise<string[]> {
+    return this.logQueryService.getLogStreams(logGroupName);
   }
 
   async getLogs(
     resourceId: string,
     options?: LogQueryOptions
   ): Promise<LogQueryResult> {
-    const streamNames = await this.getLogStreams(resourceId);
-
-    if (streamNames.length === 0) {
-      return { events: [] };
-    }
-
-    const result = await this.client.send(new GetLogEventsCommand({
-      logGroupName: resourceId,
-      logStreamName: streamNames[0],
-      startTime: options?.startTime?.getTime(),
-      endTime: options?.endTime?.getTime(),
-      limit: options?.limit ?? 100,
-      nextToken: options?.nextToken,
-    }));
-
-    const events: LogEvent[] = result.events?.map(event => ({
-      timestamp: new Date(event.timestamp ?? 0),
-      message: event.message ?? "",
-    })) ?? [];
-
-    return {
-      events,
-      nextToken: result.nextForwardToken,
-    };
+    return this.logQueryService.getLogs(resourceId, options);
   }
 
+  // --- ILogConsoleService ---
+
   getConsoleLink(resourceId: string): string {
-    return `https://${this.region}.console.aws.amazon.com/cloudwatch/home?region=${this.region}#logsV2:log-groups/log-group/${encodeURIComponent(resourceId)}`;
+    return this.logConsoleService.getConsoleLink(resourceId);
   }
 }
 
 /**
- * Factory function to create a CloudWatchLogsService with default configuration.
- * Provides backward compatibility with the old constructor signature.
+ * Factory function to create a CloudWatchLogsService.
  */
 export function createCloudWatchLogsService(
   region: string = "us-east-1"
 ): CloudWatchLogsService {
-  return new CloudWatchLogsService(
-    new CloudWatchLogsClient({ region }),
-    region
-  );
+  return new CloudWatchLogsService(new CloudWatchLogsClient({ region }), region);
 }
 
-// Re-export LogEvent for backward compatibility
+// Re-export for convenience
 export type { LogEvent } from "@clawster/adapters-common";

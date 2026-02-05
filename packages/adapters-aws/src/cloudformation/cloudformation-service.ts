@@ -1,216 +1,181 @@
+/**
+ * CloudFormation Service Facade
+ *
+ * Unified facade implementing IInfrastructureService by composing focused services.
+ * Each focused service handles a single responsibility:
+ * - StackOperationsService: CRUD + describe operations
+ * - StackWaiterService: Polling with pluggable backoff strategy
+ *
+ * This design enables pluggable adapters for different cloud providers.
+ */
+
+import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
+import type {
+  IInfrastructureService,
+  StackConfig,
+  StackInfo,
+  StackOutput,
+} from "@clawster/adapters-common";
+import { StackOperationsService } from "./services/stack-operations-service";
 import {
-  CloudFormationClient,
-  CreateStackCommand,
-  UpdateStackCommand,
-  DeleteStackCommand,
-  DescribeStacksCommand,
-  DescribeStackEventsCommand,
-  Stack,
-  StackEvent,
-  Output,
-} from "@aws-sdk/client-cloudformation";
+  StackWaiterService,
+  type WaitOptions,
+} from "./services/stack-waiter-service";
+import {
+  BackoffStrategy,
+  FixedDelayStrategy,
+} from "./services/backoff-strategy";
+
+// Re-export AWS-specific types
+export type {
+  StackEventInfo,
+  StackStatus,
+} from "./services/stack-operations-service";
+export type { WaitOptions } from "./services/stack-waiter-service";
+export {
+  BackoffStrategy,
+  FixedDelayStrategy,
+  ExponentialBackoffStrategy,
+  LinearBackoffStrategy,
+} from "./services/backoff-strategy";
 
 export interface CloudFormationCredentials {
   accessKeyId: string;
   secretAccessKey: string;
 }
 
-export interface StackOutput {
-  key: string;
-  value: string;
-  description?: string;
+export interface CloudFormationServiceOptions {
+  /** Default backoff strategy for wait operations */
+  backoffStrategy?: BackoffStrategy;
 }
-
-export interface StackEventInfo {
-  eventId: string;
-  resourceId: string;
-  resourceType: string;
-  resourceStatus: string;
-  statusReason?: string;
-  timestamp: Date;
-}
-
-export interface StackInfo {
-  stackId: string;
-  stackName: string;
-  status: string;
-  statusReason?: string;
-  creationTime: Date;
-  lastUpdatedTime?: Date;
-  outputs: StackOutput[];
-}
-
-export type StackStatus =
-  | "CREATE_IN_PROGRESS"
-  | "CREATE_COMPLETE"
-  | "CREATE_FAILED"
-  | "ROLLBACK_IN_PROGRESS"
-  | "ROLLBACK_COMPLETE"
-  | "ROLLBACK_FAILED"
-  | "DELETE_IN_PROGRESS"
-  | "DELETE_COMPLETE"
-  | "DELETE_FAILED"
-  | "UPDATE_IN_PROGRESS"
-  | "UPDATE_COMPLETE"
-  | "UPDATE_FAILED"
-  | "UPDATE_ROLLBACK_IN_PROGRESS"
-  | "UPDATE_ROLLBACK_COMPLETE"
-  | "UPDATE_ROLLBACK_FAILED";
-
-const DEFAULT_POLL_INTERVAL_MS = 10_000;
-const DEFAULT_TIMEOUT_MS = 600_000; // 10 minutes
 
 /**
- * AWS CloudFormation service.
- * Uses constructor injection for testability.
+ * Convert template to string format for CloudFormation.
+ * Accepts string (pass-through) or object (JSON serialize).
  */
-export class CloudFormationService {
-  constructor(private readonly client: CloudFormationClient) {}
+function normalizeTemplate(template: string | object): string {
+  if (typeof template === "string") {
+    return template;
+  }
+  return JSON.stringify(template);
+}
 
-  /**
-   * Create a new CloudFormation stack.
-   */
+/**
+ * Convert AWS-specific StackInfo to common interface format.
+ */
+function toCommonStackInfo(
+  awsInfo: Awaited<
+    ReturnType<StackOperationsService["describeStack"]>
+  >
+): StackInfo | undefined {
+  if (!awsInfo) return undefined;
+  return {
+    stackId: awsInfo.stackId,
+    stackName: awsInfo.stackName,
+    status: awsInfo.status,
+    statusReason: awsInfo.statusReason,
+    creationTime: awsInfo.creationTime,
+    lastUpdatedTime: awsInfo.lastUpdatedTime,
+    outputs: awsInfo.outputs.map((o) => ({
+      key: o.key,
+      value: o.value,
+      description: o.description,
+    })),
+  };
+}
+
+/**
+ * AWS CloudFormation service implementing IInfrastructureService.
+ * Composes focused services following Single Responsibility Principle.
+ *
+ * Pluggable design:
+ * - Inject CloudFormationClient for testing/mocking
+ * - Inject BackoffStrategy for customizable polling behavior
+ * - Implements IInfrastructureService for cloud-agnostic usage
+ */
+export class CloudFormationService implements IInfrastructureService {
+  private readonly operationsService: StackOperationsService;
+  private readonly waiterService: StackWaiterService;
+
+  constructor(
+    client: CloudFormationClient,
+    options: CloudFormationServiceOptions = {}
+  ) {
+    const backoffStrategy = options.backoffStrategy ?? new FixedDelayStrategy();
+
+    this.operationsService = new StackOperationsService(client);
+    this.waiterService = new StackWaiterService(
+      this.operationsService,
+      backoffStrategy
+    );
+  }
+
+  // --- IStackOperations (from IInfrastructureService) ---
+
   async createStack(
-    stackName: string,
-    templateBody: string,
-    options?: {
-      parameters?: Record<string, string>;
-      tags?: Record<string, string>;
-      capabilities?: ("CAPABILITY_IAM" | "CAPABILITY_NAMED_IAM" | "CAPABILITY_AUTO_EXPAND")[];
-      onResourceCreated?: boolean;
-    }
+    name: string,
+    template: string | object,
+    options?: StackConfig
   ): Promise<string> {
-    const parameters = options?.parameters
-      ? Object.entries(options.parameters).map(([key, value]) => ({
-          ParameterKey: key,
-          ParameterValue: value,
-        }))
-      : undefined;
-
-    const tags = options?.tags
-      ? Object.entries(options.tags).map(([Key, Value]) => ({ Key, Value }))
-      : undefined;
-
-    const result = await this.client.send(
-      new CreateStackCommand({
-        StackName: stackName,
-        TemplateBody: templateBody,
-        Parameters: parameters,
-        Tags: tags,
-        Capabilities: options?.capabilities,
-        OnFailure: "ROLLBACK",
-        EnableTerminationProtection: false,
-      })
+    return this.operationsService.createStack(
+      name,
+      normalizeTemplate(template),
+      {
+        parameters: options?.parameters,
+        tags: options?.tags,
+        capabilities: options?.capabilities as (
+          | "CAPABILITY_IAM"
+          | "CAPABILITY_NAMED_IAM"
+          | "CAPABILITY_AUTO_EXPAND"
+        )[],
+      }
     );
-
-    return result.StackId || "";
   }
 
-  /**
-   * Update an existing CloudFormation stack.
-   */
   async updateStack(
-    stackName: string,
-    templateBody: string,
-    options?: {
-      parameters?: Record<string, string>;
-      tags?: Record<string, string>;
-      capabilities?: ("CAPABILITY_IAM" | "CAPABILITY_NAMED_IAM" | "CAPABILITY_AUTO_EXPAND")[];
-    }
+    name: string,
+    template: string | object,
+    options?: StackConfig
   ): Promise<string> {
-    const parameters = options?.parameters
-      ? Object.entries(options.parameters).map(([key, value]) => ({
-          ParameterKey: key,
-          ParameterValue: value,
-        }))
-      : undefined;
-
-    const tags = options?.tags
-      ? Object.entries(options.tags).map(([Key, Value]) => ({ Key, Value }))
-      : undefined;
-
-    const result = await this.client.send(
-      new UpdateStackCommand({
-        StackName: stackName,
-        TemplateBody: templateBody,
-        Parameters: parameters,
-        Tags: tags,
-        Capabilities: options?.capabilities,
-      })
-    );
-
-    return result.StackId || "";
-  }
-
-  /**
-   * Delete a CloudFormation stack.
-   */
-  async deleteStack(stackName: string): Promise<void> {
-    await this.client.send(
-      new DeleteStackCommand({
-        StackName: stackName,
-      })
+    return this.operationsService.updateStack(
+      name,
+      normalizeTemplate(template),
+      {
+        parameters: options?.parameters,
+        tags: options?.tags,
+        capabilities: options?.capabilities as (
+          | "CAPABILITY_IAM"
+          | "CAPABILITY_NAMED_IAM"
+          | "CAPABILITY_AUTO_EXPAND"
+        )[],
+      }
     );
   }
 
-  /**
-   * Describe a CloudFormation stack.
-   * Returns undefined if the stack does not exist.
-   */
-  async describeStack(stackName: string): Promise<StackInfo | undefined> {
-    try {
-      const result = await this.client.send(
-        new DescribeStacksCommand({
-          StackName: stackName,
-        })
-      );
-
-      const stack = result.Stacks?.[0];
-      if (!stack) {
-        return undefined;
-      }
-
-      return this.mapStackToInfo(stack);
-    } catch (error) {
-      // Stack does not exist
-      if (
-        error instanceof Error &&
-        error.message.includes("does not exist")
-      ) {
-        return undefined;
-      }
-      throw error;
-    }
+  async deleteStack(name: string): Promise<void> {
+    return this.operationsService.deleteStack(name);
   }
 
-  /**
-   * Describe multiple CloudFormation stacks by name or pattern.
-   */
-  async describeStacks(stackNames?: string[]): Promise<StackInfo[]> {
-    const stacks: StackInfo[] = [];
-    let nextToken: string | undefined;
-
-    do {
-      const result = await this.client.send(
-        new DescribeStacksCommand({
-          NextToken: nextToken,
-        })
-      );
-
-      for (const stack of result.Stacks ?? []) {
-        if (!stackNames || stackNames.includes(stack.StackName || "")) {
-          stacks.push(this.mapStackToInfo(stack));
-        }
-      }
-
-      nextToken = result.NextToken;
-    } while (nextToken);
-
-    return stacks;
+  async describeStack(name: string): Promise<StackInfo | undefined> {
+    const awsInfo = await this.operationsService.describeStack(name);
+    return toCommonStackInfo(awsInfo);
   }
 
+  async stackExists(name: string): Promise<boolean> {
+    return this.operationsService.stackExists(name);
+  }
+
+  // --- IStackOutputs (from IInfrastructureService) ---
+
+  async getStackOutputs(name: string): Promise<Record<string, string>> {
+    return this.operationsService.getStackOutputs(name);
+  }
+
+  // --- AWS-specific methods (not part of interface) ---
+
   /**
-   * Get stack events for a CloudFormation stack.
+   * Get stack events for monitoring deployment progress.
+   * AWS-specific method.
    */
   async describeStackEvents(
     stackName: string,
@@ -218,181 +183,57 @@ export class CloudFormationService {
       limit?: number;
       afterEventId?: string;
     }
-  ): Promise<StackEventInfo[]> {
-    const events: StackEventInfo[] = [];
-    let nextToken: string | undefined;
-    let found = false;
-
-    do {
-      const result = await this.client.send(
-        new DescribeStackEventsCommand({
-          StackName: stackName,
-          NextToken: nextToken,
-        })
-      );
-
-      for (const event of result.StackEvents ?? []) {
-        // If afterEventId is specified, skip until we find it
-        if (options?.afterEventId && !found) {
-          if (event.EventId === options.afterEventId) {
-            found = true;
-          }
-          continue;
-        }
-
-        events.push(this.mapEventToInfo(event));
-
-        if (options?.limit && events.length >= options.limit) {
-          return events;
-        }
-      }
-
-      nextToken = result.NextToken;
-    } while (nextToken && (!options?.limit || events.length < options.limit));
-
-    return events;
+  ) {
+    return this.operationsService.describeStackEvents(stackName, options);
   }
 
   /**
    * Wait for a stack to reach a target status.
+   * AWS-specific method with pluggable backoff strategy.
    */
   async waitForStackStatus(
     stackName: string,
-    targetStatus: StackStatus,
-    options?: {
-      pollIntervalMs?: number;
-      timeoutMs?: number;
-      onEvent?: (event: StackEventInfo) => void;
-    }
-  ): Promise<StackInfo> {
-    const pollInterval = options?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    const timeout = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const startTime = Date.now();
-    const seenEventIds = new Set<string>();
-
-    while (Date.now() - startTime < timeout) {
-      // Poll stack events for progress updates
-      if (options?.onEvent) {
-        try {
-          const events = await this.describeStackEvents(stackName);
-          for (const event of events.reverse()) {
-            if (!seenEventIds.has(event.eventId)) {
-              seenEventIds.add(event.eventId);
-              options.onEvent(event);
-            }
-          }
-        } catch {
-          // Events may not be available yet
-        }
-      }
-
-      // Check stack status
-      const stack = await this.describeStack(stackName);
-
-      // Handle DELETE_COMPLETE - stack no longer exists
-      if (targetStatus === "DELETE_COMPLETE" && !stack) {
-        return {
-          stackId: "",
-          stackName,
-          status: "DELETE_COMPLETE",
-          creationTime: new Date(),
-          outputs: [],
-        };
-      }
-
-      if (!stack) {
-        throw new Error(`Stack "${stackName}" not found`);
-      }
-
-      if (stack.status === targetStatus) {
-        return stack;
-      }
-
-      // Check for terminal failure states
-      if (
-        stack.status.endsWith("_FAILED") ||
-        stack.status === "ROLLBACK_COMPLETE" ||
-        stack.status === "DELETE_FAILED"
-      ) {
-        throw new Error(
-          `Stack "${stackName}" reached ${stack.status}: ${stack.statusReason || "Unknown error"}`
-        );
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
-    }
-
-    throw new Error(
-      `Stack "${stackName}" timed out waiting for ${targetStatus}`
+    targetStatus:
+      | "CREATE_IN_PROGRESS"
+      | "CREATE_COMPLETE"
+      | "CREATE_FAILED"
+      | "ROLLBACK_IN_PROGRESS"
+      | "ROLLBACK_COMPLETE"
+      | "ROLLBACK_FAILED"
+      | "DELETE_IN_PROGRESS"
+      | "DELETE_COMPLETE"
+      | "DELETE_FAILED"
+      | "UPDATE_IN_PROGRESS"
+      | "UPDATE_COMPLETE"
+      | "UPDATE_FAILED"
+      | "UPDATE_ROLLBACK_IN_PROGRESS"
+      | "UPDATE_ROLLBACK_COMPLETE"
+      | "UPDATE_ROLLBACK_FAILED",
+    options?: WaitOptions
+  ) {
+    return this.waiterService.waitForStackStatus(
+      stackName,
+      targetStatus,
+      options
     );
-  }
-
-  /**
-   * Get stack outputs as a key-value map.
-   */
-  async getStackOutputs(stackName: string): Promise<Record<string, string>> {
-    const stack = await this.describeStack(stackName);
-    if (!stack) {
-      throw new Error(`Stack "${stackName}" not found`);
-    }
-
-    const outputs: Record<string, string> = {};
-    for (const output of stack.outputs) {
-      outputs[output.key] = output.value;
-    }
-    return outputs;
-  }
-
-  /**
-   * Check if a stack exists and is not in a deleted state.
-   */
-  async stackExists(stackName: string): Promise<boolean> {
-    const stack = await this.describeStack(stackName);
-    if (!stack) return false;
-    return stack.status !== "DELETE_COMPLETE" && stack.status !== "ROLLBACK_COMPLETE";
-  }
-
-  /**
-   * Map AWS SDK Stack to StackInfo.
-   */
-  private mapStackToInfo(stack: Stack): StackInfo {
-    return {
-      stackId: stack.StackId || "",
-      stackName: stack.StackName || "",
-      status: stack.StackStatus || "UNKNOWN",
-      statusReason: stack.StackStatusReason,
-      creationTime: stack.CreationTime || new Date(),
-      lastUpdatedTime: stack.LastUpdatedTime,
-      outputs: (stack.Outputs ?? []).map((o: Output) => ({
-        key: o.OutputKey || "",
-        value: o.OutputValue || "",
-        description: o.Description,
-      })),
-    };
-  }
-
-  /**
-   * Map AWS SDK StackEvent to StackEventInfo.
-   */
-  private mapEventToInfo(event: StackEvent): StackEventInfo {
-    return {
-      eventId: event.EventId || "",
-      resourceId: event.LogicalResourceId || "",
-      resourceType: event.ResourceType || "",
-      resourceStatus: event.ResourceStatus || "",
-      statusReason: event.ResourceStatusReason,
-      timestamp: event.Timestamp || new Date(),
-    };
   }
 }
 
 /**
- * Factory function to create a CloudFormationService with default configuration.
- * Provides backward compatibility with the old constructor signature.
+ * Factory function to create a CloudFormationService.
+ * Returns CloudFormationService for full AWS-specific functionality.
+ *
+ * Use as IInfrastructureService for cloud-agnostic code:
+ *   const infra: IInfrastructureService = createCloudFormationService(region);
+ *
+ * Use as CloudFormationService for AWS-specific methods (waitForStackStatus, etc.):
+ *   const cfn = createCloudFormationService(region);
+ *   await cfn.waitForStackStatus(stackName, "CREATE_COMPLETE");
  */
 export function createCloudFormationService(
   region: string = "us-east-1",
-  credentials?: CloudFormationCredentials
+  credentials?: CloudFormationCredentials,
+  options?: CloudFormationServiceOptions
 ): CloudFormationService {
   return new CloudFormationService(
     new CloudFormationClient({
@@ -403,6 +244,7 @@ export function createCloudFormationService(
             secretAccessKey: credentials.secretAccessKey,
           }
         : undefined,
-    })
+    }),
+    options
   );
 }

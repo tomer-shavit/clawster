@@ -1,10 +1,16 @@
-import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
+/**
+ * GCP Secret Rotation Service
+ *
+ * Provides secret rotation and staleness checking for GCP Secret Manager.
+ * Implements ISecretRotationService interface from adapters-common.
+ */
 
-export interface StaleSecret {
-  name: string;
-  lastRotated: Date;
-  ageDays: number;
-}
+import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
+import type { ISecretRotationService } from "@clawster/adapters-common";
+import type { StaleSecret } from "@clawster/adapters-common/dist/types/secret";
+
+// Re-export StaleSecret type for backward compatibility
+export type { StaleSecret };
 
 export interface SecretRotationServiceConfig {
   projectId: string;
@@ -16,10 +22,10 @@ export interface SecretRotationServiceConfig {
 }
 
 /**
- * Service for managing secret rotation in GCP Secret Manager.
- * Tracks rotation timestamps via secret labels and identifies stale secrets.
+ * GCP Secret Rotation Service for Secret Manager secrets.
+ * Implements ISecretRotationService interface.
  */
-export class SecretRotationService {
+export class SecretRotationService implements ISecretRotationService {
   private readonly client: SecretManagerServiceClient;
   private readonly projectId: string;
 
@@ -40,6 +46,7 @@ export class SecretRotationService {
 
   /**
    * Rotate a secret by adding a new version and updating the lastRotated label.
+   * Implements ISecretRotator.rotateSecret.
    *
    * @param secretName - Secret name
    * @param newValue - New secret value
@@ -79,6 +86,7 @@ export class SecretRotationService {
 
   /**
    * Check if a secret is due for rotation based on its age.
+   * Implements IRotationChecker.checkRotationDue.
    *
    * @param secretName - Secret name
    * @param maxAgeDays - Maximum age in days before rotation is due
@@ -105,6 +113,7 @@ export class SecretRotationService {
 
   /**
    * List all Clawster-managed secrets that are older than the specified age.
+   * Implements IRotationChecker.listStaleSecrets.
    *
    * @param maxAgeDays - Maximum age in days
    * @returns Array of stale secrets with their age information

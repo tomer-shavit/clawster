@@ -2,6 +2,8 @@
  * Azure Application Gateway Service
  *
  * Provides operations for managing Azure Application Gateways.
+ * Implements ILoadBalancerService interface.
+ *
  * Application Gateway provides Layer 7 load balancing with SSL termination,
  * URL-based routing, and Web Application Firewall (WAF) capabilities.
  */
@@ -9,9 +11,17 @@
 import {
   NetworkManagementClient,
   ApplicationGateway,
-  PublicIPAddress,
 } from "@azure/arm-network";
 import { DefaultAzureCredential, TokenCredential } from "@azure/identity";
+import type { ILoadBalancerService } from "@clawster/adapters-common";
+import type {
+  LoadBalancerConfig,
+  LoadBalancerResult,
+  LoadBalancerEndpoint,
+} from "@clawster/adapters-common/dist/types/loadbalancer";
+
+import { PublicIpService } from "../network/services/public-ip-service";
+import { SubnetService } from "../network/services/subnet-service";
 
 /**
  * Application Gateway endpoint information.
@@ -51,12 +61,15 @@ export interface CreateAppGatewayOptions {
 
 /**
  * Azure Application Gateway Service.
+ * Implements ILoadBalancerService interface.
  */
-export class AppGatewayService {
+export class AppGatewayService implements ILoadBalancerService {
   private readonly networkClient: NetworkManagementClient;
   private readonly subscriptionId: string;
   private readonly resourceGroup: string;
   private readonly location: string;
+  private readonly publicIpService: PublicIpService;
+  private readonly subnetService: SubnetService;
 
   /**
    * Create a new AppGatewayService instance.
@@ -77,7 +90,129 @@ export class AppGatewayService {
     this.subscriptionId = subscriptionId;
     this.resourceGroup = resourceGroup;
     this.location = location;
+
+    // Use the sub-services for delegation
+    this.publicIpService = new PublicIpService(this.networkClient, resourceGroup, location);
+    this.subnetService = new SubnetService(this.networkClient, resourceGroup);
   }
+
+  /**
+   * Create with pre-constructed sub-services (for testing/DI).
+   */
+  static fromServices(
+    networkClient: NetworkManagementClient,
+    subscriptionId: string,
+    resourceGroup: string,
+    location: string,
+    publicIpService: PublicIpService,
+    subnetService: SubnetService
+  ): AppGatewayService {
+    const instance = Object.create(AppGatewayService.prototype);
+    instance.networkClient = networkClient;
+    instance.subscriptionId = subscriptionId;
+    instance.resourceGroup = resourceGroup;
+    instance.location = location;
+    instance.publicIpService = publicIpService;
+    instance.subnetService = subnetService;
+    return instance;
+  }
+
+  // ------------------------------------------------------------------
+  // ILoadBalancerService implementation
+  // ------------------------------------------------------------------
+
+  /**
+   * Create a new load balancer (Application Gateway).
+   * Implements ILoadBalancerService.createLoadBalancer.
+   */
+  async createLoadBalancer(
+    name: string,
+    config: LoadBalancerConfig
+  ): Promise<LoadBalancerResult> {
+    const listener = config.listeners[0]; // Application Gateway uses single listener
+    const publicIpName = `${name}-pip`;
+
+    // Create public IP for the gateway
+    await this.publicIpService.createPublicIp(publicIpName, name, "Standard", "Static");
+
+    const options: CreateAppGatewayOptions = {
+      name,
+      subnetId: config.subnetIds?.[0] ?? "",
+      publicIpName,
+      gatewayPort: listener.targetPort,
+      healthProbePath: config.healthCheck?.path ?? "/health",
+      requestTimeout: config.healthCheck?.timeoutSeconds ?? 60,
+    };
+
+    const appGw = await this.createAppGateway(options);
+
+    return {
+      loadBalancerId: appGw.id ?? name,
+      name,
+      dnsName: appGw.frontendIPConfigurations?.[0]?.publicIPAddress?.id ?? undefined,
+      resourceId: appGw.id,
+      status: "active",
+    };
+  }
+
+  /**
+   * Delete a load balancer (Application Gateway) and its resources.
+   * Implements ILoadBalancerService.deleteLoadBalancer.
+   */
+  async deleteLoadBalancer(name: string): Promise<void> {
+    await this.deleteAppGateway(name);
+    // Also delete associated public IP
+    await this.publicIpService.deletePublicIp(`${name}-pip`);
+  }
+
+  /**
+   * Update the backend pool with new targets.
+   * Implements ILoadBalancerService.updateBackendPool.
+   */
+  async updateBackendPool(name: string, targets: string[]): Promise<void> {
+    const appGw: ApplicationGateway = await this.networkClient.applicationGateways.get(
+      this.resourceGroup,
+      name
+    );
+
+    if (appGw.backendAddressPools?.[0]) {
+      appGw.backendAddressPools[0].backendAddresses = targets.map((ip) => ({
+        ipAddress: ip,
+      }));
+    }
+
+    await this.networkClient.applicationGateways.beginCreateOrUpdateAndWait(
+      this.resourceGroup,
+      name,
+      appGw
+    );
+  }
+
+  /**
+   * Get the public endpoint information for a load balancer.
+   * Implements ILoadBalancerService.getEndpoint.
+   */
+  async getEndpoint(name: string): Promise<LoadBalancerEndpoint> {
+    const appGw = await this.getAppGateway(name);
+    if (!appGw) {
+      throw new Error(`Application Gateway ${name} not found`);
+    }
+
+    // Get public IP details
+    const publicIpName = `${name}-pip`;
+    const pip = await this.publicIpService.getPublicIp(publicIpName);
+
+    return {
+      dnsName: pip?.dnsSettings?.fqdn ?? "",
+      publicIp: pip?.ipAddress ?? undefined,
+      port: appGw.frontendPorts?.[0]?.port ?? 80,
+      url: `http://${pip?.dnsSettings?.fqdn ?? pip?.ipAddress ?? ""}`,
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // Azure-specific methods (for backward compatibility)
+  // ------------------------------------------------------------------
 
   /**
    * Create an Application Gateway.
@@ -232,40 +367,10 @@ export class AppGatewayService {
       );
     } catch (error: unknown) {
       if ((error as { statusCode?: number }).statusCode === 404) {
-        return; // Already deleted
+        return;
       }
       throw error;
     }
-  }
-
-  /**
-   * Update the backend pool with VM IP addresses.
-   *
-   * @param gatewayName - Application Gateway name
-   * @param vmPrivateIp - VM private IP address (or array of IPs)
-   */
-  async updateBackendPool(
-    gatewayName: string,
-    vmPrivateIp: string | string[]
-  ): Promise<void> {
-    const appGw: ApplicationGateway = await this.networkClient.applicationGateways.get(
-      this.resourceGroup,
-      gatewayName
-    );
-
-    const ips = Array.isArray(vmPrivateIp) ? vmPrivateIp : [vmPrivateIp];
-
-    if (appGw.backendAddressPools?.[0]) {
-      appGw.backendAddressPools[0].backendAddresses = ips.map((ip) => ({
-        ipAddress: ip,
-      }));
-    }
-
-    await this.networkClient.applicationGateways.beginCreateOrUpdateAndWait(
-      this.resourceGroup,
-      gatewayName,
-      appGw
-    );
   }
 
   /**
@@ -275,13 +380,10 @@ export class AppGatewayService {
    * @returns Gateway endpoint info (IP and FQDN)
    */
   async getGatewayEndpoint(publicIpName: string): Promise<GatewayEndpointInfo> {
-    const pip = await this.networkClient.publicIPAddresses.get(
-      this.resourceGroup,
-      publicIpName
-    );
+    const pip = await this.publicIpService.getPublicIp(publicIpName);
     return {
-      publicIp: pip.ipAddress || "",
-      fqdn: pip.dnsSettings?.fqdn || "",
+      publicIp: pip?.ipAddress || "",
+      fqdn: pip?.dnsSettings?.fqdn || "",
     };
   }
 
@@ -307,6 +409,7 @@ export class AppGatewayService {
 
   /**
    * Ensure a static public IP exists for the Application Gateway.
+   * Delegated to PublicIpService.
    *
    * @param name - Public IP name
    * @param dnsLabel - DNS label for FQDN
@@ -316,81 +419,27 @@ export class AppGatewayService {
     name: string,
     dnsLabel: string
   ): Promise<{ ipAddress: string; fqdn: string }> {
-    // Check if already exists
-    try {
-      const pip = await this.networkClient.publicIPAddresses.get(
-        this.resourceGroup,
-        name
-      );
-      return {
-        ipAddress: pip.ipAddress || "",
-        fqdn: pip.dnsSettings?.fqdn || "",
-      };
-    } catch (error: unknown) {
-      if ((error as { statusCode?: number }).statusCode !== 404) {
-        throw error;
-      }
-    }
-
-    const pip = await this.networkClient.publicIPAddresses.beginCreateOrUpdateAndWait(
-      this.resourceGroup,
-      name,
-      {
-        location: this.location,
-        sku: { name: "Standard" },
-        publicIPAllocationMethod: "Static",
-        dnsSettings: {
-          domainNameLabel: dnsLabel.toLowerCase().replace(/[^a-z0-9-]/g, ""),
-        },
-        tags: {
-          managedBy: "clawster",
-        },
-      }
-    );
-
-    return {
-      ipAddress: pip.ipAddress || "",
-      fqdn: pip.dnsSettings?.fqdn || "",
-    };
+    return this.publicIpService.ensurePublicIp(name, dnsLabel);
   }
 
   /**
    * Delete a public IP address.
+   * Delegated to PublicIpService.
    *
    * @param name - Public IP name
    */
   async deletePublicIp(name: string): Promise<void> {
-    try {
-      await this.networkClient.publicIPAddresses.beginDeleteAndWait(
-        this.resourceGroup,
-        name
-      );
-    } catch (error: unknown) {
-      if ((error as { statusCode?: number }).statusCode === 404) {
-        return; // Already deleted
-      }
-      throw error;
-    }
+    return this.publicIpService.deletePublicIp(name);
   }
 
   /**
    * Delete a subnet.
+   * Delegated to SubnetService.
    *
    * @param vnetName - VNet name
    * @param subnetName - Subnet name
    */
   async deleteSubnet(vnetName: string, subnetName: string): Promise<void> {
-    try {
-      await this.networkClient.subnets.beginDeleteAndWait(
-        this.resourceGroup,
-        vnetName,
-        subnetName
-      );
-    } catch (error: unknown) {
-      if ((error as { statusCode?: number }).statusCode === 404) {
-        return; // Already deleted
-      }
-      throw error;
-    }
+    return this.subnetService.deleteSubnet(vnetName, subnetName);
   }
 }

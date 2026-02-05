@@ -54,3 +54,51 @@ export function sanitizeAciName(name: string): string {
 export function sanitizeAwsName(name: string, maxLength = 255): string {
   return sanitizeName(name, maxLength);
 }
+
+/**
+ * Sanitize a name for GCP Secret Manager secrets.
+ * Secret names can contain uppercase and lowercase letters, numbers, hyphens, and underscores.
+ * Must start with a letter. Max 255 chars.
+ *
+ * @param name - Raw name to sanitize
+ * @returns Sanitized name safe for GCP Secret Manager
+ */
+export function sanitizeGcpSecretName(name: string): string {
+  const sanitized = name
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .substring(0, 255);
+
+  if (!sanitized) {
+    throw new Error(`Invalid name: "${name}" produces empty sanitized value`);
+  }
+
+  // GCP secret names must start with a letter
+  if (!/^[a-zA-Z]/.test(sanitized)) {
+    return `s${sanitized}`;
+  }
+
+  return sanitized;
+}
+
+/**
+ * Sanitize a value for use as a GCP label.
+ * Labels can contain lowercase letters, numbers, hyphens, and underscores.
+ * Max 63 chars.
+ *
+ * @param value - Raw value to sanitize
+ * @returns Sanitized value safe for GCP labels
+ */
+export function sanitizeGcpLabel(value: string): string {
+  const sanitized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .substring(0, 63);
+
+  if (!sanitized) {
+    throw new Error(`Invalid label: "${value}" produces empty sanitized value`);
+  }
+
+  return sanitized;
+}

@@ -1,4 +1,16 @@
+/**
+ * GCP Cloud Logging Service (Facade)
+ *
+ * Provides a unified interface for GCP Cloud Logging operations.
+ * Delegates to specialized sub-services following SOLID principles.
+ */
+
 import { Logging, Log, Entry } from "@google-cloud/logging";
+import type { ILoggingService } from "@clawster/adapters-common";
+import type { LogQueryOptions, LogQueryResult, LogEvent as CommonLogEvent } from "@clawster/adapters-common/dist/types/logging";
+
+import { LogQueryService, GcpLogQueryOptions } from "./services/log-query-service";
+import { LogConsoleService } from "./services/log-console-service";
 
 export interface LogEvent {
   timestamp: Date;
@@ -16,26 +28,17 @@ export interface CloudLoggingServiceConfig {
   };
 }
 
-export interface LogQueryOptions {
-  /** Start time for log query */
-  startTime?: Date;
-  /** End time for log query */
-  endTime?: Date;
-  /** Maximum number of entries to return */
-  limit?: number;
-  /** Filter expression (in addition to resource filter) */
-  filter?: string;
-  /** Page token for pagination */
-  pageToken?: string;
-}
+export { GcpLogQueryOptions as LogQueryOptions };
 
 /**
- * Service for querying GCP Cloud Logging.
- * Provides methods for reading logs from Compute Engine instances and other resources.
+ * GCP Cloud Logging Service (Facade) for log operations.
+ * Implements ILoggingService interface.
  */
-export class CloudLoggingService {
+export class CloudLoggingService implements ILoggingService {
   private readonly logging: Logging;
   private readonly projectId: string;
+  private readonly queryService: LogQueryService;
+  private readonly consoleService: LogConsoleService;
 
   constructor(config: CloudLoggingServiceConfig) {
     const clientOptions: { projectId: string; keyFilename?: string; credentials?: { client_email: string; private_key: string } } = {
@@ -50,7 +53,51 @@ export class CloudLoggingService {
 
     this.logging = new Logging(clientOptions);
     this.projectId = config.projectId;
+
+    this.queryService = new LogQueryService(this.logging, config.projectId);
+    this.consoleService = new LogConsoleService(config.projectId);
   }
+
+  /**
+   * Create with pre-constructed sub-services (for testing/DI).
+   */
+  static fromServices(
+    logging: Logging,
+    projectId: string,
+    queryService: LogQueryService,
+    consoleService: LogConsoleService
+  ): CloudLoggingService {
+    const instance = Object.create(CloudLoggingService.prototype);
+    instance.logging = logging;
+    instance.projectId = projectId;
+    instance.queryService = queryService;
+    instance.consoleService = consoleService;
+    return instance;
+  }
+
+  // ------------------------------------------------------------------
+  // ILoggingService implementation
+  // ------------------------------------------------------------------
+
+  /**
+   * Get logs for a resource.
+   * Implements ILoggingService.getLogs.
+   */
+  async getLogs(resourceId: string, options?: LogQueryOptions): Promise<LogQueryResult> {
+    return this.queryService.getLogs(resourceId, options);
+  }
+
+  /**
+   * Get a console link to view logs in the cloud provider's UI.
+   * Implements ILoggingService.getConsoleLink.
+   */
+  getConsoleLink(resourceId: string): string {
+    return this.consoleService.getConsoleLink(resourceId);
+  }
+
+  // ------------------------------------------------------------------
+  // GCP-specific methods (for backward compatibility)
+  // ------------------------------------------------------------------
 
   /**
    * Get logs for a specific Compute Engine instance.
@@ -60,41 +107,15 @@ export class CloudLoggingService {
    * @param options - Query options
    * @returns Log events and optional page token
    */
-  async getLogs(
+  async getInstanceLogs(
     instanceName: string,
     zone: string,
-    options?: LogQueryOptions
+    options?: GcpLogQueryOptions
   ): Promise<{ events: LogEvent[]; nextPageToken?: string }> {
-    const limit = Math.max(1, Math.min(options?.limit || 100, 10000));
-
-    // Build filter for Compute Engine instance logs
-    let filter = `resource.type="gce_instance" AND resource.labels.instance_id="${instanceName}"`;
-
-    // Add time range
-    if (options?.startTime) {
-      filter += ` AND timestamp >= "${options.startTime.toISOString()}"`;
-    }
-    if (options?.endTime) {
-      filter += ` AND timestamp <= "${options.endTime.toISOString()}"`;
-    }
-
-    // Add custom filter
-    if (options?.filter) {
-      filter += ` AND (${options.filter})`;
-    }
-
-    const [entries, , response] = await this.logging.getEntries({
-      filter,
-      pageSize: limit,
-      pageToken: options?.pageToken,
-      orderBy: "timestamp desc",
-    });
-
-    const events: LogEvent[] = entries.map((entry) => this.entryToLogEvent(entry));
-
+    const result = await this.queryService.getInstanceLogs(instanceName, zone, options);
     return {
-      events,
-      nextPageToken: response?.nextPageToken ?? undefined,
+      events: result.events.map((e) => this.toGcpLogEvent(e)),
+      nextPageToken: result.nextPageToken,
     };
   }
 
@@ -107,51 +128,33 @@ export class CloudLoggingService {
    */
   async queryLogs(
     filter: string,
-    options?: Omit<LogQueryOptions, "filter">
+    options?: Omit<GcpLogQueryOptions, "filter">
   ): Promise<{ events: LogEvent[]; nextPageToken?: string }> {
-    const limit = Math.max(1, Math.min(options?.limit || 100, 10000));
-
-    let fullFilter = filter;
-
-    // Add time range
-    if (options?.startTime) {
-      fullFilter += ` AND timestamp >= "${options.startTime.toISOString()}"`;
-    }
-    if (options?.endTime) {
-      fullFilter += ` AND timestamp <= "${options.endTime.toISOString()}"`;
-    }
-
-    const [entries, , response] = await this.logging.getEntries({
-      filter: fullFilter,
-      pageSize: limit,
-      pageToken: options?.pageToken,
-      orderBy: "timestamp desc",
-    });
-
-    const events: LogEvent[] = entries.map((entry) => this.entryToLogEvent(entry));
-
+    const result = await this.queryService.queryLogs(filter, options);
     return {
-      events,
-      nextPageToken: response?.nextPageToken ?? undefined,
+      events: result.events.map((e) => this.toGcpLogEvent(e)),
+      nextPageToken: result.nextPageToken,
     };
   }
 
   /**
    * Get logs for a Clawster OpenClaw instance.
-   * Queries logs with Clawster-specific labels.
    *
    * @param workspace - Workspace name
    * @param instanceName - Instance name
    * @param options - Query options
    * @returns Log events and optional page token
    */
-  async getInstanceLogs(
+  async getClawsterInstanceLogs(
     workspace: string,
     instanceName: string,
-    options?: LogQueryOptions
+    options?: GcpLogQueryOptions
   ): Promise<{ events: LogEvent[]; nextPageToken?: string }> {
-    const filter = `labels.workspace="${workspace}" AND labels.instance="${instanceName}"`;
-    return this.queryLogs(filter, options);
+    const result = await this.queryService.getClawsterInstanceLogs(workspace, instanceName, options);
+    return {
+      events: result.events.map((e) => this.toGcpLogEvent(e)),
+      nextPageToken: result.nextPageToken,
+    };
   }
 
   /**
@@ -159,7 +162,7 @@ export class CloudLoggingService {
    *
    * @param logName - Log name
    * @param message - Log message
-   * @param severity - Log severity (DEFAULT, DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY)
+   * @param severity - Log severity
    * @param labels - Optional labels
    */
   async writeLog(
@@ -191,11 +194,8 @@ export class CloudLoggingService {
    * @param zone - Zone where the instance is located
    * @returns URL to Cloud Console logs viewer
    */
-  getConsoleLink(instanceName: string, zone: string): string {
-    const filter = encodeURIComponent(
-      `resource.type="gce_instance" resource.labels.instance_id="${instanceName}"`
-    );
-    return `https://console.cloud.google.com/logs/query;query=${filter}?project=${this.projectId}`;
+  getInstanceConsoleLink(instanceName: string, zone: string): string {
+    return this.consoleService.getInstanceConsoleLink(instanceName, zone);
   }
 
   /**
@@ -205,22 +205,16 @@ export class CloudLoggingService {
    * @returns URL to Cloud Console logs viewer
    */
   getConsoleQueryLink(filter: string): string {
-    const encodedFilter = encodeURIComponent(filter);
-    return `https://console.cloud.google.com/logs/query;query=${encodedFilter}?project=${this.projectId}`;
+    return this.consoleService.getConsoleQueryLink(filter);
   }
 
   /**
    * Stream logs in real-time using tail.
-   * Note: This returns an async iterator that yields log entries as they arrive.
    *
    * @param filter - Cloud Logging filter expression
    * @returns Async iterator of log events
    */
   async *tailLogs(filter: string): AsyncGenerator<LogEvent> {
-    const log = this.logging.log("_Default");
-
-    // Use getEntries with autoPaginate to simulate tailing
-    // Note: For true real-time streaming, consider using Pub/Sub sinks
     let lastTimestamp = new Date();
 
     while (true) {
@@ -238,14 +232,12 @@ export class CloudLoggingService {
         yield event;
       }
 
-      // Wait before polling again
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
   /**
    * Delete logs matching a filter.
-   * Use with caution - this permanently deletes log data.
    *
    * @param logName - Log name to delete entries from
    */
@@ -255,7 +247,7 @@ export class CloudLoggingService {
   }
 
   /**
-   * Convert a Cloud Logging entry to our LogEvent format.
+   * Convert a Cloud Logging entry to LogEvent format.
    */
   private entryToLogEvent(entry: Entry): LogEvent {
     const metadata = entry.metadata;
@@ -284,6 +276,16 @@ export class CloudLoggingService {
       message,
       severity: metadata?.severity as string | undefined,
       labels: metadata?.labels as Record<string, string> | undefined,
+    };
+  }
+
+  /**
+   * Convert common LogEvent to GCP-specific LogEvent format.
+   */
+  private toGcpLogEvent(event: CommonLogEvent): LogEvent {
+    return {
+      timestamp: event.timestamp,
+      message: event.message,
     };
   }
 }

@@ -1,4 +1,5 @@
 import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
+import type { ISecretsService } from "@clawster/adapters-common";
 
 export interface SecretValue {
   name: string;
@@ -16,10 +17,10 @@ export interface SecretManagerServiceConfig {
 }
 
 /**
- * Service for managing GCP Secret Manager secrets.
- * Provides CRUD operations for secrets with Clawster-specific naming conventions.
+ * GCP Secret Manager service implementing ISecretsService.
+ * Provides pluggable secrets storage for GCP deployments.
  */
-export class SecretManagerService {
+export class SecretManagerService implements ISecretsService {
   private readonly client: SecretManagerServiceClient;
   private readonly projectId: string;
 
@@ -82,20 +83,17 @@ export class SecretManagerService {
    *
    * @param name - Secret name
    * @param value - New secret value
-   * @returns Version ID of the new version
    */
-  async updateSecret(name: string, value: string): Promise<string> {
+  async updateSecret(name: string, value: string): Promise<void> {
     const sanitizedName = this.sanitizeName(name);
     const secretName = `projects/${this.projectId}/secrets/${sanitizedName}`;
 
-    const [version] = await this.client.addSecretVersion({
+    await this.client.addSecretVersion({
       parent: secretName,
       payload: {
         data: Buffer.from(value, "utf8"),
       },
     });
-
-    return version.name?.split("/").pop() ?? "";
   }
 
   /**

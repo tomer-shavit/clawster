@@ -1,16 +1,10 @@
-import type { StaleSecret } from "../types/secret";
+import type { StaleSecret } from "../../types/secret";
 
 /**
- * Interface for secret rotation services.
- * Implemented by AWS TokenRotationService and Azure SecretRotationService.
+ * Interface for checking rotation status (query only).
+ * Part of ISP-compliant rotation service split.
  */
-export interface ISecretRotationService {
-  /**
-   * Rotate a secret to a new value.
-   * Updates the secret and sets a lastRotated timestamp.
-   */
-  rotateSecret(secretName: string, newValue: string): Promise<void>;
-
+export interface IRotationChecker {
   /**
    * Check if a secret is due for rotation.
    * @param secretName - The name of the secret to check

@@ -1,3 +1,10 @@
+/**
+ * GCP Adapters Package
+ *
+ * Provides GCP-specific implementations for cloud services.
+ * All services follow SOLID principles with ISP-compliant interfaces.
+ */
+
 import { ComputeService } from "./compute/compute-service";
 import { SecretManagerService } from "./secrets/secret-manager-service";
 import { SecretRotationService } from "./secrets/secret-rotation.service";
@@ -9,8 +16,22 @@ export { SecretManagerService } from "./secrets/secret-manager-service";
 export { SecretRotationService } from "./secrets/secret-rotation.service";
 export { CloudLoggingService } from "./logging/cloud-logging-service";
 
+// Export sub-services for direct access
+export { VmLifecycleService, VmInstanceConfig } from "./compute/services/vm-lifecycle-service";
+export { VmStatusService, VmStatus } from "./compute/services/vm-status-service";
+export { DiskService } from "./compute/services/disk-service";
+export { LogQueryService, GcpLogQueryOptions } from "./logging/services/log-query-service";
+export { LogConsoleService } from "./logging/services/log-console-service";
+
+// Export utilities
+export {
+  waitForZoneOperation,
+  isNotFoundError,
+  type OperationWaitOptions,
+} from "./utils/operation-utils";
+
 // Re-export types
-export type { ComputeServiceConfig, VmInstanceConfig, VmStatus } from "./compute/compute-service";
+export type { ComputeServiceConfig } from "./compute/compute-service";
 export type { SecretManagerServiceConfig, SecretValue } from "./secrets/secret-manager-service";
 export type { SecretRotationServiceConfig, StaleSecret } from "./secrets/secret-rotation.service";
 export type { CloudLoggingServiceConfig, LogEvent, LogQueryOptions } from "./logging/cloud-logging-service";
@@ -44,6 +65,10 @@ export interface GcpConfig {
     private_key: string;
   };
 }
+
+// ------------------------------------------------------------------
+// Factory Functions
+// ------------------------------------------------------------------
 
 /**
  * Create a compute service with the given configuration.
@@ -105,3 +130,27 @@ export function createCloudLoggingService(config: GcpConfig): CloudLoggingServic
     credentials: config.credentials,
   });
 }
+
+// ------------------------------------------------------------------
+// Convenience Aliases for Naming Consistency
+// ------------------------------------------------------------------
+
+/**
+ * Create a GCP Compute Service (alias for createComputeService).
+ */
+export const createGcpComputeService = createComputeService;
+
+/**
+ * Create a GCP Logging Service (alias for createCloudLoggingService).
+ */
+export const createGcpLoggingService = createCloudLoggingService;
+
+/**
+ * Create a GCP Secrets Service (alias for createSecretManagerService).
+ */
+export const createGcpSecretsService = createSecretManagerService;
+
+/**
+ * Create a GCP Secret Rotation Service (alias for createSecretRotationService).
+ */
+export const createGcpSecretRotationService = createSecretRotationService;

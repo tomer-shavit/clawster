@@ -1,13 +1,23 @@
+/**
+ * Azure Secret Rotation Service
+ *
+ * Provides secret rotation and staleness checking for Azure Key Vault.
+ * Implements ISecretRotationService interface from adapters-common.
+ */
+
 import { SecretClient } from "@azure/keyvault-secrets";
 import { DefaultAzureCredential, TokenCredential } from "@azure/identity";
+import type { ISecretRotationService } from "@clawster/adapters-common";
+import type { StaleSecret } from "@clawster/adapters-common/dist/types/secret";
 
-export interface StaleSecret {
-  name: string;
-  lastRotated: Date;
-  ageDays: number;
-}
+// Re-export StaleSecret type for backward compatibility
+export type { StaleSecret };
 
-export class SecretRotationService {
+/**
+ * Azure Secret Rotation Service for Key Vault secrets.
+ * Implements ISecretRotationService interface.
+ */
+export class SecretRotationService implements ISecretRotationService {
   private client: SecretClient;
 
   constructor(vaultName: string, credential?: TokenCredential) {
@@ -15,6 +25,13 @@ export class SecretRotationService {
     this.client = new SecretClient(vaultUrl, credential || new DefaultAzureCredential());
   }
 
+  /**
+   * Rotate a secret to a new value.
+   * Implements ISecretRotator.rotateSecret.
+   *
+   * @param secretName - The name of the secret to rotate
+   * @param newValue - The new secret value
+   */
   async rotateSecret(secretName: string, newValue: string): Promise<void> {
     const sanitized = this.sanitizeName(secretName);
 
@@ -31,6 +48,14 @@ export class SecretRotationService {
     });
   }
 
+  /**
+   * Check if a secret is due for rotation.
+   * Implements IRotationChecker.checkRotationDue.
+   *
+   * @param secretName - The name of the secret to check
+   * @param maxAgeDays - Maximum age in days before rotation is due
+   * @returns True if rotation is due
+   */
   async checkRotationDue(secretName: string, maxAgeDays: number): Promise<boolean> {
     const sanitized = this.sanitizeName(secretName);
     const secret = await this.client.getSecret(sanitized);
@@ -45,6 +70,13 @@ export class SecretRotationService {
     return ageDays > maxAgeDays;
   }
 
+  /**
+   * List all secrets that are overdue for rotation.
+   * Implements IRotationChecker.listStaleSecrets.
+   *
+   * @param maxAgeDays - Maximum age in days
+   * @returns Array of stale secrets with their age information
+   */
   async listStaleSecrets(maxAgeDays: number): Promise<StaleSecret[]> {
     const stale: StaleSecret[] = [];
 
@@ -72,6 +104,9 @@ export class SecretRotationService {
     return stale;
   }
 
+  /**
+   * Sanitize a secret name to comply with Azure Key Vault naming requirements.
+   */
   private sanitizeName(name: string): string {
     const sanitized = name
       .toLowerCase()
