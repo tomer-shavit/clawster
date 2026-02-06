@@ -1,7 +1,7 @@
 ---
 description: "Docker deployment architecture with Sysbox sandbox for prompt injection protection"
-globs: ["packages/cloud-providers/**/*.ts", "packages/cli/**/*.ts", "docker/**/*"]
-alwaysApply: true
+globs: ["packages/cloud-providers/src/targets/docker/**/*.ts", "packages/cli/**/*.ts", "docker/**/*"]
+alwaysApply: false
 ---
 
 # Docker Sandbox Architecture

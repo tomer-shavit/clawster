@@ -1,7 +1,7 @@
 ---
 description: "Technical reference for OpenClaw Gateway, config model, health, security, and channels"
 globs: ["packages/gateway-client/**/*.ts", "apps/api/src/channels/**/*.ts", "apps/api/src/health/**/*.ts", "apps/api/src/reconciler/**/*.ts"]
-alwaysApply: true
+alwaysApply: false
 ---
 
 # OpenClaw Documentation Reference

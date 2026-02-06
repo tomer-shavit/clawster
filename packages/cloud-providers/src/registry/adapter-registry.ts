@@ -157,7 +157,7 @@ export class AdapterRegistry {
    */
   getOperationStepId(
     type: DeploymentTargetType,
-    operation: "install" | "start"
+    operation: "install" | "postInstall" | "configure" | "start"
   ): string | undefined {
     return this.getMetadata(type)?.operationSteps[operation];
   }

@@ -70,6 +70,24 @@ export class DeploymentTargetResolverService implements IDeploymentTargetResolve
   }
 
   /**
+   * Get the post-install step ID from the adapter registry for a deployment type.
+   */
+  getPostInstallStepId(deploymentType: string): string | undefined {
+    const typeEnum = this.stringToDeploymentTargetType(deploymentType);
+    if (!typeEnum) return undefined;
+    return AdapterRegistry.getInstance().getOperationStepId(typeEnum, "postInstall");
+  }
+
+  /**
+   * Get the configure step ID from the adapter registry for a deployment type.
+   */
+  getConfigureStepId(deploymentType: string): string | undefined {
+    const typeEnum = this.stringToDeploymentTargetType(deploymentType);
+    if (!typeEnum) return undefined;
+    return AdapterRegistry.getInstance().getOperationStepId(typeEnum, "configure");
+  }
+
+  /**
    * Get the start step ID from the adapter registry for a deployment type.
    */
   getStartStepId(deploymentType: string): string {

@@ -859,6 +859,8 @@ export class EcsEc2Target extends BaseDeploymentTarget implements SelfDescribing
       ],
       operationSteps: {
         install: "create_stack",
+        postInstall: "wait_stack_complete",
+        configure: "configure_secrets",
         start: "wait_service_stable",
       },
       capabilities: {

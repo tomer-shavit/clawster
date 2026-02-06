@@ -1,3 +1,9 @@
+---
+description: "Operational knowledge for managing bot infrastructure across cloud providers"
+globs: ["packages/cloud-providers/**/*.ts", "packages/adapters-aws/**/*.ts"]
+alwaysApply: false
+---
+
 # Cloud Providers — Operational Reference
 
 This document captures hard-won operational knowledge about managing bot infrastructure across cloud providers.

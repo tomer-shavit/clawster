@@ -424,6 +424,7 @@ export class LocalMachineTarget extends BaseDeploymentTarget implements SelfDesc
 
       operationSteps: {
         install: "install_openclaw",
+        configure: "configure_gateway",
         start: "start_service",
       },
 

@@ -554,6 +554,8 @@ export class DockerContainerTarget extends BaseDeploymentTarget implements SelfD
       ],
       operationSteps: {
         install: "build_image",
+        postInstall: "create_container",
+        configure: "write_config",
         start: "start_container",
       },
       capabilities: {

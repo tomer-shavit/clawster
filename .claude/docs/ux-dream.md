@@ -1,7 +1,7 @@
 ---
 description: "UX dream and core design principles for Clawster — the experience we're building toward"
 globs: ["apps/web/src/**/*.tsx", "apps/web/src/**/*.ts"]
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Clawster UX Dream

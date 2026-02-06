@@ -86,6 +86,10 @@ export interface AdapterMetadata {
   operationSteps: {
     /** Step ID that represents "install" completion */
     install: string;
+    /** Step ID shown after install completes (e.g., "wait_stack_complete", "create_container") */
+    postInstall?: string;
+    /** Step ID for the configure phase (e.g., "configure_secrets", "write_config") */
+    configure?: string;
     /** Step ID that represents "start" completion */
     start: string;
   };

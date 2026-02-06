@@ -33,6 +33,18 @@ export interface IDeploymentTargetResolver {
   getInstallStepId(deploymentType: string): string;
 
   /**
+   * Get the post-install step ID (e.g., "wait_stack_complete", "create_container").
+   * Returns undefined if the adapter doesn't define one.
+   */
+  getPostInstallStepId(deploymentType: string): string | undefined;
+
+  /**
+   * Get the configure step ID (e.g., "configure_secrets", "write_config").
+   * Returns undefined if the adapter doesn't define one.
+   */
+  getConfigureStepId(deploymentType: string): string | undefined;
+
+  /**
    * Get the start step ID from the adapter registry for a deployment type.
    */
   getStartStepId(deploymentType: string): string;

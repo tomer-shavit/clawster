@@ -129,6 +129,9 @@ export function useProvisioningEvents(
     }
 
     mountedRef.current = true;
+    // Track whether this effect has been cleaned up (handles React Strict Mode
+    // where the cleanup runs before the async socket creation completes)
+    let cancelled = false;
     let socket: { on: Function; emit: Function; disconnect: Function; connected: boolean } | null = null;
 
     // Start polling immediately for instant feedback
@@ -136,7 +139,13 @@ export function useProvisioningEvents(
 
     const connectWebSocket = async () => {
       try {
+        // Check if effect was already cleaned up before async import resolved
+        if (cancelled) return;
+
         const { io } = await import("socket.io-client");
+
+        // Check again after async import
+        if (cancelled) return;
 
         const newSocket = io(`${API_URL}/provisioning`, {
           transports: ["websocket", "polling"],
@@ -146,7 +155,10 @@ export function useProvisioningEvents(
         socketRef.current = socket;
 
         newSocket.on("connect", () => {
-          if (!mountedRef.current) return;
+          if (cancelled || !mountedRef.current) {
+            newSocket.disconnect();
+            return;
+          }
           setIsConnected(true);
           reconnectAttempts.current = 0;
           // Stop polling when WebSocket is connected
@@ -156,7 +168,7 @@ export function useProvisioningEvents(
         });
 
         newSocket.on("progress", (data: ProvisioningProgress) => {
-          if (!mountedRef.current) return;
+          if (cancelled || !mountedRef.current) return;
           setProgress(data);
           // Stop on terminal state
           if (
@@ -171,7 +183,7 @@ export function useProvisioningEvents(
         });
 
         newSocket.on("provisioning-log", (entry: ProvisioningLogEntry) => {
-          if (!mountedRef.current) return;
+          if (cancelled || !mountedRef.current) return;
           setLogs((prev) => {
             const next = [...prev, entry];
             return next.length > MAX_CLIENT_LOG_LINES
@@ -181,7 +193,7 @@ export function useProvisioningEvents(
         });
 
         newSocket.on("provisioning-logs-buffer", (buffer: ProvisioningLogEntry[]) => {
-          if (!mountedRef.current) return;
+          if (cancelled || !mountedRef.current) return;
           setLogs((prev) => {
             const merged = [...prev, ...buffer];
             return merged.length > MAX_CLIENT_LOG_LINES
@@ -191,7 +203,7 @@ export function useProvisioningEvents(
         });
 
         newSocket.on("disconnect", () => {
-          if (!mountedRef.current) return;
+          if (cancelled || !mountedRef.current) return;
           setIsConnected(false);
           // Resume polling
           startPolling();
@@ -203,7 +215,7 @@ export function useProvisioningEvents(
             );
             reconnectAttempts.current++;
             setTimeout(() => {
-              if (mountedRef.current) {
+              if (!cancelled && mountedRef.current) {
                 connectWebSocket();
               }
             }, delay);
@@ -211,20 +223,21 @@ export function useProvisioningEvents(
         });
 
         newSocket.on("connect_error", () => {
-          if (!mountedRef.current) return;
+          if (cancelled || !mountedRef.current) return;
           setIsConnected(false);
           // Fall back to polling
           startPolling();
         });
       } catch {
         // socket.io-client not available — stay with polling
-        startPolling();
+        if (!cancelled) startPolling();
       }
     };
 
     connectWebSocket();
 
     return () => {
+      cancelled = true;
       mountedRef.current = false;
       stopPolling();
       if (socket) {

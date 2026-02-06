@@ -132,15 +132,6 @@ describe("generatePerBotTemplate", () => {
 
   // ── Quick wins ──
 
-  it("includes warm pool configuration", () => {
-    expect(resources.WarmPool).toBeDefined();
-    const warmPool = resources.WarmPool as {
-      Properties: { PoolState: string; MaxGroupPreparedCapacity: number };
-    };
-    expect(warmPool.Properties.PoolState).toBe("Stopped");
-    expect(warmPool.Properties.MaxGroupPreparedCapacity).toBe(1);
-  });
-
   it("has tuned health check (5s interval, 3 unhealthy threshold)", () => {
     const tg = resources.AlbTargetGroup as {
       Properties: {

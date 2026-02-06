@@ -9,7 +9,7 @@
  * - ALB + ALB SG + Target Group + Listener(s)
  * - Task Security Group
  * - ECS Cluster + Log Group
- * - Launch Template + ASG (with warm pool) + Capacity Provider
+ * - Launch Template + ASG + Capacity Provider
  * - Task Definition + Task Role (per-bot least privilege)
  * - ECS Service
  * - Gateway Token Secret (optional)
@@ -84,7 +84,7 @@ export function generatePerBotTemplate(
     })),
   ];
 
-  // Build UserData script with ECS agent config, warm pools, and Sysbox
+  // Build UserData script with ECS agent config and Sysbox
   const sysboxScript = buildSysboxInstallScript();
   const userData = Buffer.from(
     [
@@ -95,7 +95,6 @@ export function generatePerBotTemplate(
       `echo "ECS_CLUSTER=clawster-${botName}" >> /etc/ecs/ecs.config`,
       `echo "ECS_ENABLE_TASK_IAM_ROLE=true" >> /etc/ecs/ecs.config`,
       `echo "ECS_ENABLE_TASK_ENI=true" >> /etc/ecs/ecs.config`,
-      `echo "ECS_WARM_POOLS_CHECK=true" >> /etc/ecs/ecs.config`,
       `echo "ECS_IMAGE_PULL_BEHAVIOR=prefer-cached" >> /etc/ecs/ecs.config`,
       ``,
       sysboxScript,
@@ -353,17 +352,6 @@ export function generatePerBotTemplate(
           PropagateAtLaunch: true,
         },
       ],
-    },
-  };
-
-  // Warm Pool for fast scale-out (~30s vs 3-5 min cold boot)
-  resources.WarmPool = {
-    Type: "AWS::AutoScaling::WarmPool",
-    Properties: {
-      AutoScalingGroupName: { Ref: "AutoScalingGroup" },
-      PoolState: "Stopped",
-      MinSize: 0,
-      MaxGroupPreparedCapacity: 1,
     },
   };
 

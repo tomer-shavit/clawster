@@ -132,11 +132,19 @@ export class LifecycleManagerService {
         throw new Error(`Install failed: ${installResult.message}`);
       }
       this.provisioningEvents.updateStep(instance.id, installStepId, "completed");
-      currentStepId = "create_container";
-      this.provisioningEvents.updateStep(instance.id, "create_container", "in_progress");
-      this.provisioningEvents.updateStep(instance.id, "create_container", "completed");
-      currentStepId = "write_config";
-      this.provisioningEvents.updateStep(instance.id, "write_config", "in_progress");
+
+      // Post-install step (e.g., "wait_stack_complete" for ECS, "create_container" for Docker)
+      const postInstallStepId = this.deploymentTargetResolver.getPostInstallStepId(deploymentType);
+      if (postInstallStepId) {
+        currentStepId = postInstallStepId;
+        this.provisioningEvents.updateStep(instance.id, postInstallStepId, "in_progress");
+        this.provisioningEvents.updateStep(instance.id, postInstallStepId, "completed");
+      }
+
+      // Configure step (e.g., "configure_secrets" for ECS, "write_config" for Docker)
+      const configureStepId = this.deploymentTargetResolver.getConfigureStepId(deploymentType) ?? "write_config";
+      currentStepId = configureStepId;
+      this.provisioningEvents.updateStep(instance.id, configureStepId, "in_progress");
 
       const configureResult = await target.configure({
         profileName,
@@ -146,10 +154,10 @@ export class LifecycleManagerService {
       });
 
       if (!configureResult.success) {
-        this.provisioningEvents.updateStep(instance.id, "write_config", "error", configureResult.message);
+        this.provisioningEvents.updateStep(instance.id, configureStepId, "error", configureResult.message);
         throw new Error(`Configure failed: ${configureResult.message}`);
       }
-      this.provisioningEvents.updateStep(instance.id, "write_config", "completed");
+      this.provisioningEvents.updateStep(instance.id, configureStepId, "completed");
       const startStepId = this.deploymentTargetResolver.getStartStepId(deploymentType);
       currentStepId = startStepId;
       this.provisioningEvents.updateStep(instance.id, startStepId, "in_progress");

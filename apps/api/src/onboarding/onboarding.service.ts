@@ -182,17 +182,13 @@ export class OnboardingService {
         this.logger.warn(
           `Cleaning up stale bot "${dto.botName}" (status: ${existing.status}) before re-creation`,
         );
-        try {
-          await this.reconciler.delete(existing.id);
-        } catch (err) {
-          this.logger.warn(
-            `Infra cleanup failed for stale bot, falling back to DB-only cleanup: ${err instanceof Error ? err.message : String(err)}`,
-          );
-          await this.cleanupFailedDeployment(
-            existing.id,
-            existing.deploymentTargetId ?? "",
-          );
-        }
+        // Only delete DB records (fast) to free the bot name.
+        // Skip infra teardown — the new deploy's install() handles
+        // existing stacks (updates, waits for deletion, or force-deletes).
+        await this.cleanupFailedDeployment(
+          existing.id,
+          existing.deploymentTargetId ?? "",
+        );
       } else {
         throw new BadRequestException(
           `A bot named "${dto.botName}" already exists in this workspace`,
