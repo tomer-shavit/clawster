@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "claude-opus-4-6",
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "network": {
+      "allowedDomains": [
+        "github.com",
+        "*.github.com",
+        "*.npmjs.org",
+        "registry.npmjs.org",
+        "hub.docker.com",
+        "*.amazonaws.com",
+        "*.aws.amazon.com"
+      ]
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'CONTEXT RESTORED: Clawster project. pnpm monorepo (NestJS API port 4000, Next.js Web port 3000). Never run pnpm dev. Run pnpm --filter <pkg> build after package changes. Use Computer Use for browser verification. Check .claude/docs/ for domain knowledge.'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git diff --name-only 2>/dev/null | grep -E '\\.(ts|tsx)$' | head -5 | while read f; do if grep -l 'console\\.log' \"$f\" 2>/dev/null; then echo \"WARNING: console.log found in $f\" >&2; fi; done; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

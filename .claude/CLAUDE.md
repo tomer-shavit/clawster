@@ -103,6 +103,45 @@ Re-read relevant docs. Verify alignment with OpenClaw reference, product vision,
 - Cloud providers ops → `.claude/docs/cloud-providers.md`
 - UX principles → `.claude/docs/ux-dream.md`
 
+## Context Management
+
+- When compacting, ALWAYS preserve: list of modified files, test commands used, current branch, and any error messages being debugged
+- `/clear` between unrelated tasks — don't let irrelevant context accumulate
+- `/compact Focus on [topic]` for targeted compaction when context is filling
+- Use subagents for investigation — they explore in separate context, keeping main window clean
+- `/effort max` for architecture decisions and complex debugging, `/effort low` for simple edits
+
+## Self-Improvement Protocol (AUTOMATIC)
+
+Hooks inject learning reminders automatically. When you detect any of these, **write immediately** — don't wait:
+
+- **User correction** → Write to `memory/<topic>.md` with what was wrong and what's right
+- **Debugging discovery** → Write to `.claude/docs/<topic>.md` if architectural, `memory/<topic>.md` if operational
+- **Non-obvious workaround** → Write to `~/.claude/skills/learned/<topic>.md` as a reusable skill (YAML frontmatter: name, description with trigger conditions)
+- **Pattern observed 3+ times** → Write to `~/.claude/instincts/personal/<pattern>.md` (trigger, action, evidence)
+- **Configuration insight** → Update `memory/MEMORY.md` with the finding
+
+**Quality gate**: Only capture knowledge that required actual discovery. Skip things that are obvious from reading docs or code.
+
+**Instinct format** (`~/.claude/instincts/personal/<id>.md`):
+```yaml
+---
+id: descriptive-kebab-case
+trigger: "when <condition>"
+confidence: 0.5
+domain: code-style|testing|git|debugging|file-organization|tooling|communication
+source: session-observation
+date: YYYY-MM-DD
+---
+# Title
+## Action
+What to do.
+## Evidence
+- What was observed and when.
+```
+
+When 5+ instincts accumulate in the same domain, run `/evolve` to consolidate them into a skill.
+
 ## Maintenance
 
 - Run `/docs` after learning something valuable to capture it for future sessions
