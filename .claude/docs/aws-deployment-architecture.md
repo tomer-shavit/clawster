@@ -156,7 +156,8 @@ Clawster is open-source. Everything must work when the end user runs the install
 
 - **NAT Instance AMI**: Amazon Linux 2023 arm64 (standard, every region via SSM: `/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64`). NAT configured via iptables UserData (~15s boot).
 - **ECS EC2 AMI**: ECS-optimized Amazon Linux 2023 x86_64 (standard, every region via SSM: `/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id`). Sysbox v0.6.7 installed from GitHub `.deb` in UserData (~10s — see Sysbox Install Approach below). **Phase 1 uses x86_64 (t3.small)** for maximum OOTB compatibility — Chromium (needed for OpenClaw web browsing sandbox) has no official arm64 Linux build. Phase 3 migrates to arm64 (t4g.small, 18% cheaper).
-- **Container image**: Docker Hub `node:22-slim`. OpenClaw installed via `npm install -g openclaw` in container command (~30-60s per container start). **Docker CLI (`docker.io`) is NOT needed** — OpenClaw uses Docker REST API via the mounted socket. Container startup command: `apt-get install -y git && npm install -g openclaw@latest` (not `docker.io`).
+- **Container image**: `openclaw-prebuilt:latest` (built locally in UserData background script). Pre-built image includes `node:22-slim` + `git` + `openclaw@{version}`. If prebuild fails, the script tags `node:22-slim` as `openclaw-prebuilt:latest` (fallback). **Docker CLI (`docker.io`) is NOT needed** — OpenClaw uses Docker REST API via the mounted socket. Container startup command uses resilient pattern: `which openclaw || (apt-get update && apt-get install -y git && npm install -g openclaw@{version}); openclaw gateway --port {port}` — detects if openclaw is pre-installed, falls back to runtime install if not.
+- **OpenClaw version pinning**: The OpenClaw npm version is stored in bot config at install time. Clawster resolves `latest` to a concrete version (e.g., `0.5.3`) during `install()` and persists it. Both UserData prebuild and container command fallback use this pinned version. This prevents silent breakage from upstream breaking changes. Users update explicitly via Clawster UI (triggers new deployment with new version).
 - **No pre-built AMIs or ECR images needed.** These are Phase 2 optimizations.
 
 ### NAT Instance Specification
@@ -237,27 +238,102 @@ Tested on ECS-optimized AL2023 AMI (ami-05f38d849db4be11d), t3.small, us-east-1a
 | ID-mapped mounts (kernel 6.1) | **PASS** | sysbox-mgr confirms "ID-mapped mounts supported: yes", "Overlayfs on ID-mapped mounts: yes" |
 | OpenClaw GET / | **200 OK** | Returns Control UI HTML (841 bytes) — NO auth required |
 | OpenClaw GET /health | **200 OK** | Dedicated health endpoint — NO auth required |
-| veth kernel module | **NOT AVAILABLE** | Expected on ECS-optimized AMI. Sandbox uses `network: none` (default). Non-issue. |
+| veth kernel module | **NOT AVAILABLE** | AMI ships 0 .ko files on disk — kernel modules stripped. Sandbox uses `network: none` (default). |
 
-Full spike results: `memory/ecs-ec2-spike-results.md`
+#### E2E Integration Test Results (2026-02-06) — Full ECS Pipeline Verified
+
+Full pipeline test: CF stack → ECS cluster → capacity provider → ASG → EC2 instance → Sysbox → awsvpc task → OpenClaw → ALB health check → HTTP 200.
+
+| Test | Result | Key Finding |
+|------|--------|-------------|
+| CF stack + capacity provider + ASG | **PASS** | Stack creates in ~4 min. Capacity provider scales ASG from 0→1 on service deploy. |
+| EC2 UserData (Sysbox install) | **PASS** | Completes in ~19s. All Sysbox components active. |
+| ECS agent registration | **PASS** (with fixes) | **3 fixes required** — see below. Agent crash-loops without them. |
+| awsvpc task networking (veth pairs) | **PASS** (with fix) | **Kernel modules stripped from AMI** — `yum reinstall -y kernel` restores veth.ko (see below). |
+| Docker sysbox-runc runtime | **PASS** (with fix) | **daemon.json NOT read on first boot** — Docker restart required (see below). |
+| OpenClaw npm install + gateway start | **PASS** | ~90s to install, then listening on `ws://0.0.0.0:18789`. |
+| ALB → target group → health check | **PASS** | Target becomes healthy. `GET /health` → HTTP 200. |
+| End-to-end ALB curl | **PASS** | `curl http://<ALB_DNS>/` → HTTP 200 (841 bytes, Control UI HTML). |
+| Sysbox container execution in cluster | **PASS** | `docker run --runtime=sysbox-runc --network=none alpine uname -a` → SUCCESS on the running instance. |
+
+**Critical fixes discovered (ALL required for deployment to work):**
+
+**Fix 1: Restore kernel modules** (`CONFIG_VETH=m` but .ko file missing):
+- The ECS-optimized AL2023 AMI ships with **0 kernel module files** on disk — all boot-critical modules are loaded from initramfs, and the `/lib/modules/$(uname -r)/` directory has no `.ko` files.
+- `veth.ko` is configured as a module (`CONFIG_VETH=m`) but NOT included in the initramfs.
+- awsvpc networking requires veth pairs for the ECS bridge CNI plugin. Without veth, every task fails: `"failed to make veth pair: operation not supported"`.
+- **Fix**: `yum reinstall -y kernel` in UserData restores 825+ .ko files including veth.ko. Then `depmod -a` and `modprobe veth` (modprobe happens automatically when ECS creates the task). Takes ~10s (RPM is cached in yum metadata).
+- The `kernel` RPM includes veth.ko in its file list but the AMI strips module files post-install. Reinstalling restores them.
+
+**Fix 2: Docker daemon.json timing** (sysbox-runc not loaded on first boot):
+- Despite writing daemon.json BEFORE Docker's first start, Docker does NOT pick up the `sysbox-runc` runtime. `docker info` shows only `runc` and `io.containerd.runc.v2`.
+- **Previous doc was wrong**: "Docker reads daemon.json on first boot — no restart needed" is incorrect for this AMI.
+- **Fix**: After Docker starts, restart it: `systemctl restart docker`. This requires a belt-and-suspenders approach:
+  - In UserData (background): `(while ! systemctl is-active --quiet docker; do sleep 2; done; systemctl restart docker; docker load -i /var/cache/ecs/ecs-agent.tar) &`
+  - The `docker load` is needed because Docker restart clears the pre-cached ECS agent image (see Fix 3).
+- **Important**: Do NOT restart Docker in the foreground during UserData — this causes a systemd deadlock.
+
+**Fix 3: ECS agent image lost after Docker restart**:
+- Docker restart clears all loaded images, including the pre-cached ECS agent image.
+- ecs-init fails to start: `"could not start Agent: no such image"`.
+- **Fix**: `docker load -i /var/cache/ecs/ecs-agent.tar` after every Docker restart. This file is always present on ECS-optimized AMIs.
+- Combined with Fix 2: the background script handles both restart + reload.
+
+**Fix 4: ecs-init pre-start DNAT crash-loop**:
+- `ecs-init pre-start` runs iptables DNAT rules for IMDS blocking. On the ECS-optimized AL2023 kernel, the `xt_DNAT` module is not available (nf_tables compat layer doesn't support it).
+- Error: `"Extension DNAT revision 0 not supported, missing kernel module?"` → ECS agent crash-loops.
+- **Fix**: Create a systemd drop-in override that makes pre-start failures non-fatal:
+  ```bash
+  mkdir -p /etc/systemd/system/ecs.service.d
+  cat > /etc/systemd/system/ecs.service.d/override.conf <<'EOF'
+  [Service]
+  ExecStartPre=
+  ExecStartPre=-/usr/libexec/amazon-ecs-init pre-start
+  EOF
+  ```
+  The `-` prefix tells systemd to continue even if pre-start exits non-zero. IMDS blocking is still handled by `ECS_AWSVPC_BLOCK_IMDS=true` in ecs.config (works via the ECS agent, not iptables).
+
+**Fix 5: HealthCheckGracePeriodSeconds** (deployment stability):
+- OpenClaw takes ~90s to install and start (apt-get + npm install + gateway startup). During this time, ALB health checks fail.
+- Without a grace period, the deployment circuit breaker kills the task after 3 consecutive health check failures (~30s), well before OpenClaw is ready.
+- **Fix**: Set `HealthCheckGracePeriodSeconds: 180` on the ECS service. This gives the container 3 minutes to become healthy before the circuit breaker starts counting failures.
+- Phase 2 (pre-built Docker image) reduces startup to ~10s, making the grace period less critical.
+
+Full E2E test results: `memory/ecs-ec2-spike-results.md`
 
 ### OOTB Risks (must verify before implementation)
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | **Sysbox install script is broken** | The current code downloads `scr/install.sh` from GitHub — **this file returns HTTP 404**. Sysbox does NOT provide an install script or RPM packages. Only `.deb` packages are released. | **Fix**: Extract statically-linked binaries directly from the v0.6.7 `.deb` release asset (see Sysbox install approach below). **Requires `yum install -y binutils rsync fuse`** first (NOT pre-installed on ECS-optimized AMI). Also requires copying systemd unit files to `/etc/systemd/system/` (`.deb` extracts to `/lib/systemd/system/` which ECS-optimized AMI doesn't scan). **SPIKE VERIFIED 2026-02-06.** |
-| **Sysbox .deb supply chain** | UserData downloads `.deb` from GitHub releases without checksum verification. GitHub outage or repo compromise = broken/malicious deploy. | Pin to exact release version (v0.6.7) + verify SHA256 checksum before extraction. |
+| **Sysbox .deb supply chain** | UserData downloads `.deb` from GitHub releases. GitHub outage or repo compromise = broken/malicious deploy. | **Fix**: Pin to exact release version (v0.6.7) + verify SHA256 checksum (`sha256sum -c`) before extraction. Checksums from official release page. **IMPLEMENTED in UserData.** |
+| **OpenClaw version unpinned** | Using `openclaw@latest` means any breaking upstream change silently breaks all new deploys (new config format, removed endpoints, different port). No Clawster code change needed to break. | **Fix**: Resolve `latest` to concrete version (e.g., `0.5.3`) during `install()` via npm registry. Store pinned version in bot config. UserData prebuild and container command fallback both use pinned version. User updates explicitly via Clawster UI. **IMPLEMENTED in UserData.** |
+| **Docker build hang in UserData** | If npm or Docker Hub is unreachable, `docker build` in the background script blocks forever. ECS agent never starts (masked until prebuild completes). Instance is permanently dead — ASG won't replace it (EC2 is "healthy"). | **Fix**: `timeout 300 docker build ...` — 5-minute cap. On timeout, falls through to fallback tag + ECS agent start. **IMPLEMENTED in UserData.** |
 | **Container startup `apt-get + npm install`** | Every container start downloads ~200MB from package registries. Non-deterministic, slow (30-60s), depends on external services being up. | Acceptable for Phase 1 OOTB. Phase 2 pre-built Docker image eliminates this. |
 | **Docker Hub image tag mutability** | Using `node:22-slim` by tag means Docker Hub could push a different image to the same tag. | Acceptable for Phase 1. Phase 2 pins to digest or uses ECR. |
+| **MinimumHealthyPercent default breaks updates** | t3.small fits only 1 task (1536MB/1913MB). Default MHP=100% requires keeping old task running during deploy → new task can't be placed → deployment hangs ~15 min → circuit breaker rolls back. **User can never update bot config.** | **Fix**: `MinimumHealthyPercent: 0`, `MaximumPercent: 100`. Stops old task first, then starts new. ~30-60s downtime during updates — acceptable for bot. **IMPLEMENTED in Item 8.** |
 | **Secrets Manager ARN suffix** | ECS task definition `Secrets` field requires the FULL ARN including the 6-character random suffix (e.g., `-AbCdEf`). The `OPENCLAW_CONFIG` secret is created via SDK before the CF stack, so its full ARN is unknown at template generation time. Using `Fn::Sub` to construct an ARN without the suffix will cause `ResourceInitializationError` at task launch. | **Fix**: After creating the secret via SDK (`ensureSecret()`), call `describeSecret` to get the full ARN. Pass it to `generatePerBotTemplate()` as a new `openclawConfigSecretArn` parameter. Use the full ARN directly in `ValueFrom` instead of `Fn::Sub`. The `GatewayTokenSecret` (CF resource) is fine — `Ref` returns the full ARN with suffix. |
 | **Sysbox systemd unit dependencies unknown** | The `.deb` packages include systemd unit files for `sysbox-mgr.service` and `sysbox-fs.service`, but the unit file contents are not public (Nestybox keeps packaging code private). If the services have `After=docker.service`, `systemctl start --no-block` is safe (systemd defers start). If they don't and require Docker functionally, they could fail silently. **Spike note**: On ECS-optimized AMI, unit files extract to `/lib/systemd/system/` which systemd doesn't scan — must copy to `/etc/systemd/system/`. | **Mitigation**: (1) Copy unit files: `cp /lib/systemd/system/sysbox*.service /etc/systemd/system/`. (2) `systemctl enable` ensures services start on every boot. (3) `--no-block` prevents cloud-init deadlock. (4) Belt-and-suspenders background polling fallback: `(while ! systemctl is-active docker; do sleep 1; done; systemctl start sysbox-mgr sysbox-fs) &`. Sysbox only needs to be running when OpenClaw creates a sandbox container (~30-60s after task start). **All verified in spike test.** |
+| **Kernel modules stripped from AMI** | ECS-optimized AL2023 AMI ships with **0 kernel module files** on disk. `veth.ko` (`CONFIG_VETH=m`) is not in the initramfs. awsvpc networking fails: `"failed to make veth pair: operation not supported"`. Every ECS task with awsvpc will fail. | **Fix**: `yum reinstall -y kernel && depmod -a` in UserData before Docker/ECS start. Restores 825+ .ko files (~10s). The `kernel` RPM includes veth.ko but the AMI strips files post-install. **E2E VERIFIED 2026-02-06.** |
+| **ecs-init DNAT crash-loop** | `ecs-init pre-start` runs iptables DNAT rules for IMDS blocking. The `xt_DNAT` kernel module is not available on this AMI (nf_tables compat layer doesn't support it). Error: `"Extension DNAT revision 0 not supported"`. ECS agent crash-loops with exit code 255. | **Fix**: Systemd drop-in override at `/etc/systemd/system/ecs.service.d/override.conf` with `-` prefix on ExecStartPre to make pre-start non-fatal. IMDS blocking still works via `ECS_AWSVPC_BLOCK_IMDS=true`. **E2E VERIFIED 2026-02-06.** |
+| **Docker daemon.json not read on first boot** | Despite writing daemon.json before Docker starts, Docker does NOT pick up `sysbox-runc` runtime. `docker info` shows only `runc`. This contradicts the expected boot sequence behavior. | **Fix**: Background script that waits for Docker, restarts it (`systemctl restart docker`), reloads ECS agent image (`docker load -i /var/cache/ecs/ecs-agent.tar`), and restarts ECS. Must be background to avoid systemd deadlock. **E2E VERIFIED 2026-02-06.** |
+| **ECS agent image lost on Docker restart** | Docker restart clears all loaded images including the pre-cached ECS agent image. ecs-init start fails: `"could not start Agent: no such image"`. | **Fix**: `docker load -i /var/cache/ecs/ecs-agent.tar` after every Docker restart. This file is always present on ECS-optimized AMIs. Combined with the Docker restart fix above. **E2E VERIFIED 2026-02-06.** |
+| **HealthCheckGracePeriodSeconds not set** | OpenClaw takes ~90s to install via apt-get + npm. Default grace period is 0s. ALB health checks fail during install → deployment circuit breaker kills the task after ~30s. Task never becomes healthy. | **Fix**: Set `HealthCheckGracePeriodSeconds: 180` on the ECS service. Phase 2 (pre-built image) reduces startup to ~10s. **E2E VERIFIED 2026-02-06.** |
 | **Bot name length limit** | ALB and Target Group names have a **32-character maximum**. With prefix `clawster-${botName}-tg`, botName > 20 characters will fail CloudFormation deployment with an unhelpful error. | **Fix**: Validate botName ≤ 20 characters at the API layer (onboarding wizard). Display clear error: "Bot name must be 20 characters or fewer." Alternatively, use hash-based truncation for resource names, but validation is simpler and more user-friendly. |
+| **ASG Warm Pool IMDS failure** | Warm pool with `PoolState: Stopped` causes IMDS to be unreachable when instance wakes from stopped state. cloud-init times out 240s trying 169.254.169.254, Docker fails to start, ECS agent never registers. Instance is dead on arrival. | **Status**: BLOCKED — root cause unknown. Instance has valid IP, ENI, public IP. Same launch template works fine for non-warm-pool instances. Possible ECS-optimized AL2023 AMI bug with stop/start cycle. Needs further investigation before warm pools can be used. `PoolState: Running` may work but defeats cost savings. **SPIKE TESTED 2026-02-06.** |
 
 ### Sysbox Install Approach (replaces broken `scr/install.sh`) — SPIKE VERIFIED 2026-02-06
 
 Sysbox v0.6.7 publishes `.deb` packages with statically-linked binaries (~10 MB) for both amd64 and arm64. No compilation needed. v0.6.7 (May 2025) fixes a critical bug for "containers with many image layers on kernels without idmapping or shiftfs" — which is exactly the AL2023 scenario (no shiftfs, kernel 6.1). The UserData extracts binaries and configures systemd:
 
 ```bash
+# RESTORE KERNEL MODULES — ECS-optimized AMI ships with 0 .ko files on disk.
+# veth.ko is required for awsvpc networking (ECS bridge CNI plugin).
+# Without this, every task fails: "failed to make veth pair: operation not supported"
+# Takes ~10s (RPM cached in yum metadata). Restores 825+ modules including veth.ko.
+yum reinstall -y kernel
+depmod -a
+
 # REQUIRED PACKAGES — NOT pre-installed on ECS-optimized AL2023 AMI (spike-verified)
 # - binutils: provides `ar` command for .deb extraction
 # - rsync: sysbox-mgr preflight check requires it (fatal error without)
@@ -267,9 +343,14 @@ yum install -y binutils rsync fuse
 # Download and extract Sysbox from .deb (statically linked x86_64 binaries)
 # Phase 1 uses amd64; Phase 3 (Graviton) switches to arm64
 SYSBOX_VERSION="0.6.7"
+# SHA256 checksums from official release: https://github.com/nestybox/sysbox/releases/tag/v0.6.7
+SYSBOX_SHA256_AMD64="b7ac389e5a19592cadf16e0ca30e40919516128f6e1b7f99e1cb4ff64554172e"
+SYSBOX_SHA256_ARM64="16d80123ba53058cf90f5a68686e297621ea97942602682e34b3352783908f91"
 cd /tmp
 curl -fsSL -o sysbox.deb \
   "https://github.com/nestybox/sysbox/releases/download/v${SYSBOX_VERSION}/sysbox-ce_${SYSBOX_VERSION}.linux_amd64.deb"
+# SUPPLY CHAIN PROTECTION: Verify checksum before extracting (prevents MITM/CDN compromise)
+echo "${SYSBOX_SHA256_AMD64}  sysbox.deb" | sha256sum -c -
 ar x sysbox.deb
 tar xf data.tar.* -C /
 
@@ -295,7 +376,9 @@ sysctl --system
 # Register sysbox-runc as Docker runtime in daemon.json
 # IMPORTANT: On ECS-optimized AMI, Docker has NOT started yet when UserData runs.
 # Boot order: UserData → cloud-init completes → Docker starts → ECS agent starts.
-# We write daemon.json BEFORE Docker first starts — no restart needed.
+# We write daemon.json BEFORE Docker first starts. However, E2E testing proved
+# Docker does NOT pick up daemon.json on first boot — a background Docker restart
+# is required (see background script below).
 mkdir -p /etc/docker
 python3 -c "
 import json, os
@@ -312,22 +395,74 @@ systemctl daemon-reload
 systemctl enable sysbox-mgr sysbox-fs
 systemctl start sysbox-mgr sysbox-fs --no-block
 
-# Belt-and-suspenders: background polling ensures Sysbox starts after Docker.
-# Sysbox systemd unit dependencies are unknown (private packaging code).
-# This is a no-op if --no-block already started them successfully.
-(while ! systemctl is-active --quiet docker; do sleep 2; done
- systemctl start sysbox-mgr sysbox-fs 2>/dev/null || true) &
+# FIX: ecs-init pre-start DNAT crash-loop.
+# ecs-init runs iptables DNAT rules for IMDS blocking. On ECS-optimized AL2023,
+# xt_DNAT kernel module is not available → pre-start exits 255 → agent crash-loops.
+# The "-" prefix makes pre-start failures non-fatal. IMDS blocking is handled by
+# ECS_AWSVPC_BLOCK_IMDS=true in ecs.config (works via ECS agent, not iptables).
+mkdir -p /etc/systemd/system/ecs.service.d
+cat > /etc/systemd/system/ecs.service.d/override.conf <<'OVERRIDE'
+[Service]
+ExecStartPre=
+ExecStartPre=-/usr/libexec/amazon-ecs-init pre-start
+OVERRIDE
 
-# DO NOT restart Docker here. On ECS-optimized AMI, Docker hasn't started yet.
-# Docker will read daemon.json (with sysbox-runc) on first start after cloud-init completes.
-# Calling `systemctl restart docker` here would cause a systemd deadlock:
-# Docker.service waits for cloud-final → cloud-final waits for UserData → UserData blocked on Docker.
-# See: https://github.com/aws/amazon-ecs-agent/issues/1707
+# FIX: Prevent ECS agent auto-start (mask, not disable).
+# ECS agent is queued to start as part of multi-user.target. `systemctl disable`
+# only removes the symlink but systemd has already loaded the dependency graph —
+# the agent starts anyway. `systemctl mask` creates ecs.service → /dev/null,
+# which systemd respects even for already-queued services. This is the ONLY way
+# to prevent auto-start during cloud-init. Unmask+start at end of background script.
+# SPIKE-VERIFIED: `disable` failed (agent still auto-registered), `mask` works
+# (zero failed task placements, tested 2026-02-06).
+systemctl mask ecs 2>/dev/null || true
+
+# Belt-and-suspenders background script: waits for Docker, then:
+# 1. Start Sysbox services (may need Docker running)
+# 2. Restart Docker to pick up sysbox-runc from daemon.json
+#    (E2E test proved daemon.json is NOT read on first boot — restart required)
+# 3. Reload ECS agent image (Docker restart clears pre-cached images)
+# 4. Pre-build OpenClaw Docker image (with fallback if build fails)
+# 5. Restart ECS agent LAST — delays registration until image is ready
+# MUST run in background to avoid systemd deadlock with cloud-init.
+(while ! systemctl is-active --quiet docker; do sleep 2; done
+ systemctl start sysbox-mgr sysbox-fs 2>/dev/null || true
+ sleep 3
+ systemctl restart docker
+ sleep 5
+ docker load -i /var/cache/ecs/ecs-agent.tar 2>/dev/null || true
+
+ # Pre-build OpenClaw image. If build fails or times out (npm down, etc.),
+ # fall back to tagging base image — container command handles runtime install.
+ # IMPORTANT: `timeout 300` prevents infinite hang if npm/Docker Hub is unreachable.
+ # Without timeout, background script blocks forever → ECS agent never starts → dead instance.
+ # NOTE: OPENCLAW_VERSION is set earlier in UserData from CF parameter (pinned at install time).
+ cat > /tmp/Dockerfile.openclaw <<DOCKERFILE
+FROM node:22-slim
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+RUN npm install -g openclaw@${OPENCLAW_VERSION}
+RUN mkdir -p /root/.openclaw
+DOCKERFILE
+ if ! timeout 300 docker build --network=host -t openclaw-prebuilt:latest \
+      -f /tmp/Dockerfile.openclaw /tmp 2>&1 | tail -5; then
+   echo "WARN: prebuild failed/timed out, tagging base image as fallback"
+   docker pull node:22-slim 2>/dev/null || true
+   docker tag node:22-slim openclaw-prebuilt:latest
+ fi
+
+ # Unmask, enable, and start ECS agent LAST — first registration, image is ready.
+ # ECS was masked in foreground UserData. Unmask removes /dev/null link,
+ # enable re-creates multi-user.target wants, start launches the agent for
+ # the FIRST time. Zero failed task placements (spike-verified 2026-02-06).
+ systemctl unmask ecs
+ systemctl daemon-reload
+ systemctl enable ecs
+ systemctl start ecs) &
 ```
 
-**Why this works OOTB**: The three Sysbox binaries (`sysbox-runc`, `sysbox-fs`, `sysbox-mgr`) are statically linked ELF x86_64 executables with zero library dependencies. They work on any Linux x86_64 kernel >= 5.5 (AL2023 uses 6.1). The `.deb` package is just a container for the binaries + systemd unit files. **Three packages must be installed first**: `binutils` (provides `ar` for .deb extraction), `rsync` (sysbox-mgr preflight requirement), and `fuse` (sysbox-fs FUSE mount). `tar` and `python3` (3.9) are pre-installed on all AL2023 variants. **Additionally**, the `.deb` extracts systemd unit files to `/lib/systemd/system/`, but on ECS-optimized AL2023, `/lib` is NOT a symlink to `/usr/lib` — files must be copied to `/etc/systemd/system/`. Install time: **~15 seconds** (yum install ~5s + download ~10MB + extract + configure). **All verified on live ECS-optimized AL2023 AMI (ami-05f38d849db4be11d) on 2026-02-06.**
+**Why this works OOTB**: The three Sysbox binaries (`sysbox-runc`, `sysbox-fs`, `sysbox-mgr`) are statically linked ELF x86_64 executables with zero library dependencies. They work on any Linux x86_64 kernel >= 5.5 (AL2023 uses 6.1). The `.deb` package is just a container for the binaries + systemd unit files. **UserData must first**: (1) `yum reinstall -y kernel` to restore stripped kernel modules (veth.ko needed for awsvpc), (2) `yum install -y binutils rsync fuse` for Sysbox install prerequisites. `tar` and `python3` (3.9) are pre-installed on all AL2023 variants. **Additionally**: the `.deb` extracts systemd unit files to `/lib/systemd/system/`, but on ECS-optimized AL2023, `/lib` is NOT a symlink to `/usr/lib` — files must be copied to `/etc/systemd/system/`. A systemd override for ecs-init and a background Docker restart + ECS agent image reload are also required (see E2E test findings above). Install time: **~25 seconds** (kernel reinstall ~10s + yum install ~5s + download ~10MB + extract + configure). **Full E2E pipeline verified on live ECS-optimized AL2023 AMI (ami-05f38d849db4be11d) on 2026-02-06: CF → ECS cluster → EC2 → Sysbox → awsvpc → OpenClaw → ALB health check → HTTP 200.**
 
-**ECS-optimized AMI boot order**: UserData runs BEFORE Docker and ECS agent start. The sequence is: (1) cloud-init executes UserData, (2) cloud-init completes, (3) Docker starts (reads daemon.json with sysbox-runc), (4) ECS agent starts (reads /etc/ecs/ecs.config). This means daemon.json is written before Docker's first boot — no Docker restart required. Source: [AWS ECS Agent Configuration](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/bootstrap_container_instance.html), [systemd deadlock issue](https://github.com/aws/amazon-ecs-agent/issues/1707).
+**ECS-optimized AMI boot order**: UserData runs BEFORE Docker and ECS agent start. The sequence is: (1) cloud-init executes UserData, (2) cloud-init completes, (3) Docker starts, (4) ECS agent starts (reads /etc/ecs/ecs.config). **CORRECTION (E2E verified)**: Despite writing daemon.json before Docker's first boot, Docker does NOT pick up the sysbox-runc runtime. A background Docker restart + ECS agent image reload is required (see UserData script above). The background script waits for Docker to start, then restarts it. The ecs-init pre-start also crash-loops due to missing `xt_DNAT` kernel module — a systemd override makes it non-fatal. Source: [AWS ECS Agent Configuration](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/bootstrap_container_instance.html), [systemd deadlock issue](https://github.com/aws/amazon-ecs-agent/issues/1707).
 
 **Note on official support**: Sysbox's [distro-compat.md](https://github.com/nestybox/sysbox/blob/master/docs/distro-compat.md) lists AL2023 as "Build from Source" only — no pre-built RPM packages exist. However, the `.deb` extraction approach works because the binaries are statically linked (no library dependencies). This is an unsupported but verified installation method. Sysbox is maintained by Docker Inc. (acquired Nestybox in 2022) as a community open-source project.
 
@@ -622,19 +757,23 @@ Rules:
    - Remove any key pair reference
    - `BlockDeviceMappings: [{ DeviceName: "/dev/xvda", Ebs: { Encrypted: true, VolumeType: "gp3", VolumeSize: 30 } }]`
 
-7. **Add ECS agent config and Sysbox install to per-bot UserData** — SPIKE VERIFIED 2026-02-06:
-   - **Install required packages first**: `yum install -y binutils rsync fuse` (NOT pre-installed on ECS-optimized AMI)
+7. **Add ECS agent config and Sysbox install to per-bot UserData** — E2E VERIFIED 2026-02-06:
+   - **Restore kernel modules first**: `yum reinstall -y kernel && depmod -a` (AMI ships 0 .ko files — veth.ko needed for awsvpc)
+   - **Install required packages**: `yum install -y binutils rsync fuse` (NOT pre-installed on ECS-optimized AMI)
    - Write to `/etc/ecs/ecs.config` (read by ECS agent on first start):
      - `ECS_CLUSTER={clusterName}`
      - `ECS_AWSVPC_BLOCK_IMDS=true`
      - `ECS_DISABLE_PRIVILEGED=true`
+   - **Fix ecs-init DNAT crash-loop**: Create systemd override at `/etc/systemd/system/ecs.service.d/override.conf` with `-` prefix on ExecStartPre (makes pre-start non-fatal). The `xt_DNAT` kernel module is missing on this AMI.
    - Run Sysbox install (see Sysbox Install Approach above) — extract .deb, **copy systemd units to `/etc/systemd/system/`**, write daemon.json, enable services with `--no-block`
+   - **Background Docker restart**: daemon.json is NOT read on Docker's first boot (E2E verified). A background script must: (1) wait for Docker, (2) restart Docker, (3) `docker load -i /var/cache/ecs/ecs-agent.tar` (restart clears pre-cached images), (4) restart ECS agent. MUST be background to avoid systemd deadlock.
    - **Systemd path fix**: `.deb` extracts unit files to `/lib/systemd/system/` but ECS-optimized AL2023 does NOT have `/lib` → `/usr/lib` symlink. Must `cp /lib/systemd/system/sysbox*.service /etc/systemd/system/` after extraction.
-   - **Boot order**: UserData runs BEFORE Docker and ECS agent start on ECS-optimized AMI. Docker reads daemon.json (with sysbox-runc) on first boot. ECS agent reads ecs.config on first boot. No Docker restart needed.
-   - **CRITICAL**: Use `--no-block` for all `systemctl start/restart` commands to avoid systemd deadlock with cloud-init. See [aws/amazon-ecs-agent#1707](https://github.com/aws/amazon-ecs-agent/issues/1707).
+   - **CRITICAL**: Use `--no-block` for all `systemctl start/restart` commands and run Docker restart in background to avoid systemd deadlock. See [aws/amazon-ecs-agent#1707](https://github.com/aws/amazon-ecs-agent/issues/1707).
 
 8. **Add deployment reliability to ECS service**:
-   - `DeploymentConfiguration: { DeploymentCircuitBreaker: { Enable: true, Rollback: true } }`
+   - `DeploymentConfiguration: { MinimumHealthyPercent: 0, MaximumPercent: 100, DeploymentCircuitBreaker: { Enable: true, Rollback: true } }`
+   - **CRITICAL: `MinimumHealthyPercent: 0` + `MaximumPercent: 100`** — t3.small has 1913MB ECS-available memory, task uses 1536MB. Only **one task fits**. With defaults (MHP=100%, Max=200%), ECS tries to start a new task while keeping the old one running → can't place (no memory) → deployment hangs ~15 min → circuit breaker rolls back. **User can never update bot config.** Setting MHP=0 allows ECS to stop the old task before starting the new one. Brief downtime (~30-60s) during updates — acceptable for a bot.
+   - `HealthCheckGracePeriodSeconds: 180` — **CRITICAL** (E2E verified). OpenClaw takes ~90s to install (apt-get + npm) before health check can pass. Without grace period, circuit breaker kills the task after ~30s of health check failures.
    - Capacity provider: `ManagedDraining: ENABLED`, `ManagedTerminationProtection: ENABLED`, `ManagedScaling: { Status: ENABLED }` (ManagedTerminationProtection requires ManagedScaling — without it, termination protection silently does nothing)
 
 9. **Enable Container Insights** on ECS cluster (optional, adds ~$5/mo per cluster):
@@ -689,6 +828,7 @@ Rules:
     - The `OPENCLAW_CONFIG` secret is created via SDK in `install()` before the CF stack. Its full ARN includes a random 6-character suffix (e.g., `arn:aws:secretsmanager:us-east-1:123:secret:clawster/bot/config-AbCdEf`).
     - The current template uses `Fn::Sub` to construct the ARN **without** this suffix — ECS will fail with `ResourceInitializationError`.
     - **Fix**: After `ensureSecret()`, call `describeSecret()` to get the full ARN. Add `openclawConfigSecretArn: string` parameter to `PerBotTemplateParams` and `EcsResourceOptions`. Use the full ARN directly in `ValueFrom`.
+    - **Implementation note**: `describeSecret()` does NOT exist in `ISecretsManagerService` or `secrets-service.ts`. Must add: (1) `describeSecret(secretId: string): Promise<{ arn: string }>` to the interface, (2) implement using `DescribeSecretCommand` from `@aws-sdk/client-secrets-manager` in the adapter, (3) call in `ecs-ec2-target.ts` after `ensureSecret()`.
     - The `GatewayTokenSecret` (CF resource) is fine — `Ref` returns the full ARN with suffix.
 
 13. **Fix health check path from `/` to `/health`** (RECOMMENDED — both work, `/health` is better):
@@ -721,6 +861,14 @@ Rules:
     ```
     - This is a no-op if services already started successfully via `--no-block`.
 
+18. **Pin OpenClaw version** (prevents silent breakage from upstream changes):
+    - During `install()`, resolve `openclaw@latest` to a concrete npm version (e.g., `0.5.3`) by querying the npm registry: `npm view openclaw version`.
+    - Store the resolved version in bot config (database) as `openclawVersion`.
+    - Pass version as CF parameter to per-bot template. UserData sets `OPENCLAW_VERSION` env var.
+    - Both the prebuild Dockerfile (`npm install -g openclaw@${OPENCLAW_VERSION}`) and the container command fallback use the pinned version.
+    - Users update OpenClaw version explicitly via Clawster UI (triggers new deployment).
+    - **Why not `@latest`**: A breaking OpenClaw release (new config format, removed `/health` endpoint, different port) would silently break every new deploy without any Clawster code change. Version pinning ensures deterministic, reproducible deploys.
+
 ---
 
 ## 8. Implementation Phases
@@ -729,10 +877,37 @@ Rules:
 
 Everything needed for a working, secure deploy. No pre-built AMIs or images — works immediately after install.
 
-**Items**: 1-17 from Section 7 (all changes above, including bug fixes 12-17).
+**Items**: 1-18 from Section 7 (all changes above, including bug fixes 12-18).
+
+**OOTB Optimizations** (applied in Phase 1 — no custom AMI/image needed):
+- **Remove `docker.io`** from container apt-get — OpenClaw uses Docker API over socket, not CLI (~30s + ~100MB saved per container start)
+- **`ECS_IMAGE_PULL_BEHAVIOR=prefer-cached`** in ecs.config — skips Docker Hub pull when local image exists
+- **Pre-build OpenClaw Docker image in UserData** — background `docker build` during EC2 bootstrap builds `openclaw-prebuilt:latest` locally (FROM node:22-slim + git + openclaw@{version}). Task uses pre-built image instead of runtime npm install. Build time: ~134-196s (runs in parallel with other bootstrap tasks). **Fallback**: if `docker build` fails or times out (npm down, Docker Hub unreachable), the script tags `node:22-slim` as `openclaw-prebuilt:latest` so the task can still start. Container command detects missing `openclaw` binary and falls back to runtime install: `which openclaw || (apt-get update && apt-get install -y git && npm install -g openclaw@{version}); openclaw gateway --port {port}`. This ensures the deployment never hard-fails due to a transient npm outage.
+- **`timeout 300` on docker build** — prevents infinite hang if npm/Docker Hub is unreachable. Without timeout, background script blocks forever, ECS agent never starts (masked), instance is permanently dead. 5-minute cap with fallback to base image tag.
+- **OpenClaw version pinning** — `install()` resolves `latest` to a concrete npm version (e.g., `0.5.3`) and stores it in bot config. UserData prebuild and container command fallback both use the pinned version. Prevents silent breakage from upstream breaking changes. Users update explicitly via Clawster UI.
+- **Sysbox .deb SHA256 verification** — checksum from official release page verified before extraction. Prevents supply chain attacks via GitHub CDN compromise or MITM.
+- **`MinimumHealthyPercent: 0` + `MaximumPercent: 100`** — t3.small fits only 1 task. Default MHP=100% prevents all config updates (can't place new task while old is running). MHP=0 allows ECS to stop old task first. ~30-60s downtime during updates — acceptable for a bot.
+- **`ECS_WARM_POOLS_CHECK=true`** in ecs.config — ECS agent detects warm pool transitions
+- **`HealthCheckGracePeriodSeconds: 180`** (safe default — covers both pre-built image path (~30s startup) AND fallback path where prebuild fails and container does runtime npm install (~90s). It's a max timeout, not a minimum wait — healthy targets register immediately regardless of this value.)
+- **ALB idle timeout 120s** — prevents WebSocket disconnections (OpenClaw heartbeat ~60s, borderline with default 60s timeout)
+- **`yum reinstall -y kernel` verification** — must verify with `modprobe veth` and retry (can silently fail). Docker build in UserData needs `--network=host` flag.
+- **ECS agent registration timing**: `systemctl mask ecs` in foreground UserData prevents ECS agent from auto-starting when Docker starts (systemd queues ecs.service as part of multi-user.target — `disable` alone doesn't work, agent still auto-registers). Background script does `systemctl unmask ecs && systemctl enable ecs && systemctl start ecs` AFTER `docker build` completes. This ensures the agent's FIRST registration happens only after the pre-built image exists — zero failed task placements (spike-verified 2026-02-06). If prebuild fails, the fallback tag ensures the image name still resolves locally.
+
+**Spike-verified timing (2026-02-06, with `systemctl mask ecs` fix):**
+
+| Scenario | Time | Notes |
+|----------|------|-------|
+| CF stack creation | **3m 41s** | CF optimistic stabilization auto-enabled |
+| Cold start (service 0→1) | **~7m 14s** | Zero failed task placements (with `mask` fix). From scale-out to HTTP 200. |
+| Bot restart (warm instance) | **~68-83s** | Pre-built image + prefer-cached. Down from ~4.5 min baseline. |
+| UserData foreground | ~35-38s | kernel reinstall 32-34s + yum install 1-2s + sysbox 2s + mask 0s |
+| Background prebuild | ~134-196s | Docker restart + ECS agent reload + docker build (npm speed varies) |
+| ECS agent first start | ~190s after boot | Unmask+enable+start runs only after prebuild completes |
+| Pre-built image size | 2.11GB | node:22-slim + git + openclaw@latest |
 
 **Result:**
-- First bot: **~6 min** | Subsequent: **~3.5 min**
+- First bot: **~6 min** (CF stack + cold start) | Subsequent: **~3.5 min** (cold start only)
+- Bot restart: **~68-83s** (4x faster than baseline with pre-built image)
 - Cost: **~$49/mo** for first bot ($7 shared NAT + $42 per bot). Subsequent bots: ~$42/mo each.
 - Security: all critical controls at launch (see Section 3)
 - OOTB: standard AWS AMIs, no pre-built resources
@@ -769,5 +944,5 @@ Eliminate runtime installations that run on every deploy.
 - **Multi-AZ NAT**: NAT Instance per AZ for AZ failure resilience
 - **Multi-bot per instance**: Pack 3-8 bots on larger instance
 - **Spot instances**: 60-70% savings (user opt-in — Spot instances can be interrupted by AWS with 2 min notice, causing brief bot downtime while the instance recovers)
-- **ASG warm pools**: Pre-initialized EC2 instances, service start drops to ~30-60s
+- **ASG warm pools**: Pre-initialized EC2 instances, service start drops to ~30-60s. **SPIKE BLOCKED (2026-02-06)**: `PoolState: Stopped` causes IMDS unreachable on wake — cloud-init times out 240s, Docker fails to start, ECS agent never registers. Needs investigation (possible ECS-optimized AL2023 AMI bug with stop/start cycle). `PoolState: Running` may work but costs more.
 - **GuardDuty Runtime Monitoring**: Container escape detection
