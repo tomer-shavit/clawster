@@ -54,13 +54,27 @@ export function buildProxyImage(): string {
 
   const root = findMonorepoRoot();
 
+  // Generate a cleaned package.json that strips workspace: protocol deps
+  // (already COPY'd into node_modules manually — npm doesn't need to resolve them)
+  const proxyPkgPath = path.join(root, "packages", "middleware-proxy", "package.json");
+  const proxyPkg = JSON.parse(fs.readFileSync(proxyPkgPath, "utf8"));
+  const cleanedDeps: Record<string, string> = {};
+  for (const [name, version] of Object.entries(proxyPkg.dependencies ?? {})) {
+    if (typeof version === "string" && !version.startsWith("workspace:")) {
+      cleanedDeps[name] = version;
+    }
+  }
+  const cleanedPkg = { ...proxyPkg, dependencies: cleanedDeps, devDependencies: {} };
+  const cleanedPkgPath = path.join(root, ".clawster-proxy-package.json");
+  fs.writeFileSync(cleanedPkgPath, JSON.stringify(cleanedPkg, null, 2), "utf8");
+
   const dockerfile = `FROM node:22-slim
 WORKDIR /app
+COPY .clawster-proxy-package.json ./package.json
 COPY packages/middleware-proxy/dist ./dist
-COPY packages/middleware-proxy/package.json ./
+RUN npm install --omit=dev
 COPY packages/middleware-sdk/dist ./node_modules/@clawster/middleware-sdk/dist
 COPY packages/middleware-sdk/package.json ./node_modules/@clawster/middleware-sdk/
-RUN npm install --omit=dev
 CMD ["node", "dist/main.js"]
 `;
 
@@ -74,12 +88,8 @@ CMD ["node", "dist/main.js"]
       { stdio: "inherit", timeout: 120_000 },
     );
   } finally {
-    // Clean up temp Dockerfile
-    try {
-      fs.unlinkSync(dockerfilePath);
-    } catch {
-      // ignore
-    }
+    try { fs.unlinkSync(dockerfilePath); } catch { /* ignore */ }
+    try { fs.unlinkSync(cleanedPkgPath); } catch { /* ignore */ }
   }
 
   return PROXY_IMAGE_TAG;

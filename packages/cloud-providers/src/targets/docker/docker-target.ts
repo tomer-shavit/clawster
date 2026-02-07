@@ -530,7 +530,9 @@ export class DockerContainerTarget extends BaseDeploymentTarget implements SelfD
    */
   private findMonorepoRoot(): string | null {
     const fs = require("fs");
-    let dir = this.config.configPath;
+    // Start from this file's compiled location (inside the monorepo), not configPath
+    // which may be outside the repo (e.g. ~/.clawster/gateways/...)
+    let dir = __dirname;
     for (let i = 0; i < 10; i++) {
       if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) {
         return dir;

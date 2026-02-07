@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import type { IMiddleware } from "@clawster/middleware-sdk";
 import type { ProxyConfig } from "./proxy-config";
 
@@ -17,7 +17,7 @@ async function ensureInstalled(packageName: string): Promise<void> {
       throw err;
     }
     console.log(`[MiddlewareLoader] Package "${packageName}" not found, installing...`);
-    execSync(`npm install --no-save ${packageName}`, { stdio: "inherit" });
+    execFileSync("npm", ["install", "--no-save", packageName], { stdio: "inherit" });
     console.log(`[MiddlewareLoader] Package "${packageName}" installed successfully`);
   }
 }
@@ -36,7 +36,10 @@ export async function loadMiddlewares(config: ProxyConfig): Promise<IMiddleware[
     await ensureInstalled(entry.package);
 
     const mod = await import(entry.package);
-    const factory = mod.default ?? mod;
+    // Handle CJS interop: dynamic import() of CJS wraps module.exports as mod.default
+    // If the CJS module uses __esModule + named "default" export, the factory is at mod.default.default
+    const raw = mod.default ?? mod;
+    const factory = typeof raw === "function" ? raw : (raw.default ?? raw);
 
     if (typeof factory !== "function") {
       throw new Error(
