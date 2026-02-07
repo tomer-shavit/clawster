@@ -771,7 +771,11 @@ export class GceTarget extends BaseDeploymentTarget implements SelfDescribingDep
     // 2. Installs Sysbox runtime for secure Docker-in-Docker (sandbox mode)
     // 3. Pulls the config from metadata
     // 4. Runs OpenClaw in Docker with Sysbox runtime (for sandbox)
-    const startupScript = this.buildStartupScript(imageUri);
+    // Build middleware config for proxy sidecar (if any)
+    const enabledMiddlewares = (options.middlewareConfig?.middlewares ?? []).filter((m) => m.enabled);
+    const hasMiddleware = enabledMiddlewares.length > 0;
+
+    const startupScript = this.buildStartupScript(imageUri, hasMiddleware);
 
     // Build metadata items
     const metadataItems: Array<{ key: string; value: string }> = [
@@ -782,6 +786,21 @@ export class GceTarget extends BaseDeploymentTarget implements SelfDescribingDep
 
     if (options.gatewayAuthToken) {
       metadataItems.push({ key: "gateway-token", value: options.gatewayAuthToken });
+    }
+
+    // Pass middleware config as metadata for the startup script proxy sidecar
+    if (hasMiddleware) {
+      const proxyConfig = JSON.stringify({
+        externalPort: 18789,
+        internalPort: 18789,
+        internalHost: "openclaw-gateway",
+        middlewares: enabledMiddlewares.map((m) => ({
+          package: m.package,
+          enabled: m.enabled,
+          config: m.config,
+        })),
+      });
+      metadataItems.push({ key: "middleware-config", value: proxyConfig });
     }
 
     // Add container env vars to metadata
@@ -812,11 +831,8 @@ export class GceTarget extends BaseDeploymentTarget implements SelfDescribingDep
     await this.computeManager.createVmInstance(vmConfig);
   }
 
-  private buildStartupScript(imageUri: string): string {
-    return `#!/bin/bash
-set -e
-
-# Format and mount data disk if not already mounted
+  private buildStartupScript(imageUri: string, hasMiddleware = false): string {
+    const diskSetup = `# Format and mount data disk if not already mounted
 DATA_DISK="/dev/disk/by-id/google-${this.dataDiskName}"
 MOUNT_POINT="/mnt/openclaw"
 
@@ -835,37 +851,33 @@ if ! mountpoint -q "$MOUNT_POINT"; then
   if ! grep -q "$MOUNT_POINT" /etc/fstab; then
     echo "$DATA_DISK $MOUNT_POINT ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
   fi
-fi
+fi`;
 
-# Install Sysbox runtime for secure Docker-in-Docker (sandbox mode)
-# Only install if not already available
-# Using versioned release for stability and security
+    const sysboxInstall = `# Install Sysbox runtime for secure Docker-in-Docker (sandbox mode)
 SYSBOX_VERSION="v0.6.4"
 if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'sysbox-runc'; then
   echo "Installing Sysbox $SYSBOX_VERSION for secure sandbox mode..."
-  # Download to temp file (safer than curl | bash)
   SYSBOX_INSTALL_SCRIPT="/tmp/sysbox-install-$$.sh"
   curl -fsSL "https://raw.githubusercontent.com/nestybox/sysbox/$SYSBOX_VERSION/scr/install.sh" -o "$SYSBOX_INSTALL_SCRIPT"
   chmod +x "$SYSBOX_INSTALL_SCRIPT"
   "$SYSBOX_INSTALL_SCRIPT"
   rm -f "$SYSBOX_INSTALL_SCRIPT"
-  # Restart Docker to pick up new runtime
   systemctl restart docker
   echo "Sysbox runtime installed successfully"
 else
   echo "Sysbox runtime already available"
-fi
+fi`;
 
-# Determine which runtime to use
+    const runtimeDetection = `# Determine which runtime to use
 DOCKER_RUNTIME=""
 if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'sysbox-runc'; then
   DOCKER_RUNTIME="--runtime=sysbox-runc"
   echo "Using Sysbox runtime for secure Docker-in-Docker"
 else
   echo "Warning: Sysbox not available, sandbox mode will be limited"
-fi
+fi`;
 
-# Get config from instance metadata
+    const metadataRead = `# Get config from instance metadata
 GATEWAY_PORT=$(curl -s -H "Metadata-Flavor: Google" \\
   http://metadata.google.internal/computeMetadata/v1/instance/attributes/gateway-port || echo "${this.gatewayPort}")
 GATEWAY_TOKEN=$(curl -s -H "Metadata-Flavor: Google" \\
@@ -875,7 +887,67 @@ OPENCLAW_CONFIG=$(curl -s -H "Metadata-Flavor: Google" \\
 
 # Create config directory
 mkdir -p "$MOUNT_POINT/.openclaw"
-echo "$OPENCLAW_CONFIG" > "$MOUNT_POINT/.openclaw/openclaw.json"
+echo "$OPENCLAW_CONFIG" > "$MOUNT_POINT/.openclaw/openclaw.json"`;
+
+    if (hasMiddleware) {
+      return `#!/bin/bash
+set -e
+
+${diskSetup}
+
+${sysboxInstall}
+
+${runtimeDetection}
+
+${metadataRead}
+
+# Read middleware config from metadata
+MW_CONFIG=$(curl -s -H "Metadata-Flavor: Google" \\
+  http://metadata.google.internal/computeMetadata/v1/instance/attributes/middleware-config || echo "")
+
+# Create Docker network for middleware proxy
+docker network create clawster-mw 2>/dev/null || true
+
+# Clean up existing containers
+docker rm -f openclaw-gateway 2>/dev/null || true
+docker rm -f clawster-proxy 2>/dev/null || true
+
+# Run OpenClaw on the network (internal only — no host port exposure)
+docker run -d \\
+  --name openclaw-gateway \\
+  --restart=always \\
+  --network clawster-mw \\
+  $DOCKER_RUNTIME \\
+  -v "$MOUNT_POINT/.openclaw:/home/node/.openclaw" \\
+  -e OPENCLAW_GATEWAY_PORT=18789 \\
+  -e OPENCLAW_GATEWAY_TOKEN="$GATEWAY_TOKEN" \\
+  ${imageUri} \\
+  sh -c "npx -y openclaw@latest gateway --port 18789 --verbose"
+
+# Run middleware proxy on the same network, exposed to host
+docker run -d \\
+  --name clawster-proxy \\
+  --restart=always \\
+  --network clawster-mw \\
+  -p $GATEWAY_PORT:18789 \\
+  -e "CLAWSTER_MIDDLEWARE_CONFIG=$MW_CONFIG" \\
+  node:22-slim \\
+  sh -c "npx -y @clawster/middleware-proxy"
+
+echo "Middleware proxy started on port $GATEWAY_PORT"
+`;
+    }
+
+    return `#!/bin/bash
+set -e
+
+${diskSetup}
+
+${sysboxInstall}
+
+${runtimeDetection}
+
+${metadataRead}
 
 # Stop any existing container
 docker rm -f openclaw-gateway 2>/dev/null || true
@@ -1006,6 +1078,7 @@ docker run -d \\
           sensitive: true,
         },
       ],
+      vaultType: "gce-account",
       tierSpecs: GCE_TIER_SPECS,
     };
   }

@@ -60,11 +60,13 @@ export type { AzureManagerFactoryConfig, AzureManagers } from "./targets/azure-v
 export type {
   IAzureNetworkManager,
   IAzureComputeManager,
-  IAzureAppGatewayManager,
 } from "./targets/azure-vm/managers";
 
 // Factories
 export { DeploymentTargetFactory } from "./targets/factory";
+
+// Middleware utilities
+export * from "./middleware";
 
 // Security Configuration
 export * from "./security";
