@@ -36,6 +36,7 @@ export class BaseHttpClient {
     };
 
     const response = await fetch(`${this.baseUrl}${path}`, {
+      cache: 'no-store',
       ...options,
       headers,
     });
