@@ -2,9 +2,11 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from "@nestjs/common";
 import { BotInstancesService } from "../bot-instances/bot-instances.service";
 import { MiddlewareRegistryService } from "./middleware-registry.service";
+import { ReconcilerService } from "../reconciler/reconciler.service";
 import {
   AssignMiddlewareDto,
   UpdateMiddlewareAssignmentDto,

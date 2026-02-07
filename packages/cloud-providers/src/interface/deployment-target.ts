@@ -20,6 +20,13 @@ export enum DeploymentTargetType {
 /**
  * Options for installing an OpenClaw gateway instance on a deployment target
  */
+/** Middleware assignment stored in bot instance metadata */
+export interface MiddlewareAssignment {
+  package: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+}
+
 export interface InstallOptions {
   /** Profile name for isolation (scopes config/state/workspace) */
   profileName: string;
@@ -33,6 +40,10 @@ export interface InstallOptions {
   gatewayAuthToken?: string;
   /** Additional container environment variables (e.g., LLM API keys) */
   containerEnv?: Record<string, string>;
+  /** Middleware assignments for proxy sidecar (when present, proxy is deployed alongside) */
+  middlewareConfig?: {
+    middlewares: MiddlewareAssignment[];
+  };
 }
 
 /**

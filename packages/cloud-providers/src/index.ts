@@ -76,6 +76,9 @@ export { ensureSharedInfra, getSharedInfraOutputs, isSharedInfraReady } from "./
 // Factories
 export { DeploymentTargetFactory } from "./targets/factory";
 
+// Middleware utilities
+export * from "./middleware";
+
 // Security Configuration
 export * from "./security";
 

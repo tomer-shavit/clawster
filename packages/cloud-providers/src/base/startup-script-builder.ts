@@ -8,6 +8,8 @@
 /** Default Sysbox version for installation */
 const DEFAULT_SYSBOX_VERSION = "0.6.4";
 
+import type { MiddlewareAssignment } from "../interface/deployment-target";
+
 /** Configuration options for startup scripts */
 export interface StartupScriptOptions {
   /** Target platform */
@@ -26,6 +28,10 @@ export interface StartupScriptOptions {
   imageUri: string;
   /** Additional environment variables */
   additionalEnv?: Record<string, string>;
+  /** Middleware assignments — when present, a proxy sidecar is deployed */
+  middlewareConfig?: {
+    middlewares: MiddlewareAssignment[];
+  };
 }
 
 /**
@@ -54,8 +60,22 @@ fi`;
 
 /**
  * Builds the runtime selection and container run commands.
+ * When middleware is configured, creates a Docker network with proxy sidecar.
  */
 function buildContainerRunScript(options: StartupScriptOptions): string {
+  const enabledMiddlewares = (options.middlewareConfig?.middlewares ?? []).filter((m) => m.enabled);
+
+  if (enabledMiddlewares.length > 0) {
+    return buildContainerRunWithMiddleware(options, enabledMiddlewares);
+  }
+
+  return buildContainerRunDirect(options);
+}
+
+/**
+ * Direct mode: OpenClaw exposed to host on gatewayPort.
+ */
+function buildContainerRunDirect(options: StartupScriptOptions): string {
   const envVars = Object.entries(options.additionalEnv ?? {})
     .map(([k, v]) => `-e ${k}="${v}"`)
     .join(" \\\n  ");
@@ -81,6 +101,71 @@ docker run -d \\
   -e OPENCLAW_GATEWAY_TOKEN="${options.gatewayToken ?? ""}"${envVars ? ` \\\n  ${envVars}` : ""} \\
   ${options.imageUri} \\
   sh -c "npx -y openclaw@latest gateway --port ${options.gatewayPort} --verbose"`;
+}
+
+/**
+ * Middleware mode: OpenClaw on Docker network (internal), proxy exposed to host.
+ * The proxy auto-installs middleware packages at startup (Grafana pattern).
+ */
+function buildContainerRunWithMiddleware(
+  options: StartupScriptOptions,
+  middlewares: MiddlewareAssignment[],
+): string {
+  const envVars = Object.entries(options.additionalEnv ?? {})
+    .map(([k, v]) => `-e ${k}="${v}"`)
+    .join(" \\\n  ");
+
+  const proxyConfig = JSON.stringify({
+    externalPort: 18789,
+    internalPort: 18789,
+    internalHost: "openclaw-gateway",
+    middlewares: middlewares.map((m) => ({
+      package: m.package,
+      enabled: m.enabled,
+      config: m.config,
+    })),
+  });
+
+  return `# Determine runtime
+DOCKER_RUNTIME=""
+if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'sysbox-runc'; then
+  DOCKER_RUNTIME="--runtime=sysbox-runc"
+  echo "Using Sysbox runtime for secure Docker-in-Docker"
+else
+  echo "Warning: Sysbox not available, sandbox mode will be limited"
+fi
+
+# Create Docker network for middleware proxy
+docker network create clawster-mw 2>/dev/null || true
+
+# Clean up any existing containers
+docker rm -f openclaw-gateway 2>/dev/null || true
+docker rm -f clawster-proxy 2>/dev/null || true
+
+# Run OpenClaw on the network (internal only — no host port exposure)
+docker run -d \\
+  --name openclaw-gateway \\
+  --restart=always \\
+  --network clawster-mw \\
+  $DOCKER_RUNTIME \\
+  -v "${options.dataMount}/.openclaw:/home/node/.openclaw" \\
+  -e OPENCLAW_GATEWAY_PORT=18789 \\
+  -e OPENCLAW_GATEWAY_TOKEN="${options.gatewayToken ?? ""}"${envVars ? ` \\\n  ${envVars}` : ""} \\
+  ${options.imageUri} \\
+  sh -c "npx -y openclaw@latest gateway --port 18789 --verbose"
+
+# Run middleware proxy on the same network, exposed to host
+MW_CONFIG='${proxyConfig.replace(/'/g, "'\\''")}'
+docker run -d \\
+  --name clawster-proxy \\
+  --restart=always \\
+  --network clawster-mw \\
+  -p ${options.gatewayPort}:18789 \\
+  -e "CLAWSTER_MIDDLEWARE_CONFIG=$MW_CONFIG" \\
+  node:22-slim \\
+  sh -c "npx -y @clawster/middleware-proxy"
+
+echo "Middleware proxy started on port ${options.gatewayPort}"`;
 }
 
 /**
@@ -112,6 +197,83 @@ export function buildCloudInitScript(options: StartupScriptOptions): string {
     .map(([k, v]) => `      -e ${k}="${v}" \\`)
     .join("\n");
 
+  const enabledMiddlewares = (options.middlewareConfig?.middlewares ?? []).filter((m) => m.enabled);
+  const hasMiddleware = enabledMiddlewares.length > 0;
+
+  const sysboxBlock = `    SYSBOX_VERSION="${versionTag}"
+    if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'sysbox-runc'; then
+      echo "Installing Sysbox $SYSBOX_VERSION for secure sandbox mode..."
+      SYSBOX_INSTALL_SCRIPT="/tmp/sysbox-install-$$.sh"
+      curl -fsSL "https://raw.githubusercontent.com/nestybox/sysbox/$SYSBOX_VERSION/scr/install.sh" -o "$SYSBOX_INSTALL_SCRIPT"
+      chmod +x "$SYSBOX_INSTALL_SCRIPT"
+      "$SYSBOX_INSTALL_SCRIPT"
+      rm -f "$SYSBOX_INSTALL_SCRIPT"
+      systemctl restart docker
+      echo "Sysbox runtime installed successfully"
+    else
+      echo "Sysbox runtime already available"
+    fi`;
+
+  if (hasMiddleware) {
+    const proxyConfig = JSON.stringify({
+      externalPort: 18789,
+      internalPort: 18789,
+      internalHost: "openclaw-gateway",
+      middlewares: enabledMiddlewares.map((m) => ({
+        package: m.package,
+        enabled: m.enabled,
+        config: m.config,
+      })),
+    });
+
+    return `#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - jq
+  - curl
+
+runcmd:
+  - systemctl enable docker
+  - systemctl start docker
+  - mkdir -p ${options.dataMount}/.openclaw
+  - |
+${sysboxBlock}
+  - docker network create clawster-mw 2>/dev/null || true
+  - docker rm -f openclaw-gateway 2>/dev/null || true
+  - docker rm -f clawster-proxy 2>/dev/null || true
+  - |
+    DOCKER_RUNTIME=""
+    if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'sysbox-runc'; then
+      DOCKER_RUNTIME="--runtime=sysbox-runc"
+    fi
+    docker run -d \\
+      --name openclaw-gateway \\
+      --restart=always \\
+      --network clawster-mw \\
+      $DOCKER_RUNTIME \\
+      -v ${options.dataMount}/.openclaw:/home/node/.openclaw \\
+      -e OPENCLAW_GATEWAY_PORT=18789 \\
+      -e OPENCLAW_GATEWAY_TOKEN="${options.gatewayToken ?? ""}"${envLines ? ` \\\n${envLines}` : ""} \\
+      ${options.imageUri} \\
+      sh -c "npx -y openclaw@latest gateway --port 18789 --verbose"
+  - |
+    MW_CONFIG='${proxyConfig.replace(/'/g, "'\\''")}'
+    docker run -d \\
+      --name clawster-proxy \\
+      --restart=always \\
+      --network clawster-mw \\
+      -p ${options.gatewayPort}:18789 \\
+      -e "CLAWSTER_MIDDLEWARE_CONFIG=$MW_CONFIG" \\
+      node:22-slim \\
+      sh -c "npx -y @clawster/middleware-proxy"
+
+final_message: "OpenClaw gateway with middleware proxy started on port ${options.gatewayPort}"
+`;
+  }
+
   return `#cloud-config
 package_update: true
 package_upgrade: true
@@ -126,19 +288,7 @@ runcmd:
   - systemctl start docker
   - mkdir -p ${options.dataMount}/.openclaw
   - |
-    SYSBOX_VERSION="${versionTag}"
-    if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'sysbox-runc'; then
-      echo "Installing Sysbox $SYSBOX_VERSION for secure sandbox mode..."
-      SYSBOX_INSTALL_SCRIPT="/tmp/sysbox-install-$$.sh"
-      curl -fsSL "https://raw.githubusercontent.com/nestybox/sysbox/$SYSBOX_VERSION/scr/install.sh" -o "$SYSBOX_INSTALL_SCRIPT"
-      chmod +x "$SYSBOX_INSTALL_SCRIPT"
-      "$SYSBOX_INSTALL_SCRIPT"
-      rm -f "$SYSBOX_INSTALL_SCRIPT"
-      systemctl restart docker
-      echo "Sysbox runtime installed successfully"
-    else
-      echo "Sysbox runtime already available"
-    fi
+${sysboxBlock}
   - docker rm -f openclaw-gateway 2>/dev/null || true
   - |
     DOCKER_RUNTIME=""
