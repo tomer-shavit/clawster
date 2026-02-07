@@ -424,6 +424,7 @@ export class AzureVmTarget extends BaseDeploymentTarget implements SelfDescribin
       configSource: "env",
       imageUri,
       additionalEnv: options.containerEnv,
+      middlewareConfig: options.middlewareConfig,
     });
 
     // Create VM
