@@ -38,10 +38,10 @@ export type {
   IGceOperationManager,
   IGceNetworkManager,
   IGceComputeManager,
-  IGceLoadBalancerManager,
   IGceSecretManager,
   IGceLoggingManager,
   GceLogQueryOptions,
+  InstanceTemplateConfig,
 } from "./targets/gce/managers";
 export {
   GceSecretManagerAdapter,
