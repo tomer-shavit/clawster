@@ -422,18 +422,30 @@ importers:
       '@aws-sdk/client-sts':
         specifier: ^3.490.0
         version: 3.980.0
+      '@azure/arm-authorization':
+        specifier: ^9.0.0
+        version: 9.0.0
       '@azure/arm-compute':
         specifier: ^21.0.0
         version: 21.6.0
       '@azure/arm-containerinstance':
         specifier: ^9.1.0
         version: 9.1.0
+      '@azure/arm-keyvault':
+        specifier: ^3.0.0
+        version: 3.2.0
+      '@azure/arm-msi':
+        specifier: ^2.1.0
+        version: 2.2.0
       '@azure/arm-network':
         specifier: ^33.0.0
         version: 33.5.0
       '@azure/arm-resources':
         specifier: ^5.2.0
         version: 5.2.0
+      '@azure/arm-storage':
+        specifier: ^18.0.0
+        version: 18.6.0
       '@azure/identity':
         specifier: ^4.0.0
         version: 4.13.0
@@ -2149,6 +2161,19 @@ packages:
       tslib: 2.8.1
     dev: false
 
+  /@azure/arm-authorization@9.0.0:
+    resolution: {integrity: sha512-GdiCA8IA1gO+qcCbFEPj+iLC4+3ByjfKzmeAnkP7MdlL84Yo30Huo/EwbZzwRjYybXYUBuFxGPBB+yeTT4Ebxg==}
+    engines: {node: '>=14.0.0'}
+    dependencies:
+      '@azure/core-auth': 1.10.1
+      '@azure/core-client': 1.10.1
+      '@azure/core-paging': 1.6.2
+      '@azure/core-rest-pipeline': 1.22.2
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
   /@azure/arm-compute@21.6.0:
     resolution: {integrity: sha512-Qk6kxoqMgzOvceUBqD1WTHrPh/iaxlTLQPp241u3iNVOE4FVSTqSzTxjG1tr/UL1rBWGvoLPZExUFddo+Qd5KQ==}
     engines: {node: '>=18.0.0'}
@@ -2179,6 +2204,34 @@ packages:
       - supports-color
     dev: false
 
+  /@azure/arm-keyvault@3.2.0:
+    resolution: {integrity: sha512-LZMEl/i/FeQTsIqNpAyddki07OSO8UcqbArN5Ge3Ka76lvRkr6PYMtBBWfAT0EHNvFtqONsfRYFzDNtTz3A6Mg==}
+    engines: {node: '>=18.0.0'}
+    dependencies:
+      '@azure/abort-controller': 2.1.2
+      '@azure/core-auth': 1.10.1
+      '@azure/core-client': 1.10.1
+      '@azure/core-lro': 2.7.2
+      '@azure/core-paging': 1.6.2
+      '@azure/core-rest-pipeline': 1.22.2
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@azure/arm-msi@2.2.0:
+    resolution: {integrity: sha512-Wqg9j9qR+k1IxZXwKtegZWj6k1d6UUGOz4uHPmhyJOeiQrtZHXBcaWSZhtqJo5sy888TD6jVIQV/4znhbKYL9g==}
+    engines: {node: '>=20.0.0'}
+    dependencies:
+      '@azure/core-auth': 1.10.1
+      '@azure/core-client': 1.10.1
+      '@azure/core-paging': 1.6.2
+      '@azure/core-rest-pipeline': 1.22.2
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
   /@azure/arm-network@33.5.0:
     resolution: {integrity: sha512-wXD34p4/J2kZrkWylabtxLzrea5TK2m9NRwYtBLCvgQXN5NFTQohHgOFhoi/7DgV6w1qaM+qGz9mo5HRxpU70w==}
     engines: {node: '>=18.0.0'}
@@ -2199,6 +2252,21 @@ packages:
     engines: {node: '>=14.0.0'}
     dependencies:
       '@azure/abort-controller': 1.1.0
+      '@azure/core-auth': 1.10.1
+      '@azure/core-client': 1.10.1
+      '@azure/core-lro': 2.7.2
+      '@azure/core-paging': 1.6.2
+      '@azure/core-rest-pipeline': 1.22.2
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@azure/arm-storage@18.6.0:
+    resolution: {integrity: sha512-dyN50fxts2xClCLIQY8qoDepYx2ql/eW5cVOy8XP+5zt9wIr1cgN2Mmv9/so2HDg6M/zOz8LhrvY+bS2blbhDQ==}
+    engines: {node: '>=20.0.0'}
+    dependencies:
+      '@azure/abort-controller': 2.1.2
       '@azure/core-auth': 1.10.1
       '@azure/core-client': 1.10.1
       '@azure/core-lro': 2.7.2

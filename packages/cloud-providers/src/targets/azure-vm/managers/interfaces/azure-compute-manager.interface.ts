@@ -27,6 +27,7 @@ export interface IAzureComputeManager {
   /**
    * Create a VM instance.
    * @param diskId - Data disk resource ID (undefined = no data disk)
+   * @param userAssignedIdentityId - Full resource ID of a user-assigned managed identity to attach
    */
   createVm(
     vmName: string,
@@ -36,7 +37,8 @@ export interface IAzureComputeManager {
     osDiskSizeGb: number,
     cloudInit: string,
     sshPublicKey?: string,
-    tags?: Record<string, string>
+    tags?: Record<string, string>,
+    userAssignedIdentityId?: string
   ): Promise<VirtualMachine>;
 
   startVm(name: string): Promise<void>;

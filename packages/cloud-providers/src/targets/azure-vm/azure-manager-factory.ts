@@ -7,16 +7,22 @@
 
 import { ComputeManagementClient } from "@azure/arm-compute";
 import { NetworkManagementClient } from "@azure/arm-network";
+import { StorageManagementClient } from "@azure/arm-storage";
+import { KeyVaultManagementClient } from "@azure/arm-keyvault";
+import { ManagedServiceIdentityClient } from "@azure/arm-msi";
+import { AuthorizationManagementClient } from "@azure/arm-authorization";
 import { DefaultAzureCredential, TokenCredential } from "@azure/identity";
 
 import {
   AzureNetworkManager,
   AzureComputeManager,
+  AzureSharedInfraManager,
 } from "./managers";
 
 import type {
   IAzureNetworkManager,
   IAzureComputeManager,
+  IAzureSharedInfraManager,
 } from "./managers";
 
 import type { AzureLogCallback } from "./types";
@@ -45,6 +51,8 @@ export interface AzureManagers {
   networkManager: IAzureNetworkManager;
   /** Compute manager for VMs, disks, and NICs */
   computeManager: IAzureComputeManager;
+  /** Shared infrastructure manager for Storage, MI, Key Vault, RBAC */
+  sharedInfraManager: IAzureSharedInfraManager;
 }
 
 /**
@@ -61,6 +69,10 @@ export class AzureManagerFactory {
 
     const computeClient = new ComputeManagementClient(credential, subscriptionId);
     const networkClient = new NetworkManagementClient(credential, subscriptionId);
+    const storageClient = new StorageManagementClient(credential, subscriptionId);
+    const kvMgmtClient = new KeyVaultManagementClient(credential, subscriptionId);
+    const msiClient = new ManagedServiceIdentityClient(credential, subscriptionId);
+    const authClient = new AuthorizationManagementClient(credential, subscriptionId);
 
     const networkManager = new AzureNetworkManager(
       networkClient,
@@ -77,9 +89,21 @@ export class AzureManagerFactory {
       log
     );
 
+    const sharedInfraManager = new AzureSharedInfraManager(
+      storageClient,
+      kvMgmtClient,
+      msiClient,
+      authClient,
+      subscriptionId,
+      resourceGroup,
+      location,
+      log
+    );
+
     return {
       networkManager,
       computeManager,
+      sharedInfraManager,
     };
   }
 }

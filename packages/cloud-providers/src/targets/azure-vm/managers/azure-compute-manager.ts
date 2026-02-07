@@ -96,7 +96,8 @@ export class AzureComputeManager implements IAzureComputeManager {
     osDiskSizeGb: number,
     cloudInit: string,
     sshPublicKey?: string,
-    tags?: Record<string, string>
+    tags?: Record<string, string>,
+    userAssignedIdentityId?: string
   ): Promise<VirtualMachine> {
     this.log(`  Creating VM: ${vmName}`);
 
@@ -110,11 +111,19 @@ export class AzureComputeManager implements IAzureComputeManager {
         ]
       : [];
 
+    const identity = userAssignedIdentityId
+      ? {
+          type: "UserAssigned" as const,
+          userAssignedIdentities: { [userAssignedIdentityId]: {} },
+        }
+      : undefined;
+
     const result = await this.computeClient.virtualMachines.beginCreateOrUpdateAndWait(
       this.resourceGroup,
       vmName,
       {
         location: this.location,
+        identity,
         hardwareProfile: {
           vmSize,
         },

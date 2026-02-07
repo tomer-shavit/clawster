@@ -332,7 +332,7 @@ export interface AzureCloudInitOptions {
   readonly sysboxVersion?: string;
   readonly gatewayPort: number;
   readonly azureFiles: AzureFilesConfig;
-  readonly keyVault: AzureKeyVaultConfig;
+  readonly keyVault?: AzureKeyVaultConfig;
   readonly caddyDomain?: string;
   readonly additionalEnv?: Record<string, string>;
 }
@@ -542,8 +542,7 @@ export function buildAzureCaddyCloudInit(options: AzureCloudInitOptions): string
     "",
     buildCaddySection(gatewayPort, caddyDomain),
     "",
-    buildKeyVaultFetchSection(keyVault, configPath),
-    "",
+    ...(keyVault ? [buildKeyVaultFetchSection(keyVault, configPath), ""] : []),
     buildOpenClawContainerSection(gatewayPort, azureFiles.mountPath, additionalEnv),
   ];
 

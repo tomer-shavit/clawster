@@ -1,6 +1,6 @@
 import { AzureVmTarget } from "./azure-vm-target";
 import { DeploymentTargetType } from "../../interface/deployment-target";
-import type { IAzureNetworkManager, IAzureComputeManager } from "./managers";
+import type { IAzureNetworkManager, IAzureComputeManager, IAzureSharedInfraManager } from "./managers";
 import type { AzureVmConfig } from "./azure-vm-config";
 import type { AzureManagers } from "./azure-manager-factory";
 
@@ -91,12 +91,34 @@ function createMockComputeManager(): jest.Mocked<IAzureComputeManager> {
   };
 }
 
+function createMockSharedInfraManager(): jest.Mocked<IAzureSharedInfraManager> {
+  return {
+    ensureStorageAccount: jest.fn().mockResolvedValue({
+      id: "/subscriptions/xxx/storageAccounts/clawstersa",
+      name: "clawstersa",
+    }),
+    ensureFileShare: jest.fn().mockResolvedValue(undefined),
+    ensureManagedIdentity: jest.fn().mockResolvedValue({
+      id: "/subscriptions/xxx/mi/clawster-mi",
+      clientId: "mi-client-id",
+      principalId: "mi-principal-id",
+    }),
+    ensureKeyVault: jest.fn().mockResolvedValue({
+      id: "/subscriptions/xxx/vaults/test-vault",
+      name: "test-vault",
+      uri: "https://test-vault.vault.azure.net",
+    }),
+    assignRoles: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 function createTarget(
   configOverrides: Partial<AzureVmConfig> = {},
   managerOverrides?: Partial<AzureManagers>
 ) {
   const networkManager = createMockNetworkManager();
   const computeManager = createMockComputeManager();
+  const sharedInfraManager = createMockSharedInfraManager();
 
   const config: AzureVmConfig = {
     subscriptionId: "sub-123",
@@ -110,11 +132,12 @@ function createTarget(
   const managers: AzureManagers = {
     networkManager: managerOverrides?.networkManager ?? networkManager,
     computeManager: managerOverrides?.computeManager ?? computeManager,
+    sharedInfraManager: managerOverrides?.sharedInfraManager ?? sharedInfraManager,
   };
 
   const target = new AzureVmTarget({ config, managers });
 
-  return { target, networkManager, computeManager, config };
+  return { target, networkManager, computeManager, sharedInfraManager, config };
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -178,7 +201,7 @@ describe("AzureVmTarget", () => {
         "/subscriptions/xxx/pip/clawster-pip-test-bot"
       );
 
-      // Verify VM was created with no data disk
+      // Verify VM was created with no data disk + MI attached
       expect(computeManager.createVm).toHaveBeenCalledWith(
         "clawster-test-bot",
         "/subscriptions/xxx/nic/nic1",
@@ -187,7 +210,8 @@ describe("AzureVmTarget", () => {
         30,
         expect.stringContaining("#cloud-config"),
         undefined, // No SSH key
-        { profile: "test-bot" }
+        { profile: "test-bot" },
+        "/subscriptions/xxx/mi/clawster-mi" // Managed Identity
       );
     });
 
@@ -237,8 +261,57 @@ describe("AzureVmTarget", () => {
         expect.any(Number),
         expect.any(String),
         "ssh-rsa AAAAB3...",
-        expect.any(Object)
+        expect.any(Object),
+        expect.any(String) // Managed Identity ID
       );
+    });
+
+    it("should provision shared infra (storage, MI) during install", async () => {
+      const { target, sharedInfraManager } = createTarget();
+
+      await target.install({ profileName: "test-bot", port: 18789 });
+
+      expect(sharedInfraManager.ensureStorageAccount).toHaveBeenCalled();
+      expect(sharedInfraManager.ensureFileShare).toHaveBeenCalled();
+      expect(sharedInfraManager.ensureManagedIdentity).toHaveBeenCalledWith("clawster-mi");
+    });
+
+    it("should provision KV and assign RBAC when tenantId is set", async () => {
+      const { target, sharedInfraManager } = createTarget({
+        tenantId: "tenant-123",
+      });
+
+      await target.install({ profileName: "test-bot", port: 18789 });
+
+      expect(sharedInfraManager.ensureKeyVault).toHaveBeenCalledWith(
+        "test-vault",
+        "tenant-123"
+      );
+      expect(sharedInfraManager.assignRoles).toHaveBeenCalledWith(
+        "mi-principal-id",
+        "/subscriptions/xxx/storageAccounts/clawstersa",
+        "/subscriptions/xxx/vaults/test-vault"
+      );
+    });
+
+    it("should skip KV and RBAC when tenantId is not set", async () => {
+      const { target, sharedInfraManager } = createTarget();
+
+      await target.install({ profileName: "test-bot", port: 18789 });
+
+      expect(sharedInfraManager.ensureKeyVault).not.toHaveBeenCalled();
+      expect(sharedInfraManager.assignRoles).not.toHaveBeenCalled();
+    });
+
+    it("should return failure when shared infra provisioning fails", async () => {
+      const { target, sharedInfraManager } = createTarget();
+      (sharedInfraManager.ensureStorageAccount as jest.Mock)
+        .mockRejectedValue(new Error("Storage quota exceeded"));
+
+      const result = await target.install({ profileName: "test-bot", port: 18789 });
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("Storage quota exceeded");
     });
 
     it("should return failure on error", async () => {
@@ -591,8 +664,12 @@ describe("AzureVmTarget", () => {
       expect(metadata.capabilities.persistentStorage).toBe(true);
       expect(metadata.capabilities.httpsEndpoint).toBe(true);
 
-      // Verify provisioning steps include Caddy-specific steps
+      // Verify provisioning steps include shared infra + Caddy-specific steps
       const stepIds = metadata.provisioningSteps.map((s) => s.id);
+      expect(stepIds).toContain("create_storage");
+      expect(stepIds).toContain("create_identity");
+      expect(stepIds).toContain("create_keyvault");
+      expect(stepIds).toContain("assign_roles");
       expect(stepIds).toContain("create_public_ip");
       expect(stepIds).toContain("cloud_init");
       expect(stepIds).toContain("mount_azure_files");

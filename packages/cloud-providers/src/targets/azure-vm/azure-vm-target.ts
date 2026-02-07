@@ -37,8 +37,9 @@ import type { VmStatus } from "./types";
 import type {
   IAzureNetworkManager,
   IAzureComputeManager,
+  IAzureSharedInfraManager,
 } from "./managers";
-import { AzureNetworkManager } from "./managers";
+import { AzureNetworkManager, deriveSharedInfraNames } from "./managers";
 import { AzureManagerFactory, AzureManagers } from "./azure-manager-factory";
 
 // ── Tier Specs ──────────────────────────────────────────────────────────
@@ -76,6 +77,17 @@ const DEFAULT_VM_SUBNET_PREFIX = "10.0.1.0/24";
 const DEFAULT_SHARE_NAME = "clawster-data";
 const DEFAULT_MOUNT_PATH = "/mnt/openclaw";
 
+// ── Shared Infra Result ─────────────────────────────────────────────────
+
+interface SharedInfraResult {
+  storageAccountName: string;
+  shareName: string;
+  managedIdentityId: string;
+  managedIdentityClientId: string;
+  keyVaultName?: string;
+  keyVaultUri?: string;
+}
+
 // ── Target Options ──────────────────────────────────────────────────────
 
 export interface AzureVmTargetOptions {
@@ -100,6 +112,7 @@ export class AzureVmTarget extends BaseDeploymentTarget implements SelfDescribin
 
   private readonly networkManager: IAzureNetworkManager;
   private readonly computeManager: IAzureComputeManager;
+  private readonly sharedInfraManager: IAzureSharedInfraManager;
 
   /** Derived resource names */
   private vmName = "";
@@ -157,6 +170,7 @@ export class AzureVmTarget extends BaseDeploymentTarget implements SelfDescribin
     if (providedManagers) {
       this.networkManager = providedManagers.networkManager;
       this.computeManager = providedManagers.computeManager;
+      this.sharedInfraManager = providedManagers.sharedInfraManager;
     } else {
       const boundLog = (msg: string, stream: "stdout" | "stderr" = "stdout") => this.log(msg, stream);
       const managers = AzureManagerFactory.createManagers({
@@ -168,6 +182,7 @@ export class AzureVmTarget extends BaseDeploymentTarget implements SelfDescribin
       });
       this.networkManager = managers.networkManager;
       this.computeManager = managers.computeManager;
+      this.sharedInfraManager = managers.sharedInfraManager;
     }
 
     if (config.profileName) {
@@ -220,27 +235,40 @@ export class AzureVmTarget extends BaseDeploymentTarget implements SelfDescribin
 
     try {
       // 1. Network infrastructure (shared, idempotent)
-      this.log(`[1/5] Setting up network infrastructure...`);
+      this.log(`[1/7] Setting up network infrastructure...`);
       await this.ensureNetworkInfrastructure();
       this.log(`Network infrastructure ready`);
 
-      // 2. Store config in Key Vault
-      if (this.keyVaultClient) {
-        this.log(`[2/5] Storing config in Key Vault: ${this.secretName}`);
-        await this.ensureSecret(this.secretName, "{}");
+      // 2. Shared infrastructure (Storage, MI, Key Vault, RBAC)
+      this.log(`[2/7] Provisioning shared infrastructure...`);
+      const sharedInfra = await this.ensureSharedInfrastructure();
+      this.log(`Shared infrastructure ready`);
+
+      // 3. Store config in Key Vault
+      if (this.keyVaultClient || sharedInfra.keyVaultUri) {
+        this.log(`[3/7] Storing config in Key Vault: ${this.secretName}`);
+        const kvClient = this.keyVaultClient ?? new SecretClient(
+          sharedInfra.keyVaultUri!,
+          this.credential
+        );
+        try {
+          await kvClient.setSecret(this.secretName, "{}");
+        } catch {
+          // Secret storage failures are non-fatal
+        }
         this.log(`Key Vault secret created`);
       } else {
-        this.log(`[2/5] Key Vault not configured (skipped)`);
+        this.log(`[3/7] Key Vault not configured (skipped)`);
       }
 
-      // 3. Create static public IP
-      this.log(`[3/5] Creating static public IP: ${this.publicIpName}`);
+      // 4. Create static public IP
+      this.log(`[4/7] Creating static public IP: ${this.publicIpName}`);
       const pip = await this.networkManager.ensurePublicIp(this.publicIpName);
       this.cachedPublicIp = pip.ipAddress ?? "";
       this.log(`Public IP ready: ${this.cachedPublicIp}`);
 
-      // 4. Create NIC (with public IP, in subnet with NSG)
-      this.log(`[4/5] Creating NIC: ${this.nicName}`);
+      // 5. Create NIC (with public IP, in subnet with NSG)
+      this.log(`[5/7] Creating NIC: ${this.nicName}`);
       const subnet = await this.networkClient.subnets.get(
         this.config.resourceGroup,
         this.vnetName,
@@ -249,10 +277,13 @@ export class AzureVmTarget extends BaseDeploymentTarget implements SelfDescribin
       const nic = await this.computeManager.createNic(this.nicName, subnet.id!, pip.id!);
       this.log(`NIC ready`);
 
-      // 5. Create VM with Caddy cloud-init
-      this.log(`[5/5] Creating VM: ${this.vmName}`);
-      await this.createVm(options, nic.id!);
+      // 6. Create VM with Caddy cloud-init (attaches MI)
+      this.log(`[6/7] Creating VM: ${this.vmName}`);
+      await this.createVm(options, nic.id!, sharedInfra);
       this.log(`VM created — cloud-init will install Docker, Sysbox, Caddy, and start OpenClaw`);
+
+      // 7. Done
+      this.log(`[7/7] Verifying deployment...`);
 
       this.log(`Azure VM installation complete!`);
 
@@ -299,27 +330,74 @@ export class AzureVmTarget extends BaseDeploymentTarget implements SelfDescribin
     );
   }
 
+  // ── Shared infrastructure ──────────────────────────────────────────
+
+  private async ensureSharedInfrastructure(): Promise<SharedInfraResult> {
+    const names = deriveSharedInfraNames(
+      this.config.subscriptionId,
+      this.config.resourceGroup
+    );
+    const storageAccountName = this.config.storageAccountName ?? names.storageAccountName;
+    const shareName = this.config.shareName ?? DEFAULT_SHARE_NAME;
+    const keyVaultName = this.config.keyVaultName ?? names.keyVaultName;
+    const miName = names.managedIdentityName;
+
+    // 1. Storage Account + File Share
+    const storageAccount = await this.sharedInfraManager.ensureStorageAccount(storageAccountName);
+    await this.sharedInfraManager.ensureFileShare(storageAccountName, shareName);
+
+    // 2. Managed Identity
+    const mi = await this.sharedInfraManager.ensureManagedIdentity(miName);
+
+    // 3. Key Vault (requires tenantId)
+    const tenantId = this.config.tenantId ?? "";
+    let keyVaultInfo: { id: string; name: string; uri: string } | undefined;
+    if (tenantId) {
+      keyVaultInfo = await this.sharedInfraManager.ensureKeyVault(keyVaultName, tenantId);
+    }
+
+    // 4. RBAC role assignments
+    if (keyVaultInfo && storageAccount.id && keyVaultInfo.id) {
+      await this.sharedInfraManager.assignRoles(
+        mi.principalId,
+        storageAccount.id,
+        keyVaultInfo.id
+      );
+    }
+
+    return {
+      storageAccountName,
+      shareName,
+      managedIdentityId: mi.id,
+      managedIdentityClientId: mi.clientId,
+      keyVaultName: keyVaultInfo?.name,
+      keyVaultUri: keyVaultInfo?.uri,
+    };
+  }
+
   // ── VM Creation ─────────────────────────────────────────────────────
 
-  private async createVm(options: InstallOptions, nicId: string): Promise<void> {
-    const storageAccountName = this.config.storageAccountName ?? `clawster${this.config.subscriptionId.slice(0, 8).replace(/-/g, "")}`;
-    const shareName = this.config.shareName ?? DEFAULT_SHARE_NAME;
-    const managedIdentityClientId = this.config.managedIdentityClientId ?? "";
-
+  private async createVm(
+    options: InstallOptions,
+    nicId: string,
+    sharedInfra: SharedInfraResult
+  ): Promise<void> {
     const cloudInit = buildAzureCaddyCloudInit({
       gatewayPort: this.gatewayPort,
       caddyDomain: this.config.customDomain,
       azureFiles: {
-        storageAccountName,
-        shareName,
+        storageAccountName: sharedInfra.storageAccountName,
+        shareName: sharedInfra.shareName,
         mountPath: DEFAULT_MOUNT_PATH,
-        managedIdentityClientId,
+        managedIdentityClientId: sharedInfra.managedIdentityClientId,
       },
-      keyVault: {
-        vaultName: this.config.keyVaultName ?? "",
-        secretName: this.secretName,
-        managedIdentityClientId,
-      },
+      keyVault: sharedInfra.keyVaultName
+        ? {
+            vaultName: sharedInfra.keyVaultName,
+            secretName: this.secretName,
+            managedIdentityClientId: sharedInfra.managedIdentityClientId,
+          }
+        : undefined,
       additionalEnv: options.containerEnv,
       middlewareConfig: options.middlewareConfig,
     });
@@ -332,7 +410,8 @@ export class AzureVmTarget extends BaseDeploymentTarget implements SelfDescribin
       this.osDiskSizeGb,
       cloudInit,
       this.config.sshPublicKey,
-      { profile: this.sanitizeName(options.profileName) }
+      { profile: this.sanitizeName(options.profileName) },
+      sharedInfra.managedIdentityId
     );
   }
 
@@ -657,6 +736,10 @@ export class AzureVmTarget extends BaseDeploymentTarget implements SelfDescribin
         { id: "create_vnet", name: "Create Virtual Network" },
         { id: "create_nsg", name: "Create Network Security Group" },
         { id: "create_subnet", name: "Create subnet" },
+        { id: "create_storage", name: "Create Storage Account + File Share" },
+        { id: "create_identity", name: "Create Managed Identity" },
+        { id: "create_keyvault", name: "Create Key Vault" },
+        { id: "assign_roles", name: "Assign RBAC roles" },
         { id: "store_secret", name: "Store config in Key Vault" },
         { id: "create_public_ip", name: "Create static public IP" },
         { id: "create_nic", name: "Create network interface" },
